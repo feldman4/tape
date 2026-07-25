@@ -6,10 +6,16 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { AudioEngine } from '../audio/audioEngine';
 import { AudioPool } from '../audio/audioPool';
 import { measureLatency, type LatencyResult } from '../audio/latencyTest';
+import { measureNoteLatency, type NoteLatencyResult } from '../audio/onsetDetect';
 import { SyncEngine, type SyncEvent } from '../sync/syncEngine';
 import type { Clip } from '../tape/model';
 import { finalizeFreeRecording, finalizeSyncRecording } from '../tape/recording';
 import { drawPlayhead, drawWaveform } from './renderers/TimelineRenderer';
+
+// The note sent to the OP-Z's percussion track (channel 1) for note-trigger
+// tests. Channel is 0-based in MIDI wire format, so 0 = MIDI channel 1.
+const OPZ_PERCUSSION_CHANNEL = 0;
+const OPZ_TEST_NOTE = 60;
 
 type Mode = 'free' | 'sync';
 type TransportState = 'idle' | 'armed' | 'recording' | 'playing';
@@ -35,12 +41,15 @@ export function TapePage() {
   const [syncBeatPosition, setSyncBeatPosition] = useState(0);
 
   const [latency, setLatency] = useState<LatencyResult | null>(null);
+  const [noteLatency, setNoteLatency] = useState<NoteLatencyResult | null>(null);
   const [lastClipBeats, setLastClipBeats] = useState<number | null>(null);
 
   const [audioDevices, setAudioDevices] = useState<MediaDeviceInfo[]>([]);
   const [selectedAudioDeviceId, setSelectedAudioDeviceId] = useState<string | null>(null);
   const [midiInputs, setMidiInputs] = useState<{ id: string; name: string | null }[]>([]);
   const [selectedMidiInputId, setSelectedMidiInputId] = useState<string | 'all'>('all');
+  const [midiOutputs, setMidiOutputs] = useState<{ id: string; name: string | null }[]>([]);
+  const [selectedMidiOutputId, setSelectedMidiOutputId] = useState<string | null>(null);
 
   const playheadFrameRef = useRef(0);
   const playbackStartFrameRef = useRef(0);
@@ -76,6 +85,14 @@ export function TapePage() {
       if (defaultInput) {
         syncEngine.setInputDevice(defaultInput.id);
         setSelectedMidiInputId(defaultInput.id);
+      }
+
+      const outputs = syncEngine.listOutputs();
+      setMidiOutputs(outputs);
+      const defaultOutput = preferOpZ(outputs, (o) => o.name);
+      if (defaultOutput) {
+        syncEngine.setOutputDevice(defaultOutput.id);
+        setSelectedMidiOutputId(defaultOutput.id);
       }
 
       syncEngine.on((event: SyncEvent) => {
@@ -197,6 +214,37 @@ export function TapePage() {
     setLatency(measureLatency(recording.samples, recording.startFrame, clickAtFrame, engine.sampleRate));
   }, []);
 
+  /** Note-to-sound latency test: sends a MIDI note to the OP-Z's percussion track and
+   *  measures when the resulting audio hit appears in the recording (see onsetDetect.ts). */
+  const handleOpZLatencyTest = useCallback(async () => {
+    const engine = engineRef.current;
+    const syncEngine = syncEngineRef.current;
+    if (!engine || !syncEngine) return;
+    engine.startRecording();
+    const sentFrame = engine.frameForTimeFromNow(0);
+    syncEngine.sendNoteOn(OPZ_TEST_NOTE, 100, OPZ_PERCUSSION_CHANNEL);
+    await new Promise((resolve) => setTimeout(resolve, 150));
+    syncEngine.sendNoteOff(OPZ_TEST_NOTE, OPZ_PERCUSSION_CHANNEL);
+    await new Promise((resolve) => setTimeout(resolve, 550));
+    const recording = await engine.stopRecording();
+    setNoteLatency(measureNoteLatency(recording.samples, recording.startFrame, sentFrame, engine.sampleRate));
+  }, []);
+
+  const handleSendTestNote = useCallback(() => {
+    const syncEngine = syncEngineRef.current;
+    if (!syncEngine) return;
+    syncEngine.sendNoteOn(OPZ_TEST_NOTE, 100, OPZ_PERCUSSION_CHANNEL);
+    setTimeout(() => syncEngine.sendNoteOff(OPZ_TEST_NOTE, OPZ_PERCUSSION_CHANNEL), 150);
+  }, []);
+
+  const handleSendPlay = useCallback(() => {
+    syncEngineRef.current?.sendStart();
+  }, []);
+
+  const handleSendMidiStop = useCallback(() => {
+    syncEngineRef.current?.sendStop();
+  }, []);
+
   const handleAudioDeviceChange = useCallback(async (deviceId: string) => {
     const engine = engineRef.current;
     if (!engine) return;
@@ -211,7 +259,57 @@ export function TapePage() {
     setSelectedMidiInputId(id);
   }, []);
 
+  const handleMidiOutputChange = useCallback((id: string) => {
+    const syncEngine = syncEngineRef.current;
+    if (!syncEngine) return;
+    syncEngine.setOutputDevice(id);
+    setSelectedMidiOutputId(id);
+  }, []);
+
   const sampleRate = engineRef.current?.sampleRate ?? 44100;
+
+  // Exposes structured state on `window` for the headless/browser-automation hardware
+  // test script (scripts/hardware-test.mjs) to read, instead of parsing rendered DOM text.
+  useEffect(() => {
+    (window as unknown as { __tapeTest?: unknown }).__tapeTest = {
+      getState: () => ({
+        ready,
+        error,
+        mode,
+        transport,
+        clip: clip ? { duration: clip.duration, seconds: clip.duration / sampleRate } : null,
+        lastClipBeats,
+        latency: latency ? { latencyMs: latency.latencyMs, confidence: latency.confidence } : null,
+        noteLatency: noteLatency ? { latencyMs: noteLatency.latencyMs, index: noteLatency.index } : null,
+        sync: { running: syncRunning, bpm: syncBpm, beatPosition: syncBeatPosition },
+        selectedAudioDeviceId,
+        selectedMidiInputId,
+        selectedMidiOutputId,
+        audioDevices: audioDevices.map((d) => ({ id: d.deviceId, label: d.label })),
+        midiInputs,
+        midiOutputs,
+      }),
+    };
+  }, [
+    ready,
+    error,
+    mode,
+    transport,
+    clip,
+    lastClipBeats,
+    latency,
+    noteLatency,
+    syncRunning,
+    syncBpm,
+    syncBeatPosition,
+    selectedAudioDeviceId,
+    selectedMidiInputId,
+    selectedMidiOutputId,
+    sampleRate,
+    audioDevices,
+    midiInputs,
+    midiOutputs,
+  ]);
 
   return (
     <div style={{ fontFamily: 'sans-serif', color: '#e4e4e7', background: '#09090b', minHeight: '100vh', padding: 24 }}>
@@ -252,6 +350,23 @@ export function TapePage() {
                 ))}
               </select>
             </label>
+            <label style={{ marginLeft: 16 }}>
+              MIDI output:{' '}
+              <select
+                value={selectedMidiOutputId ?? ''}
+                onChange={(e) => handleMidiOutputChange(e.target.value)}
+                disabled={transport !== 'idle'}
+              >
+                <option value="" disabled>
+                  None
+                </option>
+                {midiOutputs.map((o) => (
+                  <option key={o.id} value={o.id}>
+                    {o.name || o.id}
+                  </option>
+                ))}
+              </select>
+            </label>
           </div>
 
           <div style={{ marginBottom: 12 }}>
@@ -280,6 +395,21 @@ export function TapePage() {
             </button>
           </div>
 
+          <div style={{ marginBottom: 12 }}>
+            <button onClick={handleSendTestNote} disabled={!selectedMidiOutputId}>
+              Send Test Note (OP-Z ch1)
+            </button>
+            <button onClick={handleOpZLatencyTest} disabled={transport !== 'idle' || !selectedMidiOutputId} style={{ marginLeft: 8 }}>
+              Run OP-Z Latency Test
+            </button>
+            <button onClick={handleSendPlay} disabled={!selectedMidiOutputId} style={{ marginLeft: 8 }}>
+              Send Play (MIDI Start)
+            </button>
+            <button onClick={handleSendMidiStop} disabled={!selectedMidiOutputId} style={{ marginLeft: 8 }}>
+              Send MIDI Stop
+            </button>
+          </div>
+
           <canvas ref={canvasRef} width={CANVAS_WIDTH} height={CANVAS_HEIGHT} style={{ border: '1px solid #3f3f46' }} />
 
           <div style={{ marginTop: 12, fontSize: 14, lineHeight: 1.6 }}>
@@ -302,6 +432,18 @@ export function TapePage() {
               <div>
                 Last clip: {clip.duration} samples ({(clip.duration / sampleRate).toFixed(3)}s)
                 {lastClipBeats !== null && ` — recorded over ${lastClipBeats.toFixed(3)} beats`}
+              </div>
+            )}
+            {noteLatency && (
+              <div>
+                OP-Z note-to-sound latency:{' '}
+                {noteLatency.latencyMs !== null ? `${noteLatency.latencyMs.toFixed(1)} ms` : 'not detected'}
+                {noteLatency.latencyMs === null && (
+                  <span style={{ color: '#f59e0b' }}>
+                    {' '}— no onset found above the noise floor. Check the OP-Z is on, channel 1 has a percussion sound
+                    assigned, and audio is being routed back over USB.
+                  </span>
+                )}
               </div>
             )}
           </div>

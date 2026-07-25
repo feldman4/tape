@@ -12,6 +12,10 @@ dist
 dist-ssr
 *.local
 
+# Persistent Chrome profile used by scripts/hardware-test*.mjs (holds granted
+# mic/MIDI permissions for the OP-Z hardware test - see docs/testing_proposal.md).
+.playwright-profile/
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json

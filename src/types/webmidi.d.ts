@@ -12,8 +12,15 @@ interface MIDIInput extends EventTarget {
   onmidimessage: ((event: MIDIMessageEvent) => void) | null;
 }
 
+interface MIDIOutput extends EventTarget {
+  readonly id: string;
+  readonly name: string | null;
+  send(data: number[] | Uint8Array, timestamp?: number): void;
+}
+
 interface MIDIAccess {
   readonly inputs: ReadonlyMap<string, MIDIInput>;
+  readonly outputs: ReadonlyMap<string, MIDIOutput>;
 }
 
 interface Navigator {

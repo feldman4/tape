@@ -10,6 +10,8 @@
 const CLOCK_PULSES_PER_QUARTER_NOTE = 24;
 const TEMPO_SMOOTHING_WINDOW = 24; // ~1 beat of clock pulses
 
+const STATUS_NOTE_OFF = 0x80;
+const STATUS_NOTE_ON = 0x90;
 const STATUS_CLOCK = 0xf8;
 const STATUS_START = 0xfa;
 const STATUS_CONTINUE = 0xfb;
@@ -24,6 +26,7 @@ export class SyncEngine {
   private audioContext: AudioContext;
   private midiAccess: MIDIAccess | null = null;
   private selectedInputId: string | 'all' | null = null;
+  private selectedOutputId: string | null = null;
   private running = false;
   private clockCount = 0; // pulses since the last Start, 24 per quarter note
   private lastClockPerfTime: number | null = null;
@@ -61,6 +64,45 @@ export class SyncEngine {
   on(listener: (event: SyncEvent) => void): () => void {
     this.listeners.add(listener);
     return () => this.listeners.delete(listener);
+  }
+
+  /** Lists available MIDI output devices (e.g. the OP-Z's USB MIDI port). */
+  listOutputs(): { id: string; name: string | null }[] {
+    if (!this.midiAccess) return [];
+    return Array.from(this.midiAccess.outputs.values()).map((output) => ({ id: output.id, name: output.name }));
+  }
+
+  get selectedOutput(): string | null {
+    return this.selectedOutputId;
+  }
+
+  /** Selects which MIDI output to send to. */
+  setOutputDevice(id: string | null): void {
+    this.selectedOutputId = id;
+  }
+
+  private getOutput(): MIDIOutput | null {
+    if (!this.midiAccess || !this.selectedOutputId) return null;
+    return this.midiAccess.outputs.get(this.selectedOutputId) ?? null;
+  }
+
+  /** Sends a Note On. `channel` is 0-based (0 = MIDI channel 1, the OP-Z's percussion track). */
+  sendNoteOn(note: number, velocity = 100, channel = 0): void {
+    this.getOutput()?.send([STATUS_NOTE_ON | (channel & 0x0f), note & 0x7f, velocity & 0x7f]);
+  }
+
+  sendNoteOff(note: number, channel = 0): void {
+    this.getOutput()?.send([STATUS_NOTE_OFF | (channel & 0x0f), note & 0x7f, 0]);
+  }
+
+  /** Sends MIDI Start, telling an external sequencer (e.g. the OP-Z) to begin playback and emit Clock. */
+  sendStart(): void {
+    this.getOutput()?.send([STATUS_START]);
+  }
+
+  /** Sends MIDI Stop. */
+  sendStop(): void {
+    this.getOutput()?.send([STATUS_STOP]);
   }
 
   get bpm(): number {

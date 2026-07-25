@@ -25,6 +25,25 @@ Implications versus a pure software reference:
 * Jitter is whatever the OP-Z's real clock jitter is (not programmable) — this is a feature, not a limitation, since it's the same jitter the app will see with any real hardware sequencer.
 * Every measurement includes the OP-Z's own internal note-to-sound latency in addition to USB audio/MIDI transport latency. This is acceptable (and arguably more representative) because the real product use case always goes through an external instrument.
 
+## Running the OP-Z hardware tests unattended
+
+Both drive mechanisms above are implemented (`SyncEngine.sendNoteOn`/`sendNoteOff`/`sendStart`/`sendStop` in [src/sync/syncEngine.ts](../src/sync/syncEngine.ts)), along with an onset detector for measuring note-to-sound latency without a known waveform template ([src/audio/onsetDetect.ts](../src/audio/onsetDetect.ts), since a percussion hit's shape isn't known in advance the way the internal loopback click is). The Tape page exposes matching controls (Send Test Note, Run OP-Z Latency Test, Send Play/Stop) and a `window.__tapeTest.getState()` hook with structured results for scripted assertions.
+
+Given the OP-Z is powered on and connected via USB, the whole Interface + End-to-end flow runs unattended via Playwright, once:
+
+1. **One-time setup** — grants the mic + MIDI permission prompts into a persistent Chrome profile (Chrome remembers per-origin grants in the profile directory, so this only needs to run once per machine):
+   ```sh
+   npm run dev                    # in one terminal
+   npm run test:hardware:setup    # in another; click "Enable Audio + MIDI", accept both prompts, then Ctrl+C
+   ```
+2. **Unattended runs** thereafter, reusing that profile:
+   ```sh
+   npm run test:hardware
+   ```
+   This ([scripts/hardware-test.mjs](../scripts/hardware-test.mjs)) confirms the OP-Z is the selected audio + MIDI device, measures note-to-sound latency, runs a Free-mode take, and runs a Sync-mode take driven entirely by the OP-Z's own MIDI Start/Clock — printing a pass/fail report with no human interaction.
+
+Remaining manual preconditions: the OP-Z's channel-1 percussion track needs an audible voice assigned, and its project tempo/pattern are set on the device itself (not remote-controlled by these scripts).
+
 ## Offline Analysis
 
 Tests should analyze exported audio rather than relying on human audition.
