@@ -83,6 +83,8 @@ export function TapePage() {
   const [error, setError] = useState<string | null>(null);
   const [audioDevices, setAudioDevices] = useState<MediaDeviceInfo[]>([]);
   const [selectedAudioDeviceId, setSelectedAudioDeviceId] = useState<string | null>(null);
+  const [audioOutputDevices, setAudioOutputDevices] = useState<MediaDeviceInfo[]>([]);
+  const [selectedAudioOutputId, setSelectedAudioOutputId] = useState<string>('');
   const [midiInputs, setMidiInputs] = useState<{ id: string; name: string | null }[]>([]);
   const [selectedMidiInputId, setSelectedMidiInputId] = useState<string | 'all'>('all');
   const [midiOutputs, setMidiOutputs] = useState<{ id: string; name: string | null }[]>([]);
@@ -116,9 +118,19 @@ export function TapePage() {
   const [latency, setLatency] = useState<LatencyResult | null>(null);
   const [noteLatency, setNoteLatency] = useState<NoteLatencyResult | null>(null);
 
+  // Output latency compensation for Free mode (ms). Clips are shifted back by
+  // this amount to account for the time between the worklet generating audio
+  // and the user hearing it through speakers.
+  const [outputLatencyMs, setOutputLatencyMs] = useState(20);
+  const outputLatencyMsRef = useRef(20);
+  outputLatencyMsRef.current = outputLatencyMs;
+
   // Refs for real-time values (avoid stale closures in rAF loop)
   const tapeRef = useRef<Tape>(tape);
   tapeRef.current = tape;
+  // transportRef mirrors transport state synchronously so that async callbacks
+  // (MIDI event handlers, worklet onPlayhead) always read the current value
+  // without waiting for a React re-render.
   const transportRef = useRef<TransportState>(transport);
   transportRef.current = transport;
   const poolDisplayRef = useRef<AudioPool>(poolRef.current);
@@ -181,6 +193,10 @@ export function TapePage() {
       }
       setSelectedAudioDeviceId(defaultDevice?.deviceId ?? engine.inputDeviceId ?? null);
 
+      const outputDevices = await engine.listOutputDevices();
+      setAudioOutputDevices(outputDevices);
+      setSelectedAudioOutputId(engine.outputDeviceId);
+
       const syncEngine = new SyncEngine(engine.audioContext);
       await syncEngine.init();
       syncEngineRef.current = syncEngine;
@@ -218,6 +234,11 @@ export function TapePage() {
             engine.loadTape(armTape.lanes.flatMap((l) => l.clips), poolRef.current);
             engine.play(armTape.playhead, { loopIn: armTape.loopIn, loopOut: armTape.loopOut, loopEnabled: armTape.loopEnabled });
             engine.startRecording();
+            // Update ref synchronously — setTransport schedules a React re-render
+            // asynchronously, so transportRef.current would still read 'armed' if
+            // handleStop is called before the next render (e.g. user clicks Stop
+            // immediately after OP-Z triggers recording).
+            transportRef.current = 'recording';
             setTransport('recording');
           }
         } else if (event.type === 'stop') {
@@ -245,11 +266,9 @@ export function TapePage() {
         } else if (!playing && wasPlayingWorklet) {
           addLogFnRef.current(`⏹ worklet: stopped  tape=${(tapePosition / engineSr).toFixed(3)}s  transportRef=${transportRef.current}`);
           // Natural end of clip (or stop-playback confirmed by worklet).
-          // IMPORTANT: only reset transport here if wasPlayingWorklet was true —
-          // i.e., the worklet had previously confirmed playing=true. This prevents
-          // stale playing=false idle-loop messages (sent before the worklet processes
-          // a 'play' command) from knocking transport back to 'idle' immediately after
-          // handlePlay sets it to 'playing'.
+          // Only reset transport if it is currently 'playing' — during 'recording'
+          // the worklet plays back other lanes but recording continues independently;
+          // do NOT auto-stop the transport when that playback ends naturally.
           if (transportRef.current === 'playing') {
             setTransport('idle');
           }
@@ -265,6 +284,19 @@ export function TapePage() {
 
       const names = await listSessions();
       setSessions(names);
+
+      // Auto-load "init" session if it exists.
+      if (names.includes('init')) {
+        const result = await loadSession('init');
+        if (result) {
+          poolRef.current = result.pool;
+          setTape(result.tape);
+          tapeRef.current = result.tape;
+          poolDisplayRef.current = result.pool;
+          engineRef.current?.loadTape(result.tape.lanes.flatMap((l) => l.clips), result.pool);
+          setSessionName('init');
+        }
+      }
 
       setReady(true);
     } catch (err) {
@@ -401,103 +433,158 @@ export function TapePage() {
   // ---------------------------------------------------------------------------
   // Transport
   // ---------------------------------------------------------------------------
-  const handleRecord = useCallback(() => {
+
+  /**
+   * Finalize the current recording take: stop capturing, process samples, and
+   * add the resulting clip to the active lane via applyEdit.
+   * Does NOT stop playback or change transport state — caller handles that.
+   */
+  const finalizeRecordingTake = useCallback(async (engine: AudioEngine): Promise<void> => {
+    const recording = await engine.stopRecording();
+    const tapeStart = tapeStartForRecordingRef.current;
+    const sr = engine.sampleRate;
+    let newClip: Clip;
+
+    if (mode === 'free') {
+      const currentTape = tapeRef.current;
+      const loopLen = currentTape.loopOut - currentTape.loopIn;
+      const isLoopRec = currentTape.loopEnabled && loopLen > 0;
+      const outputLatencySamples = Math.round(outputLatencyMsRef.current * sr / 1000);
+      const adjustedTapeStart = Math.max(0, tapeStart - outputLatencySamples);
+      if (isLoopRec) {
+        newClip = finalizeLoopRecording(poolRef.current, recording.samples, adjustedTapeStart, currentTape.loopIn, currentTape.loopOut);
+        const passes = (recording.samples.length - Math.max(0, currentTape.loopIn - adjustedTapeStart)) / loopLen;
+        addLog(`✓ Take (loop-overdub): ${(recording.samples.length / sr).toFixed(3)}s raw, ${passes.toFixed(2)}x passes  latency-adj=${outputLatencyMsRef.current.toFixed(1)}ms  [${(newClip.tapeStart / sr).toFixed(2)}s–${((newClip.tapeStart + newClip.duration) / sr).toFixed(2)}s]`);
+      } else {
+        newClip = finalizeFreeRecording(poolRef.current, recording.samples, adjustedTapeStart);
+        addLog(`✓ Take (free): ${(recording.samples.length / sr).toFixed(3)}s  latency-adj=${outputLatencyMsRef.current.toFixed(1)}ms  [${(newClip.tapeStart / sr).toFixed(2)}s–${((newClip.tapeStart + newClip.duration) / sr).toFixed(2)}s]`);
+      }
+      setLastClipBeats(null);
+    } else {
+      const currentTape = tapeRef.current;
+      const loopLen = currentTape.loopOut - currentTape.loopIn;
+      const isLoopRec = currentTape.loopEnabled && loopLen > 0;
+      if (isLoopRec) {
+        newClip = finalizeLoopRecording(poolRef.current, recording.samples, tapeStart, currentTape.loopIn, currentTape.loopOut);
+        const passes = (recording.samples.length - Math.max(0, currentTape.loopIn - tapeStart)) / loopLen;
+        addLog(`✓ Take (sync+loop): ${(recording.samples.length / sr).toFixed(3)}s raw, ${passes.toFixed(2)}x passes  [${(newClip.tapeStart / sr).toFixed(2)}s–${((newClip.tapeStart + newClip.duration) / sr).toFixed(2)}s]`);
+        setLastClipBeats(null);
+      } else {
+        const syncEngine = syncEngineRef.current;
+        const samplesPerBeat = syncEngine?.samplesPerBeat() ?? sr;
+        const beatsElapsed = Math.round(recording.samples.length / samplesPerBeat);
+        newClip = finalizeSyncRecording(poolRef.current, recording.samples, tapeStart, beatsElapsed, samplesPerBeat);
+        const rawSamples = recording.samples.length;
+        const targetSamples = Math.max(0, Math.round(beatsElapsed * samplesPerBeat));
+        const corrSamples = targetSamples - rawSamples;
+        addLog(`✓ Take (sync): raw=${(rawSamples / sr).toFixed(3)}s  target=${(targetSamples / sr).toFixed(3)}s  correction=${(corrSamples / sr * 1000).toFixed(1)}ms  beats=${beatsElapsed}  [${(newClip.tapeStart / sr).toFixed(2)}s–${((newClip.tapeStart + newClip.duration) / sr).toFixed(2)}s]`);
+        setLastClipBeats(beatsElapsed);
+      }
+    }
+
+    poolDisplayRef.current = poolRef.current;
+    const newClips = [...tapeRef.current.lanes[tapeRef.current.activeLane].clips, newClip];
+    applyEdit(tapeRef.current, newClips);
+  }, [mode, applyEdit, addLog]);
+
+  const handleRecord = useCallback(async () => {
     const engine = engineRef.current;
     if (!engine) return;
-    addLog(`⏺ Record clicked  mode=${mode}  transportRef=${transportRef.current}`);
-    if (mode === 'free') {
-      // Recording always starts at the current playhead (may be before loopIn).
+    const currentTransport = transportRef.current;
+    addLog(`⏺ Record  transport=${currentTransport}  mode=${mode}`);
+
+    if (currentTransport === 'recording') {
+      // Toggle recording OFF — finalize clip, keep playback running.
+      await finalizeRecordingTake(engine);
+      transportRef.current = 'playing';
+      setTransport('playing');
+      return;
+    }
+
+    if (currentTransport === 'playing') {
+      // Toggle recording ON during active playback — no new play() needed.
       const currentTape = tapeRef.current;
       tapeStartForRecordingRef.current = currentTape.playhead;
       recordStartWallTimeRef.current = Date.now();
-      // Load all existing clips so other lanes play back while recording.
+      engine.startRecording();
+      transportRef.current = 'recording';
+      setTransport('recording');
+      addLog(`⏺ Recording started at ${(currentTape.playhead / engine.sampleRate).toFixed(3)}s`);
+      return;
+    }
+
+    if (currentTransport === 'armed') {
+      // Second press cancels arm.
+      armedForSyncRef.current = false;
+      transportRef.current = 'idle';
+      setTransport('idle');
+      addLog('→ arm cancelled');
+      return;
+    }
+
+    // idle → start from scratch
+    if (mode === 'free') {
+      const currentTape = tapeRef.current;
+      tapeStartForRecordingRef.current = currentTape.playhead;
+      recordStartWallTimeRef.current = Date.now();
       engine.loadTape(currentTape.lanes.flatMap((l) => l.clips), poolRef.current);
       engine.play(currentTape.playhead, { loopIn: currentTape.loopIn, loopOut: currentTape.loopOut, loopEnabled: currentTape.loopEnabled });
       engine.startRecording();
+      transportRef.current = 'recording';
       setTransport('recording');
     } else {
       armedForSyncRef.current = true;
       setTransport('armed');
     }
-  }, [mode, addLog]);
+  }, [mode, addLog, finalizeRecordingTake]);
 
   const handleStop = useCallback(async () => {
     const engine = engineRef.current;
     if (!engine) return;
     const currentTransport = transportRef.current;
-    addLog(`⏹ Stop clicked  transportRef=${currentTransport}`);
+    addLog(`⏹ Stop  transport=${currentTransport}`);
 
+    if (currentTransport === 'idle') {
+      // Rewind to tape start, or loop in if loop is active
+      const currentTape = tapeRef.current;
+      const rewindPos = currentTape.loopEnabled ? currentTape.loopIn : 0;
+      setTape((prev) => { const t = { ...prev, playhead: rewindPos }; tapeRef.current = t; return t; });
+      addLog(`⏮ Rewind to ${(rewindPos / engine.sampleRate).toFixed(3)}s`);
+      return;
+    }
     if (currentTransport === 'playing') {
-      addLog('→ engine.stopPlayback()');
       engine.stopPlayback();
       setTransport('idle');
+      addLog('⏸ Pause');
       return;
     }
     if (currentTransport === 'armed') {
-      addLog('→ arm cancelled');
       armedForSyncRef.current = false;
       setTransport('idle');
       return;
     }
     if (currentTransport === 'recording') {
       engine.stopPlayback();
-      const recording = await engine.stopRecording();
-      const tapeStart = tapeStartForRecordingRef.current;
-      const sr = engine.sampleRate;
-      let newClip: Clip;
-      if (mode === 'free') {
-        const currentTape = tapeRef.current;
-        const loopLen = currentTape.loopOut - currentTape.loopIn;
-        const isLoopRec = currentTape.loopEnabled && loopLen > 0;
-        if (isLoopRec) {
-          newClip = finalizeLoopRecording(poolRef.current, recording.samples, tapeStart, currentTape.loopIn, currentTape.loopOut);
-          const passes = (recording.samples.length - Math.max(0, currentTape.loopIn - tapeStart)) / loopLen;
-          addLog(`✓ Take (loop-overdub): ${(recording.samples.length / sr).toFixed(3)}s raw, ${passes.toFixed(2)}x passes, clip=${((currentTape.loopOut - Math.min(tapeStart, currentTape.loopIn)) / sr).toFixed(3)}s  [${(newClip.tapeStart / sr).toFixed(2)}s–${((newClip.tapeStart + newClip.duration) / sr).toFixed(2)}s]`);
-        } else {
-          newClip = finalizeFreeRecording(poolRef.current, recording.samples, tapeStart);
-          addLog(`✓ Take (free): ${(recording.samples.length / sr).toFixed(3)}s  (${recording.samples.length} samples)  [${(newClip.tapeStart / sr).toFixed(2)}s–${((newClip.tapeStart + newClip.duration) / sr).toFixed(2)}s]`);
-        }
-        setLastClipBeats(null);
-      } else {
-        const currentTape = tapeRef.current;
-        const loopLen = currentTape.loopOut - currentTape.loopIn;
-        const isLoopRec = currentTape.loopEnabled && loopLen > 0;
-        if (isLoopRec) {
-          // Loop fold takes priority over beat-correction: the clip length is the
-          // loop length, so sync stretch is irrelevant.
-          newClip = finalizeLoopRecording(poolRef.current, recording.samples, tapeStart, currentTape.loopIn, currentTape.loopOut);
-          const passes = (recording.samples.length - Math.max(0, currentTape.loopIn - tapeStart)) / loopLen;
-          addLog(`✓ Take (sync+loop): ${(recording.samples.length / sr).toFixed(3)}s raw, ${passes.toFixed(2)}x passes, clip=${((currentTape.loopOut - Math.min(tapeStart, currentTape.loopIn)) / sr).toFixed(3)}s  [${(newClip.tapeStart / sr).toFixed(2)}s–${((newClip.tapeStart + newClip.duration) / sr).toFixed(2)}s]`);
-          setLastClipBeats(null);
-        } else {
-          const syncEngine = syncEngineRef.current;
-          const samplesPerBeat = syncEngine?.samplesPerBeat() ?? sr;
-          // Derive beat count from audio length rather than syncEngine.beatPosition,
-          // which resets to 0 on every MIDI Start.  If the OP-Z loops (sending
-          // Stop+Start) mid-take, beatPosition would be far too small and produce
-          // a large negative correction.  Rounding raw_samples/samplesPerBeat to
-          // the nearest integer always gives a correction of < half a beat.
-          const beatsElapsed = Math.round(recording.samples.length / samplesPerBeat);
-          newClip = finalizeSyncRecording(poolRef.current, recording.samples, tapeStart, beatsElapsed, samplesPerBeat);
-          const rawSamples = recording.samples.length;
-          const targetSamples = Math.max(0, Math.round(beatsElapsed * samplesPerBeat));
-          const corrSamples = targetSamples - rawSamples;
-          addLog(`✓ Take (sync): raw=${(rawSamples / sr).toFixed(3)}s  target=${(targetSamples / sr).toFixed(3)}s  correction=${(corrSamples / sr * 1000).toFixed(1)}ms (${rawSamples > 0 ? (corrSamples / rawSamples * 100).toFixed(1) : '—'}%)  beats=${beatsElapsed.toFixed(3)}  [${(newClip.tapeStart / sr).toFixed(2)}s–${((newClip.tapeStart + newClip.duration) / sr).toFixed(2)}s]`);
-          setLastClipBeats(beatsElapsed);
-        }
-      }
-      poolDisplayRef.current = poolRef.current;
-      const newClips = [...tapeRef.current.lanes[tapeRef.current.activeLane].clips, newClip];
-      applyEdit(tapeRef.current, newClips);
+      await finalizeRecordingTake(engine);
       setTransport('idle');
     }
-  }, [mode, applyEdit, addLog]);
+  }, [applyEdit, addLog, finalizeRecordingTake]);
 
   const handlePlay = useCallback(() => {
     const engine = engineRef.current;
     if (!engine) return;
+    const currentTransport = transportRef.current;
+
+    if (currentTransport === 'playing') {
+      // Pause — stop engine, keep playhead position
+      engine.stopPlayback();
+      setTransport('idle');
+      addLog('⏸ Pause');
+      return;
+    }
+
     const currentTape = tapeRef.current;
-    addLog(`▶ Play clicked  transportRef=${transportRef.current}  clips=${currentTape.lanes[currentTape.activeLane].clips.length}  playhead=${(currentTape.playhead / engine.sampleRate).toFixed(3)}s`);
+    addLog(`▶ Play  playhead=${(currentTape.playhead / engine.sampleRate).toFixed(3)}s`);
     engine.loadTape(currentTape.lanes.flatMap((l) => l.clips), poolRef.current);
     engine.play(currentTape.playhead, {
       loopIn: currentTape.loopIn,
@@ -505,16 +592,7 @@ export function TapePage() {
       loopEnabled: currentTape.loopEnabled,
     });
     setTransport('playing');
-    addLog(`→ engine.play() called  transportRef now set to playing (pending render)`);
   }, [addLog]);
-
-  const handleRewind = useCallback(() => {
-    setTape((prev) => {
-      const t = { ...prev, playhead: 0 };
-      tapeRef.current = t;
-      return t;
-    });
-  }, []);
 
   // ---------------------------------------------------------------------------
   // Seek + drag (canvas interaction)
@@ -822,6 +900,11 @@ export function TapePage() {
     setSelectedAudioDeviceId(deviceId);
   }, []);
 
+  const handleAudioOutputChange = useCallback(async (sinkId: string) => {
+    await engineRef.current?.setOutputDevice(sinkId);
+    setSelectedAudioOutputId(sinkId);
+  }, []);
+
   const handleMidiInputChange = useCallback((id: string) => {
     syncEngineRef.current?.setInputDevice(id);
     ctrlModeRef.current?.setInputDevice(id);
@@ -848,9 +931,13 @@ export function TapePage() {
       case 'loopIn':     handleSetLoopIn(); break;
       case 'loopOut':    handleSetLoopOut(); break;
       case 'loopToggle': event.shift ? handleLoopFromClip() : handleToggleLoop(); break;
+      case 'selectLane': {
+        const lane = event.lane;
+        setTape((prev) => { const t = { ...prev, activeLane: lane }; tapeRef.current = t; return t; });
+        addLog(`◈ Lane ${lane + 1} selected`);
+        break;
+      }
       case 'encoderDelta': {
-        // Don't move the playhead or loop points while recording/armed.
-        if (transportRef.current === 'recording' || transportRef.current === 'armed') break;
         const { index, delta, shift } = event;
         const currentTape = tapeRef.current;
         const sr2 = engineRef.current?.sampleRate ?? 44100;
@@ -859,6 +946,8 @@ export function TapePage() {
 
         if (index === 1 && !shift) {
           // Blue encoder, no shift: scrub playhead.
+          // Blocked during recording/armed — playhead is managed by the engine.
+          if (transportRef.current === 'recording' || transportRef.current === 'armed') break;
           // Sync mode: snap current position to nearest beat first, then step by delta beats.
           // Free mode: 1 delta tick = 1 pixel of current zoom.
           const newPlayhead = mode === 'sync'
@@ -867,6 +956,7 @@ export function TapePage() {
           setTape((prev) => { const t = { ...prev, playhead: newPlayhead }; tapeRef.current = t; return t; });
         } else if (index === 0) {
           // Green encoder: adjust loop out (no shift) or loop in (shift).
+          // Allowed in all transport states including armed/recording.
           // In sync mode, snap the current value to nearest beat first so delta steps land on grid.
           const cur = shift ? currentTape.loopIn : currentTape.loopOut;
           const newVal = mode === 'sync'
@@ -1027,6 +1117,12 @@ export function TapePage() {
                     {audioDevices.map((d) => <option key={d.deviceId} value={d.deviceId}>{d.label || d.deviceId}</option>)}
                   </select>
                 </label>
+                <label>Audio out:
+                  <select value={selectedAudioOutputId} onChange={(e) => void handleAudioOutputChange(e.target.value)} style={{ marginLeft: 6 }}>
+                    <option value="">System default</option>
+                    {audioOutputDevices.map((d) => <option key={d.deviceId} value={d.deviceId}>{d.label || d.deviceId}</option>)}
+                  </select>
+                </label>
                 <label>MIDI in:
                   <select value={selectedMidiInputId} onChange={(e) => handleMidiInputChange(e.target.value)} disabled={!canEdit} style={{ marginLeft: 6 }}>
                     <option value="all">All inputs</option>
@@ -1040,17 +1136,20 @@ export function TapePage() {
                   </select>
                 </label>
               </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
-                <span style={{ fontSize: 13, color: '#a1a1aa' }}>Activity log ({activityLogRef.current.length})</span>
-                <button style={{ ...btnStyle, fontSize: 11 }} onClick={() => { activityLogRef.current = []; forceLogUpdate((v) => v + 1); }}>Clear</button>
-              </div>
-              <div style={{ fontFamily: 'monospace', fontSize: 12, color: '#a1a1aa', background: '#18181b', borderRadius: 4, padding: '8px 12px', maxHeight: 360, overflowY: 'auto' }}>
-                {activityLogRef.current.length === 0
-                  ? <span style={{ color: '#52525b' }}>No events yet.</span>
-                  : activityLogRef.current.slice().reverse().map((entry, i) => (
-                      <div key={i} style={{ whiteSpace: 'pre', lineHeight: '1.6' }}>{entry}</div>
-                    ))
-                }
+              <div style={{ display: 'flex', gap: 16, alignItems: 'center', marginBottom: 12, flexWrap: 'wrap' }}>
+                <label style={{ fontSize: 13, color: '#a1a1aa', display: 'flex', gap: 6, alignItems: 'center' }}>
+                  Output latency
+                  <input
+                    type="number"
+                    min={0}
+                    max={500}
+                    step={1}
+                    value={outputLatencyMs}
+                    onChange={(e) => setOutputLatencyMs(Math.max(0, Number(e.target.value)))}
+                    style={{ width: 72, padding: '2px 6px', background: '#27272a', border: '1px solid #3f3f46', color: '#e4e4e7', borderRadius: 4, fontSize: 13 }}
+                  />
+                  <span style={{ color: '#52525b' }}>ms — shifts Free mode clips back to compensate for speaker delay</span>
+                </label>
               </div>
             </>
           )}
@@ -1094,10 +1193,11 @@ export function TapePage() {
 
               {/* Transport */}
               <div style={{ marginBottom: 8, display: 'flex', gap: 6 }}>
-                <button style={btnStyle} onClick={handleRecord} disabled={!canEdit}>{mode === 'sync' ? '⏺ Arm' : '⏺ Record'}</button>
-                <button style={btnStyle} onClick={handleStop} disabled={transport === 'idle'}>⏹ Stop</button>
-                <button style={btnStyle} onClick={handlePlay} disabled={transport !== 'idle' || !hasClips}>▶ Play</button>
-                <button style={btnStyle} onClick={handleRewind} disabled={!canEdit}>⏮ Rewind</button>
+                <button style={{ ...btnStyle, ...(transport === 'recording' ? { background: '#b91c1c', color: '#fff' } : transport === 'armed' ? { background: '#7f1d1d', color: '#fca5a5' } : {}) }} onClick={() => void handleRecord()} disabled={!ready}>
+                  {transport === 'recording' ? '⏺ Rec ●' : transport === 'armed' ? '⏺ Arm' : mode === 'sync' ? '⏺ Arm' : '⏺ Record'}
+                </button>
+                <button style={{ ...btnStyle, ...(transport !== 'idle' ? { background: '#374151', color: '#f9fafb' } : {}) }} onClick={handleStop} disabled={!ready}>{transport === 'playing' ? '⏸ Pause' : '⏹ Stop'}</button>
+                <button style={{ ...btnStyle, ...(transport === 'playing' ? { background: '#15803d', color: '#fff' } : {}) }} onClick={handlePlay} disabled={(transport !== 'idle' && transport !== 'playing') || !hasClips}>{transport === 'playing' ? '⏸ Pause' : '▶ Play'}</button>
               </div>
 
               {/* Timeline canvas */}
@@ -1244,8 +1344,20 @@ export function TapePage() {
                   )}
                 </div>
               )}
-              <div style={{ fontSize: 12, color: '#71717a' }}>
+              <div style={{ fontSize: 12, color: '#71717a', marginBottom: 8 }}>
                 Zoom: {(samplesPerPixelRef.current / 44100).toFixed(3)} s/px
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+                <span style={{ fontSize: 13, color: '#a1a1aa' }}>Activity log ({activityLogRef.current.length})</span>
+                <button style={{ ...btnStyle, fontSize: 11 }} onClick={() => { activityLogRef.current = []; forceLogUpdate((v) => v + 1); }}>Clear</button>
+              </div>
+              <div style={{ fontFamily: 'monospace', fontSize: 12, color: '#a1a1aa', background: '#18181b', borderRadius: 4, padding: '8px 12px', maxHeight: 360, overflowY: 'auto' }}>
+                {activityLogRef.current.length === 0
+                  ? <span style={{ color: '#52525b' }}>No events yet.</span>
+                  : activityLogRef.current.slice().reverse().map((entry, i) => (
+                      <div key={i} style={{ whiteSpace: 'pre', lineHeight: '1.6' }}>{entry}</div>
+                    ))
+                }
               </div>
             </>
           )}

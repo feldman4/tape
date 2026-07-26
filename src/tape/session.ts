@@ -21,6 +21,8 @@ export interface SessionRecord {
   loopOut: number;
   loopEnabled: boolean;
   bpm?: number;
+  playhead?: number;
+  activeLane?: 0 | 1 | 2 | 3;
   audioBuffers: { id: AudioBufferId; buffer: ArrayBuffer }[];
 }
 
@@ -71,6 +73,8 @@ export async function saveSession(name: string, tape: Tape, pool: AudioPool): Pr
     loopOut: tape.loopOut,
     loopEnabled: tape.loopEnabled,
     bpm: tape.bpm,
+    playhead: tape.playhead,
+    activeLane: tape.activeLane,
     audioBuffers,
   };
 
@@ -115,9 +119,9 @@ export async function loadSession(name: string): Promise<{ tape: Tape; pool: Aud
 
   const tape: Tape = {
     lanes,
-    activeLane: 0,
+    activeLane: (record.activeLane ?? 0) as 0 | 1 | 2 | 3,
     tapeLength,
-    playhead: 0,
+    playhead: record.playhead ?? 0,
     loopIn: record.loopIn,
     loopOut: record.loopOut,
     loopEnabled: record.loopEnabled,

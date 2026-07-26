@@ -414,8 +414,8 @@ Gestures map to Actions.
 | Interaction           | Notes                                                                |
 | --------------------- | -------------------------------------------------------------------- |
 | Select active lane    | One active recording/edit lane.                                      |
-| Play                  | Start playback from current playhead.                                |
-| Stop                  | Stop playback or recording.                                          |
+| Play                  | Start playback from current playhead, or pause if already playing.   |
+| Stop                  | Pause if playing; rewind to tape start (or loop in) if paused.       |
 | Record                | Supports Free and Sync recording modes.                              |
 | Rewind / Fast-forward | Continuous scrubbing                                                 |
 | Scrub                 | Sample-accurate scrubbing with audio feedback.                       |

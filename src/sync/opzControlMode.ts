@@ -82,6 +82,9 @@ const CC_RESET_THRESHOLD = 30;
 //
 //   D#5  75  Shift modifier (hold)
 
+// WHITE KEYS — lane select (channel 15)
+const NOTE_LANE = [53, 55, 57, 59] as const; // F3, G3, A3, B3 → lanes 1-4
+
 // Tape edit
 const NOTE_LIFT  = 54; // F#3
 const NOTE_DROP  = 56; // G#3
@@ -124,6 +127,8 @@ export type ControlEvent =
   | { type: 'loopOut' }
   /** Toggle loop on/off (C#5 / 73).  Shift: loop current clip. */
   | { type: 'loopToggle'; shift: boolean }
+  /** Select active tape lane 0-3 (white keys F3/G3/A3/B3). */
+  | { type: 'selectLane'; lane: 0 | 1 | 2 | 3 }
   // ── Modifier / encoder ───────────────────────────────────────────────────
   /** Shift key state changed (D#5 / 75). */
   | { type: 'shiftChange'; held: boolean }
@@ -281,8 +286,14 @@ export class OpzControlMode {
       case NOTE_LOOP_IN:     this.emit({ type: 'loopIn' }); break;
       case NOTE_LOOP_OUT:    this.emit({ type: 'loopOut' }); break;
       case NOTE_LOOP_TOGGLE: this.emit({ type: 'loopToggle', shift: this.shiftHeld }); break;
+      // Lane select — first four white keys
+      // Lane select — first four white keys
+      case NOTE_LANE[0]: this.emit({ type: 'selectLane', lane: 0 }); break;
+      case NOTE_LANE[1]: this.emit({ type: 'selectLane', lane: 1 }); break;
+      case NOTE_LANE[2]: this.emit({ type: 'selectLane', lane: 2 }); break;
+      case NOTE_LANE[3]: this.emit({ type: 'selectLane', lane: 3 }); break;
       default:
-        // White keys and unassigned black keys — reserved for future use.
+        // Unassigned keys — reserved.
         break;
     }
   }

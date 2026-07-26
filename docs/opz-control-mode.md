@@ -52,8 +52,8 @@ Black keys are grouped by function.  All send Note On/Off on channel 15.
 | Note | MIDI # | Primary | Shift |
 |------|--------|---------|-------|
 | C#4  | 61 | **Record** — toggle record arm | **Arm** — arm with count-in |
-| D#4  | 63 | **Play** — start playback | **Reverse** — play in reverse |
-| F#4  | 66 | **Stop** — stop transport | **Grid** — set tape grid resolution |
+| D#4  | 63 | **Play** — start playback; pause if playing | **Reverse** — play in reverse |
+| F#4  | 66 | **Stop** — pause if playing; rewind to tape start (or loop in) if paused | **Grid** — set tape grid resolution |
 
 ### Loop  (octave 4/5, upper)
 
@@ -102,8 +102,8 @@ convention: hold the key, act, release.
 
   Transport (oct 4 lo)  primary            shift
     61  C#4             Record             Arm (count-in)
-    63  D#4             Play               Reverse
-    66  F#4             Stop               Grid resolution
+    63  D#4             Play / Pause       Reverse
+    66  F#4             Pause / Rewind     Grid resolution
 
   Loop (oct 4/5)        primary            shift
     68  G#4             Loop In            —

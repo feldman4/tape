@@ -44,6 +44,7 @@ export class AudioEngine {
   private stream: MediaStream | null = null;
   private source: MediaStreamAudioSourceNode | null = null;
   private currentDeviceId: string | null = null;
+  private currentOutputDeviceId: string = '';  // '' = system default
 
   private playheadListeners = new Set<(info: PlayheadInfo) => void>();
   private pendingRecording: ((result: { samples: Float32Array; startFrame: number }) => void) | null = null;
@@ -59,6 +60,24 @@ export class AudioEngine {
 
   get inputDeviceId(): string | null {
     return this.currentDeviceId;
+  }
+
+  get outputDeviceId(): string {
+    return this.currentOutputDeviceId;
+  }
+
+  /** Lists available audio output devices. Labels are only populated once mic permission has been granted. */
+  async listOutputDevices(): Promise<MediaDeviceInfo[]> {
+    const devices = await navigator.mediaDevices.enumerateDevices();
+    return devices.filter((device) => device.kind === 'audiooutput');
+  }
+
+  /** Routes AudioContext output to the given device ('' = system default). */
+  async setOutputDevice(sinkId: string): Promise<void> {
+    if (!this.ctx) throw new Error('AudioEngine not initialized: call init() first');
+    // setSinkId is defined in modern browsers; cast for TypeScript compatibility.
+    await (this.ctx as AudioContext & { setSinkId(id: string): Promise<void> }).setSinkId(sinkId);
+    this.currentOutputDeviceId = sinkId;
   }
 
   async init(deviceId?: string): Promise<void> {
