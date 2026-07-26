@@ -4,19 +4,48 @@
 // elapsed according to the external MIDI clock.
 
 import { AudioPool } from '../audio/audioPool';
-import type { Clip } from './model';
+import { makeClip, type Clip } from './model';
 
 let clipCounter = 0;
+function nextId(): string { return `clip-${clipCounter++}`; }
 
 export function finalizeFreeRecording(pool: AudioPool, samples: Float32Array, tapeStart: number): Clip {
   const audioBufferId = pool.add(samples);
-  return {
-    id: `clip-${clipCounter++}`,
-    audioBufferId,
-    tapeStart,
-    sourceStart: 0,
-    duration: samples.length,
-  };
+  return makeClip(nextId(), audioBufferId, tapeStart, 0, samples.length);
+}
+
+/**
+ * Finalizes a loop-overdub recording using last-pass-wins semantics.
+ *
+ * `samples` is the raw linear capture starting at `recordStart` on the tape.
+ * Positions before `loopIn` are written once (pre-loop).  Once the linear
+ * position hits `loopIn`, it wraps around [loopIn, loopOut) on each pass;
+ * later passes overwrite earlier ones so the most-recently-played audio wins.
+ *
+ * The resulting clip spans from min(recordStart, loopIn) to loopOut.
+ */
+export function finalizeLoopRecording(
+  pool: AudioPool,
+  samples: Float32Array,
+  recordStart: number,
+  loopIn: number,
+  loopOut: number,
+): Clip {
+  const loopLen = loopOut - loopIn;
+  const tapeStart = Math.min(recordStart, loopIn);
+  const clipLen = loopOut - tapeStart;
+  const result = new Float32Array(clipLen); // zero-filled
+
+  for (let i = 0; i < samples.length; i++) {
+    const linearPos = recordStart + i;
+    const tapePos = linearPos < loopIn
+      ? linearPos                                          // pre-loop: written once
+      : loopIn + (linearPos - loopIn) % loopLen;          // in-loop: last write wins
+    result[tapePos - tapeStart] = samples[i]!;
+  }
+
+  const audioBufferId = pool.add(result);
+  return makeClip(nextId(), audioBufferId, tapeStart, 0, clipLen);
 }
 
 export function finalizeSyncRecording(
@@ -29,13 +58,7 @@ export function finalizeSyncRecording(
   const targetLength = Math.max(0, Math.round(beatsElapsed * samplesPerBeat));
   const resampled = resampleLinear(samples, targetLength);
   const audioBufferId = pool.add(resampled);
-  return {
-    id: `clip-${clipCounter++}`,
-    audioBufferId,
-    tapeStart,
-    sourceStart: 0,
-    duration: resampled.length,
-  };
+  return makeClip(nextId(), audioBufferId, tapeStart, 0, resampled.length);
 }
 
 /** Simple ratio-based linear resampling (duration correction only, no pitch preservation). */

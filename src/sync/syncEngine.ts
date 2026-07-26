@@ -81,6 +81,12 @@ export class SyncEngine {
     this.selectedOutputId = id;
   }
 
+  /** Returns the underlying MIDIAccess so other consumers (e.g. OpzControlMode)
+   *  can share the same access object without a second requestMIDIAccess() call. */
+  getMIDIAccess(): MIDIAccess | null {
+    return this.midiAccess;
+  }
+
   private getOutput(): MIDIOutput | null {
     if (!this.midiAccess || !this.selectedOutputId) return null;
     return this.midiAccess.outputs.get(this.selectedOutputId) ?? null;

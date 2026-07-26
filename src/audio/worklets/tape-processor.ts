@@ -1,35 +1,51 @@
-// AudioWorkletProcessor for the Stage 0 spike: a single duplex tape
-// lane that can record its input and, independently, play back one
-// loaded clip. Runs entirely on the audio rendering thread - no DOM,
-// no React, no imports beyond pure computation helpers.
-//
-// All timing is expressed in absolute sample frames (`currentFrame`),
-// never wall-clock time, so playback/record decisions are sample-accurate.
+// AudioWorkletProcessor — single duplex tape lane.
+// Supports multi-clip tape playback (N clips at arbitrary tape positions, mixed),
+// loop region, sample-accurate recording, and a one-shot click for latency testing.
+// All timing is in absolute sample frames (`currentFrame`) or tape-relative offsets.
 
 import { CLICK_LENGTH, createClickWaveform } from '../clickWaveform';
+
+// A clip as sent to the worklet from the main thread.
+interface WorkletClip {
+  samples: Float32Array;
+  tapeStart: number; // samples from tape start
+  duration: number;  // samples (may be < samples.length when sourceStart > 0)
+  sourceStart: number; // offset into samples[] where this clip begins
+  gain: number;
+  muted: boolean;
+}
 
 type ToProcessorMessage =
   | { type: 'record-start' }
   | { type: 'record-stop' }
-  | { type: 'load-clip'; samples: Float32Array; startFrame: number }
+  | { type: 'set-tape'; clips: WorkletClip[] }
+  | { type: 'play'; tapeStart: number; atAudioFrame: number; loopIn: number; loopOut: number; loopEnabled: boolean }
+  | { type: 'set-loop'; loopIn: number; loopOut: number; loopEnabled: boolean }
   | { type: 'stop-playback' }
   | { type: 'click'; atFrame: number };
 
 type FromProcessorMessage =
   | { type: 'recorded'; samples: Float32Array; startFrame: number }
-  | { type: 'playhead'; frame: number; playing: boolean };
+  | { type: 'playhead'; frame: number; tapePosition: number; playing: boolean };
 
 const CLICK_WAVEFORM = createClickWaveform();
-const PLAYHEAD_POST_INTERVAL_BLOCKS = 16; // throttle main-thread messages (~46ms @128/44.1kHz)
+const PLAYHEAD_POST_INTERVAL_BLOCKS = 16; // throttle ~46ms @128/44.1kHz
 
 class TapeProcessor extends AudioWorkletProcessor {
   private recording = false;
   private recordedChunks: Float32Array[] = [];
   private recordStartFrame = 0;
 
-  private clip: Float32Array | null = null;
-  private clipStartFrame = 0;
+  // Tape clips (structured-clone from main thread; main thread retains originals)
+  private tapeClips: WorkletClip[] = [];
+
+  // Playback state
   private playing = false;
+  private playbackTapeStart = 0;  // tape position at the start of playback
+  private playbackAudioStart = 0; // absolute audio frame at which playback began
+  private loopIn = 0;
+  private loopOut = 0;
+  private loopEnabled = false;
 
   private clickAtFrame: number | null = null;
   private blockCounter = 0;
@@ -50,14 +66,33 @@ class TapeProcessor extends AudioWorkletProcessor {
         this.recording = false;
         this.flushRecording();
         break;
-      case 'load-clip':
-        this.clip = msg.samples;
-        this.clipStartFrame = msg.startFrame;
+      case 'set-tape':
+        this.tapeClips = msg.clips;
+        break;
+      case 'play':
+        this.playbackTapeStart = msg.tapeStart;
+        this.playbackAudioStart = msg.atAudioFrame;
+        this.loopIn = msg.loopIn;
+        this.loopOut = msg.loopOut;
+        this.loopEnabled = msg.loopEnabled;
         this.playing = true;
+        break;
+      case 'set-loop':
+        if (this.playing) {
+          // Re-anchor the raw tape position to the current *effective* position
+          // before applying new loop boundaries.  Without this, the accumulated
+          // linear offset wraps differently with the new loopIn/loopOut and the
+          // playhead jumps.
+          const rawNow = this.playbackTapeStart + (currentFrame - this.playbackAudioStart);
+          this.playbackTapeStart = this.effectiveTapePos(rawNow);
+          this.playbackAudioStart = currentFrame;
+        }
+        this.loopIn = msg.loopIn;
+        this.loopOut = msg.loopOut;
+        this.loopEnabled = msg.loopEnabled;
         break;
       case 'stop-playback':
         this.playing = false;
-        this.clip = null;
         break;
       case 'click':
         this.clickAtFrame = msg.atFrame;
@@ -74,12 +109,17 @@ class TapeProcessor extends AudioWorkletProcessor {
       offset += chunk.length;
     }
     this.recordedChunks = [];
-    const message: FromProcessorMessage = {
-      type: 'recorded',
-      samples: merged,
-      startFrame: this.recordStartFrame,
-    };
+    const message: FromProcessorMessage = { type: 'recorded', samples: merged, startFrame: this.recordStartFrame };
     this.port.postMessage(message, [merged.buffer]);
+  }
+
+  /** Resolve raw tape position into effective tape position after loop wrapping. */
+  private effectiveTapePos(rawTapePos: number): number {
+    if (this.loopEnabled && this.loopOut > this.loopIn && rawTapePos >= this.loopIn) {
+      const loopLen = this.loopOut - this.loopIn;
+      return this.loopIn + ((rawTapePos - this.loopIn) % loopLen);
+    }
+    return rawTapePos;
   }
 
   process(inputs: Float32Array[][], outputs: Float32Array[][]): boolean {
@@ -95,15 +135,32 @@ class TapeProcessor extends AudioWorkletProcessor {
       output.fill(0);
       const blockSize = output.length;
 
-      if (this.playing && this.clip) {
+      if (this.playing && this.tapeClips.length > 0) {
         for (let i = 0; i < blockSize; i++) {
-          const clipIndex = blockStartFrame + i - this.clipStartFrame;
-          if (clipIndex < 0) continue;
-          if (clipIndex >= this.clip.length) {
-            this.playing = false;
-            break;
+          const rawTapePos = this.playbackTapeStart + (blockStartFrame + i - this.playbackAudioStart);
+
+          // Stop playback if we've gone past all clip content and loop is off.
+          // We check this once per block at the block boundary rather than per-sample for efficiency.
+          if (!this.loopEnabled && i === 0) {
+            const tapeEnd = Math.max(...this.tapeClips.map((c) => c.tapeStart + c.duration));
+            if (rawTapePos >= tapeEnd) {
+              this.playing = false;
+              break;
+            }
           }
-          output[i] = this.clip[clipIndex];
+
+          const tapePos = this.effectiveTapePos(rawTapePos);
+
+          let sample = 0;
+          for (const clip of this.tapeClips) {
+            if (clip.muted) continue;
+            const clipOffset = tapePos - clip.tapeStart;
+            if (clipOffset >= 0 && clipOffset < clip.duration) {
+              const srcIdx = clip.sourceStart + Math.floor(clipOffset);
+              sample += (clip.samples[srcIdx] ?? 0) * clip.gain;
+            }
+          }
+          output[i] = sample;
         }
       }
 
@@ -123,7 +180,11 @@ class TapeProcessor extends AudioWorkletProcessor {
     this.blockCounter += 1;
     if (this.blockCounter >= PLAYHEAD_POST_INTERVAL_BLOCKS) {
       this.blockCounter = 0;
-      const message: FromProcessorMessage = { type: 'playhead', frame: blockStartFrame, playing: this.playing };
+      const rawTapePos = this.playing
+        ? this.playbackTapeStart + (blockStartFrame - this.playbackAudioStart)
+        : this.playbackTapeStart;
+      const tapePosition = this.playing ? this.effectiveTapePos(rawTapePos) : rawTapePos;
+      const message: FromProcessorMessage = { type: 'playhead', frame: blockStartFrame, tapePosition, playing: this.playing };
       this.port.postMessage(message);
     }
 

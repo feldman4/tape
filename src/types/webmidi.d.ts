@@ -10,6 +10,8 @@ interface MIDIInput extends EventTarget {
   readonly id: string;
   readonly name: string | null;
   onmidimessage: ((event: MIDIMessageEvent) => void) | null;
+  addEventListener(type: 'midimessage', listener: (event: MIDIMessageEvent) => void): void;
+  removeEventListener(type: 'midimessage', listener: (event: MIDIMessageEvent) => void): void;
 }
 
 interface MIDIOutput extends EventTarget {

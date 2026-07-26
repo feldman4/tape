@@ -9,10 +9,34 @@
 // copying the raw .ts source as a static asset (which the browser can't
 // execute). This is the standard Vite technique for AudioWorklet modules.
 import tapeProcessorUrl from './worklets/tape-processor.ts?worker&url';
+import type { Clip } from '../tape/model';
+import type { AudioPool } from './audioPool';
+
+// Shape sent to the worklet (must match WorkletClip in tape-processor.ts)
+export interface WorkletClip {
+  samples: Float32Array;
+  tapeStart: number;
+  duration: number;
+  sourceStart: number;
+  gain: number;
+  muted: boolean;
+}
 
 type FromProcessorMessage =
   | { type: 'recorded'; samples: Float32Array; startFrame: number }
-  | { type: 'playhead'; frame: number; playing: boolean };
+  | { type: 'playhead'; frame: number; tapePosition: number; playing: boolean };
+
+export interface PlayheadInfo {
+  frame: number;
+  tapePosition: number;
+  playing: boolean;
+}
+
+export interface LoopOptions {
+  loopIn: number;
+  loopOut: number;
+  loopEnabled: boolean;
+}
 
 export class AudioEngine {
   private ctx: AudioContext | null = null;
@@ -21,7 +45,7 @@ export class AudioEngine {
   private source: MediaStreamAudioSourceNode | null = null;
   private currentDeviceId: string | null = null;
 
-  private playheadListeners = new Set<(frame: number, playing: boolean) => void>();
+  private playheadListeners = new Set<(info: PlayheadInfo) => void>();
   private pendingRecording: ((result: { samples: Float32Array; startFrame: number }) => void) | null = null;
 
   get audioContext(): AudioContext {
@@ -95,12 +119,14 @@ export class AudioEngine {
         this.pendingRecording = null;
         break;
       case 'playhead':
-        for (const listener of this.playheadListeners) listener(msg.frame, msg.playing);
+        for (const listener of this.playheadListeners) {
+          listener({ frame: msg.frame, tapePosition: msg.tapePosition, playing: msg.playing });
+        }
         break;
     }
   }
 
-  onPlayhead(listener: (frame: number, playing: boolean) => void): () => void {
+  onPlayhead(listener: (info: PlayheadInfo) => void): () => void {
     this.playheadListeners.add(listener);
     return () => this.playheadListeners.delete(listener);
   }
@@ -121,14 +147,58 @@ export class AudioEngine {
     });
   }
 
-  /** Loads and plays a clip; startFrame is the absolute frame at which sample 0 should sound. */
-  playClip(samples: Float32Array, startFrame: number): void {
-    const copy = samples.slice();
-    this.node!.port.postMessage({ type: 'load-clip', samples: copy, startFrame }, [copy.buffer]);
+  /**
+   * Sends all tape clips to the worklet (structured clone — main thread retains originals in pool).
+   * Must be called whenever clips change before the next play().
+   */
+  loadTape(clips: Clip[], pool: AudioPool): void {
+    const workletClips: WorkletClip[] = [];
+    for (const clip of clips) {
+      if (clip.muted) continue; // muted clips sent with muted=true so worklet skips them
+      const samples = pool.get(clip.audioBufferId);
+      if (!samples) continue;
+      workletClips.push({
+        samples,
+        tapeStart: clip.tapeStart,
+        duration: clip.duration,
+        sourceStart: clip.sourceStart,
+        gain: clip.gain,
+        muted: clip.muted,
+      });
+    }
+    // Structured clone (no transfer list) so pool retains original Float32Arrays for rendering.
+    this.node!.port.postMessage({ type: 'set-tape', clips: workletClips });
+  }
+
+  /**
+   * Starts playback from the given tape position (in samples).
+   * Schedules playback to begin ~50ms from now for sample-accurate start.
+   */
+  play(tapePosition: number, loop: LoopOptions): number {
+    const atAudioFrame = this.frameForTimeFromNow(0.05);
+    this.node!.port.postMessage({
+      type: 'play',
+      tapeStart: tapePosition,
+      atAudioFrame,
+      loopIn: loop.loopIn,
+      loopOut: loop.loopOut,
+      loopEnabled: loop.loopEnabled,
+    });
+    return atAudioFrame;
   }
 
   stopPlayback(): void {
     this.node!.port.postMessage({ type: 'stop-playback' });
+  }
+
+  /** Updates loop region during active playback without restarting. */
+  setLoop(loop: LoopOptions): void {
+    this.node!.port.postMessage({
+      type: 'set-loop',
+      loopIn: loop.loopIn,
+      loopOut: loop.loopOut,
+      loopEnabled: loop.loopEnabled,
+    });
   }
 
   /** Schedules a short click on the output ~secondsFromNow later; returns the frame it will play at. */

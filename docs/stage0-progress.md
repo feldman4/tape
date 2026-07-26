@@ -35,7 +35,7 @@ real hardware (synth + audio interface + external MIDI clock source).
 | 8 | Sync Mode recording path (resample take to exact beat length) | ✅ Done |
 | 9 | Latency instrumentation (loopback click test) | ✅ Done, tuned for reliability (see below) |
 | 10 | Minimal Tape UI (Canvas waveform + playhead, transport controls) | ✅ Done |
-| 11 | Manual hardware validation (real synth + interface + MIDI clock) | 🔲 Not yet done — blocks Stage 1 |
+| 11 | Manual hardware validation (real synth + interface + MIDI clock) | � Partial — automated OP-Z smoke test passing (see below); multi-minute drift check still open |
 
 **Implemented, beyond the original plan:**
 - Input **audio device selection** (dropdown, `AudioEngine.listInputDevices()` /
@@ -51,9 +51,29 @@ real hardware (synth + audio interface + external MIDI clock source).
   an unnormalized dot product to a normalized cross-correlation (range -1 to
   1, volume-independent) so "confidence" is actually meaningful. The UI flags
   results below 0.6 as unreliable.
+- **MIDI output support** (`SyncEngine.sendNoteOn`/`sendNoteOff`/`sendStart`/`sendStop`)
+  so the app can drive an OP-Z directly: trigger channel-1 percussion notes,
+  and send MIDI Start to make the OP-Z emit its own MIDI Clock for Sync-mode
+  tests. See docs/testing_proposal.md "Reference Source: OP-Z".
+- **Onset detection** (`src/audio/onsetDetect.ts`, threshold/RMS-based) for
+  measuring note-to-sound latency against an OP-Z hit, since (unlike the
+  internal loopback click) its waveform isn't known in advance.
+- **Automated hardware test scripts** (`scripts/hardware-test.mjs` +
+  `scripts/hardware-profile-setup.mjs`, Playwright) that drive the whole
+  Stage 0 hardware validation with no human interaction once a one-time
+  permission-grant step has run. See docs/testing_proposal.md "Running the
+  OP-Z hardware tests unattended".
 
-**Current blocker:** item 11 — manual hardware validation — hasn't been run
-yet. This is the actual go/no-go gate; everything else in Stage 0 is built
+**Automated smoke test results** (`npm run test:hardware`, OP-Z connected via
+USB, 2026-07-25): all 6 checks passed — OP-Z selected as audio input + MIDI
+input + MIDI output; note-to-sound latency ~50ms (52.4ms most recent run);
+Free-mode recording produced a ~1.4s clip; Sync-mode recording produced an
+~4.1s / 8.17-beat clip with no resampling artifacts observed. This confirms
+(a) and (b) of the go/no-go checkpoint above for short takes.
+
+**Current blocker:** the remaining go/no-go criterion — (c) no audible drift
+over multi-minute recordings — hasn't been exercised yet; the automated
+script's Sync-mode take is only ~8 beats. Everything else in Stage 0 is built
 and passes `npm run build` / `npm run lint`, and has been smoke-tested in
 real Chrome (mic + MIDI permission flows both work; VS Code's Simple Browser
 does *not* support the Web MIDI permission prompt, so real Chrome/Edge is
@@ -64,9 +84,12 @@ required for testing).
 - `src/audio/worklets/tape-processor.ts` — AudioWorkletProcessor (record/playback/click).
 - `src/audio/audioPool.ts` — in-memory immutable buffer store.
 - `src/audio/clickWaveform.ts`, `src/audio/latencyTest.ts` — loopback latency self-test.
-- `src/sync/syncEngine.ts` — MIDI clock parsing, tempo smoothing, Samples↔Beats, input selection.
+- `src/audio/onsetDetect.ts` — threshold/RMS onset detection for OP-Z note-to-sound latency.
+- `src/sync/syncEngine.ts` — MIDI clock parsing, tempo smoothing, Samples↔Beats, input/output selection, note/Start/Stop sending.
 - `src/tape/model.ts`, `src/tape/recording.ts` — Clip model, Free/Sync recording finalization.
-- `src/ui/TapePage.tsx`, `src/ui/renderers/TimelineRenderer.ts` — Canvas UI.
+- `src/ui/TapePage.tsx` — Canvas UI, device pickers, OP-Z test controls, and the `window.__tapeTest` hook.
+- `src/ui/renderers/TimelineRenderer.ts` — Canvas waveform/playhead drawing.
+- `scripts/hardware-profile-setup.mjs`, `scripts/hardware-test.mjs` — Playwright-based unattended OP-Z hardware validation.
 
 ## Stages 1-8 — Not started (blocked on Stage 0 go/no-go)
 
@@ -83,8 +106,9 @@ required for testing).
 
 ## Next step
 
-Run the manual hardware validation for Stage 0 (item 11): connect a real
-synth via an audio interface, feed MIDI clock from a hardware sequencer/DAW,
-and run repeated Free and Sync takes, checking for latency, drift, and
-beat-accurate clip lengths. Use the in-app latency test and the audio/MIDI
-device pickers (defaulting to OP-Z) to set this up.
+Exercise the remaining go/no-go criterion: no audible drift over multi-minute
+recordings. Extend `scripts/hardware-test.mjs` (or run it manually) with a
+Sync-mode take lasting several minutes against the OP-Z's MIDI Clock, and
+inspect the resulting clip's stretch factor/beat alignment for drift. Once
+that passes, item 11 can move to ✅ Done and Stage 0 is closed — Stage 1 can
+begin.
