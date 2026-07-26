@@ -5,9 +5,10 @@ a staged implementation — see [docs/starting_plan.md](docs/starting_plan.md)
 for the original design doc and [docs/stage0-progress.md](docs/stage0-progress.md)
 for the staged plan and current progress.
 
-Currently in **Stage 0**: a feasibility spike proving out the full audio
-engine + MIDI sync engine on a single tape lane, before building out the
-full multi-lane app.
+Currently in **Stage 0** (mostly complete): 4-lane tape recorder with full audio
+engine, MIDI sync, OP-Z hardware control, mixer, and session persistence.
+See [docs/starting_plan.md](docs/starting_plan.md) for the original design doc
+and [docs/stage0-progress.md](docs/stage0-progress.md) for current progress.
 
 ## Running it
 
@@ -80,21 +81,35 @@ closed out.
   `AudioWorkletGlobalScope` types (`currentFrame`, `registerProcessor`, etc.).
 
 ### Tape data model & recording
-- [src/tape/model.ts](src/tape/model.ts) — minimal single-lane Tape/Clip
-  types.
+- [src/tape/model.ts](src/tape/model.ts) — 4-lane `Tape` / `Lane` / `Clip`
+  types. Lanes carry `clips`, `muted`, `gain`, and `pan`.
+- [src/tape/session.ts](src/tape/session.ts) — IndexedDB save/load for named
+  sessions. Persists all 4 lanes (clips + audio buffers), loop region, BPM,
+  playhead, active lane, per-lane mute/gain/pan, and the current Free/Sync
+  mode and Snap toggle.
 - [src/tape/recording.ts](src/tape/recording.ts) — finalizes a raw take into
   a `Clip`: `finalizeFreeRecording` (direct placement) and
   `finalizeSyncRecording` (resamples to an exact beat-grid length).
 
 ### UI
-- [src/ui/TapePage.tsx](src/ui/TapePage.tsx) - main Stage 0 page: transport
-  controls, Free/Sync mode, audio/MIDI device pickers (default to a
-  connected 'OP-Z' device/input if present), latency tests, OP-Z note/Start/
-  Stop trigger buttons, and readouts. Also exposes `window.__tapeTest` - a
-  structured state hook used by the hardware test scripts instead of parsing
-  rendered text.
+- [src/ui/TapePage.tsx](src/ui/TapePage.tsx) - main UI with four tabs:
+  - **TAPE**: 4-lane timeline canvas (620 px wide, black bg, color-coded
+    clips), transport controls, clip-edit buttons (Split/Join via
+    Shift+click, Lift/Drop), loop region, mode (Free/Sync) and Snap toggle.
+    Keyboard shortcuts active on this tab only — see table below.
+  - **MIXER**: per-lane gain fader (0–200%) and stereo pan knob.
+  - **PROJ**: session save/load (persists tape, pool, mode, snap).
+  - **TEST**: loopback latency and OP-Z onset-latency tests.
+  All OP-Z channel-15 messages are forwarded through `OpzControlMode`.
+  Also exposes `window.__tapeTest` — a structured state hook used by the
+  hardware test scripts instead of parsing rendered text.
 - [src/ui/renderers/TimelineRenderer.ts](src/ui/renderers/TimelineRenderer.ts) —
-  Canvas drawing for the waveform and playhead.
+  Canvas drawing for clips (half-height, color-coded), beat-tick top band,
+  loop region tint, and playhead.
+- [src/sync/opzControlMode.ts](src/sync/opzControlMode.ts) — parses OP-Z
+  channel-15 MIDI messages into typed `ControlEvent`s (lane select/mute,
+  transport, edit, loop, encoder deltas). See
+  [docs/opz-control-mode.md](docs/opz-control-mode.md).
 
 ### Hardware test automation
 - [scripts/hardware-profile-setup.mjs](scripts/hardware-profile-setup.mjs) -
@@ -103,6 +118,27 @@ closed out.
 - [scripts/hardware-test.mjs](scripts/hardware-test.mjs) - reuses that
   profile headfully with no further prompts; drives the OP-Z through the
   latency/Free/Sync checks and prints a pass/fail report.
+
+## Keyboard shortcuts (TAPE tab)
+
+| Key | Action |
+|-----|--------|
+| `1`–`4` | Select lane 1–4 |
+| `Shift`+`1`–`4` | Mute/unmute lane 1–4 |
+| `R` | Record arm / toggle recording |
+| `Space` | Play / pause |
+| `Escape` | Stop / rewind |
+| `[` / `]` | Set loop in / out at playhead |
+| `\` | Toggle loop on/off |
+| `S` | Split clip at playhead |
+| `Shift`+`S` | Join clip with neighbour |
+| `L` | Lift clip to clipboard |
+| `D` | Drop clipboard clip at playhead |
+| `Z` | Toggle Free / Sync mode |
+| `X` | Toggle Snap to beat grid |
+| `Q`+drag | Scrub playhead (blue encoder) |
+| `Shift`+`Q`+drag | Slide selected clip + playhead |
+| `W`+drag | Adjust loop out (Shift: loop in) |
 
 ## Gotchas worth knowing before touching audio code
 
@@ -116,3 +152,10 @@ closed out.
 - **Web MIDI in embedded browsers**: VS Code's Simple Browser (and most
   webviews) don't implement the MIDI permission prompt, so `requestMIDIAccess`
   fails there even though it works in a real Chrome window.
+- **BPM stabilisation**: the tape's internal BPM (used for the recording grid
+  and beat-snap) is not updated from incoming MIDI clock until 48 pulses (~1
+  second at 120 BPM) have been received after a Start, to avoid jitter from
+  the OP-Z's clock warmup.
+- **Snap vs mode**: the Snap toggle (X key) controls whether scrub, slide, and
+  loop-point encoders quantise to the beat grid. It is independent of
+  Free/Sync mode — you can have Free+Snap or Sync without snap.

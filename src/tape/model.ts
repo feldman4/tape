@@ -15,6 +15,9 @@ export interface Clip {
 
 export interface Lane {
   clips: Clip[];
+  muted: boolean;
+  gain: number;  // 0.0–2.0, default 1.0
+  pan:  number;  // -1.0 (L) to 1.0 (R), default 0.0
 }
 
 export const LANE_COUNT = 4;
@@ -35,7 +38,12 @@ const DEFAULT_LOOP_OUT_SAMPLES = Math.round(8 * (44100 * 60) / 120); // 176400
 
 export function makeDefaultTape(): Tape {
   return {
-    lanes: [{ clips: [] }, { clips: [] }, { clips: [] }, { clips: [] }],
+    lanes: [
+      { clips: [], muted: false, gain: 1.0, pan: 0.0 },
+      { clips: [], muted: false, gain: 1.0, pan: 0.0 },
+      { clips: [], muted: false, gain: 1.0, pan: 0.0 },
+      { clips: [], muted: false, gain: 1.0, pan: 0.0 },
+    ],
     activeLane: 0,
     tapeLength: 0,
     playhead: 0,

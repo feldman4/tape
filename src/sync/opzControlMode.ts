@@ -127,8 +127,8 @@ export type ControlEvent =
   | { type: 'loopOut' }
   /** Toggle loop on/off (C#5 / 73).  Shift: loop current clip. */
   | { type: 'loopToggle'; shift: boolean }
-  /** Select active tape lane 0-3 (white keys F3/G3/A3/B3). */
-  | { type: 'selectLane'; lane: 0 | 1 | 2 | 3 }
+  /** Select active tape lane 0-3 (white keys F3/G3/A3/B3). Shift: mute/unmute. */
+  | { type: 'selectLane'; lane: 0 | 1 | 2 | 3; shift: boolean }
   // ── Modifier / encoder ───────────────────────────────────────────────────
   /** Shift key state changed (D#5 / 75). */
   | { type: 'shiftChange'; held: boolean }
@@ -287,11 +287,10 @@ export class OpzControlMode {
       case NOTE_LOOP_OUT:    this.emit({ type: 'loopOut' }); break;
       case NOTE_LOOP_TOGGLE: this.emit({ type: 'loopToggle', shift: this.shiftHeld }); break;
       // Lane select — first four white keys
-      // Lane select — first four white keys
-      case NOTE_LANE[0]: this.emit({ type: 'selectLane', lane: 0 }); break;
-      case NOTE_LANE[1]: this.emit({ type: 'selectLane', lane: 1 }); break;
-      case NOTE_LANE[2]: this.emit({ type: 'selectLane', lane: 2 }); break;
-      case NOTE_LANE[3]: this.emit({ type: 'selectLane', lane: 3 }); break;
+      case NOTE_LANE[0]: this.emit({ type: 'selectLane', lane: 0, shift: this.shiftHeld }); break;
+      case NOTE_LANE[1]: this.emit({ type: 'selectLane', lane: 1, shift: this.shiftHeld }); break;
+      case NOTE_LANE[2]: this.emit({ type: 'selectLane', lane: 2, shift: this.shiftHeld }); break;
+      case NOTE_LANE[3]: this.emit({ type: 'selectLane', lane: 3, shift: this.shiftHeld }); break;
       default:
         // Unassigned keys — reserved.
         break;

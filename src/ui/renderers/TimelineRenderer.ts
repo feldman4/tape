@@ -28,27 +28,28 @@ export function pixelToTape(px: number, layout: TimelineLayout): number {
   return playhead + (px - canvasWidth / 2) * samplesPerPixel;
 }
 
-export const TIME_AXIS_HEIGHT = 20;  // px — time ruler at top
-export const LANE_LABEL_WIDTH = 20;  // px — lane number gutter on left
+export const TOP_BAND_HEIGHT = 14;   // px — beat-tick + loop-marker strip at top
+export const TIME_AXIS_HEIGHT = TOP_BAND_HEIGHT;  // alias for TapePage compat
+export const LANE_LABEL_WIDTH = 0;   // no gutter
 
-// Aliases kept so existing TapePage imports still compile.
-export const CLIP_TOP_MARGIN = TIME_AXIS_HEIGHT;
-export const CLIP_HEIGHT = 36; // nominal; actual = clipBlockHeight(canvasHeight)
-
-const LOOP_MARKER_HEIGHT = 10;
+// Aliases kept so callers that import these still compile.
+export const CLIP_TOP_MARGIN = TOP_BAND_HEIGHT;
+export const CLIP_HEIGHT = 20; // nominal; actual = clipBlockHeight(canvasHeight)
 
 export function laneRowHeight(canvasHeight: number): number {
-  return Math.floor((canvasHeight - TIME_AXIS_HEIGHT) / LANE_COUNT);
+  return Math.floor((canvasHeight - TOP_BAND_HEIGHT) / LANE_COUNT);
 }
 export function laneRowTop(laneIndex: number, canvasHeight: number): number {
-  return TIME_AXIS_HEIGHT + laneIndex * laneRowHeight(canvasHeight);
+  return TOP_BAND_HEIGHT + laneIndex * laneRowHeight(canvasHeight);
 }
-function clipBlockHeight(canvasHeight: number): number {
-  return laneRowHeight(canvasHeight) - 4;
+/** Clip is drawn at half the lane row height, vertically centred. */
+function clipBlockHeight(lrh: number): number {
+  return Math.max(4, Math.floor(lrh / 2));
 }
 
 /**
  * Main draw call — renders the full four-lane tape timeline.
+ * @param syncMode When true, beat ticks are drawn in the top band.
  */
 export function drawTimeline(
   ctx: CanvasRenderingContext2D,
@@ -56,71 +57,64 @@ export function drawTimeline(
   pool: AudioPool,
   layout: TimelineLayout,
   selectedClipId: string | null,
+  syncMode = true,
 ): void {
   const { canvasWidth, canvasHeight } = layout;
-  const lh = laneRowHeight(canvasHeight);
-  const ch = clipBlockHeight(canvasHeight);
+  const lrh = laneRowHeight(canvasHeight);
+  const ch  = clipBlockHeight(lrh);
 
-  // Background
-  ctx.fillStyle = '#09090b';
+  // Background — pure black
+  ctx.fillStyle = '#000000';
   ctx.fillRect(0, 0, canvasWidth, canvasHeight);
 
-  // Loop region tint
+  // Loop region tint (below top band)
   if (tape.loopEnabled && tape.loopOut > tape.loopIn) {
-    const lx = tapeToPixel(tape.loopIn, layout);
+    const lx = tapeToPixel(tape.loopIn,  layout);
     const lw = tapeToPixel(tape.loopOut, layout) - lx;
-    ctx.fillStyle = 'rgba(250,204,21,0.07)';
-    ctx.fillRect(lx, TIME_AXIS_HEIGHT, lw, canvasHeight - TIME_AXIS_HEIGHT);
+    ctx.fillStyle = 'rgba(250,204,21,0.06)';
+    ctx.fillRect(lx, TOP_BAND_HEIGHT, lw, canvasHeight - TOP_BAND_HEIGHT);
   }
 
-  // Beat grid
-  drawBeatGrid(ctx, layout, tape.bpm, canvasWidth, canvasHeight);
-
-  // Lane tracks
+  // Lane tracks — no separators, no highlight boxes
   for (let li = 0; li < LANE_COUNT; li++) {
-    const ly = laneRowTop(li, canvasHeight);
-    const clipY = ly + 2;
-
-    // Active-lane highlight
-    if (li === tape.activeLane) {
-      ctx.fillStyle = 'rgba(99,102,241,0.12)';
-      ctx.fillRect(LANE_LABEL_WIDTH, ly, canvasWidth - LANE_LABEL_WIDTH, lh);
-    }
-
-    // Lane separator
-    if (li > 0) {
-      ctx.strokeStyle = '#27272a';
-      ctx.lineWidth = 1;
-      ctx.beginPath();
-      ctx.moveTo(LANE_LABEL_WIDTH, ly + 0.5);
-      ctx.lineTo(canvasWidth, ly + 0.5);
-      ctx.stroke();
-    }
+    const ly   = laneRowTop(li, canvasHeight);
+    const clipY = ly + Math.floor((lrh - ch) / 2); // vertically centred in row
 
     // Clips
     for (const clip of tape.lanes[li]!.clips) {
       const clipX = tapeToPixel(clip.tapeStart, layout);
       const clipW = tapeToPixel(clip.tapeStart + clip.duration, layout) - clipX;
-      if (clipX + clipW < LANE_LABEL_WIDTH || clipX > canvasWidth) continue;
+      if (clipX + clipW < 0 || clipX > canvasWidth) continue;
 
       const isSelected = clip.id === selectedClipId;
-      const isMuted = clip.muted;
-      const isActive = li === tape.activeLane;
+      const isMuted    = clip.muted || tape.lanes[li]!.muted;
+      const isActive   = li === tape.activeLane;
 
-      ctx.fillStyle = isMuted ? '#3f3f46' : isSelected ? '#1d4ed8' : isActive ? '#1e3a5f' : '#1c3048';
+      // Color logic:
+      //   Muted (clip or lane)   → gray, no blue
+      //   Selected (active lane, under playhead) → dark orange
+      //   Active lane, other     → blue
+      //   Non-active lane        → desaturated blue
+      let fillColor: string;
+      if (isMuted) {
+        fillColor = '#2a2a2a';
+      } else if (isSelected) {
+        fillColor = '#7c3000';   // dark orange
+      } else if (isActive) {
+        fillColor = '#0f3d6e';   // blue
+      } else {
+        fillColor = '#162435';   // grayed-out blue
+      }
+
+      ctx.fillStyle = fillColor;
       ctx.fillRect(clipX, clipY, clipW, ch);
 
-      ctx.strokeStyle = isSelected ? '#60a5fa' : isActive ? '#2563eb' : '#1d4a6e';
-      ctx.lineWidth = isSelected ? 2 : 1;
-      ctx.strokeRect(clipX + 0.5, clipY + 0.5, Math.max(1, clipW - 1), ch - 1);
-      ctx.lineWidth = 1;
-
       if (clipW >= 4) {
-        drawClipWaveform(ctx, clip, pool, clipX, clipY, clipW, ch, isMuted, isActive);
+        drawClipWaveform(ctx, clip, pool, clipX, clipY, clipW, ch, isMuted, isActive, isSelected);
       }
 
       if (isMuted && clipW > 30) {
-        ctx.fillStyle = '#71717a';
+        ctx.fillStyle = '#555';
         ctx.font = '9px sans-serif';
         ctx.textAlign = 'left';
         ctx.fillText('M', clipX + 4, clipY + 11);
@@ -128,23 +122,11 @@ export function drawTimeline(
     }
   }
 
-  // Lane number labels (left gutter)
-  ctx.font = 'bold 10px sans-serif';
-  ctx.textAlign = 'center';
-  for (let li = 0; li < LANE_COUNT; li++) {
-    const ly = laneRowTop(li, canvasHeight);
-    ctx.fillStyle = li === tape.activeLane ? '#818cf8' : '#52525b';
-    ctx.fillText(String(li + 1), LANE_LABEL_WIDTH / 2, ly + lh / 2 + 4);
-  }
+  // Top band — beat ticks (sync mode only) + loop markers
+  drawTopBand(ctx, tape, layout, canvasWidth, syncMode);
 
-  // Time axis
-  drawTimeAxis(ctx, layout, canvasWidth);
-
-  // Loop markers
-  if (tape.loopOut > tape.loopIn) drawLoopMarkers(ctx, tape, layout, canvasHeight);
-
-  // Playhead (always at center)
-  const phX = canvasWidth / 2;
+  // Playhead (always at canvas centre, full height)
+  const phX = Math.round(canvasWidth / 2) + 0.5;
   ctx.strokeStyle = '#f87171';
   ctx.lineWidth = 2;
   ctx.beginPath();
@@ -152,53 +134,62 @@ export function drawTimeline(
   ctx.lineTo(phX, canvasHeight);
   ctx.stroke();
   ctx.lineWidth = 1;
-  ctx.fillStyle = '#f87171';
-  ctx.beginPath();
-  ctx.moveTo(phX, TIME_AXIS_HEIGHT);
-  ctx.lineTo(phX - 5, 2);
-  ctx.lineTo(phX + 5, 2);
-  ctx.closePath();
-  ctx.fill();
 }
 
-function drawBeatGrid(
+/**
+ * Draws the top band: beat ticks (sync mode only) and loop in/out markers.
+ * The band spans y=0..TOP_BAND_HEIGHT and overlays the rest of the canvas.
+ */
+function drawTopBand(
   ctx: CanvasRenderingContext2D,
+  tape: Tape,
   layout: TimelineLayout,
-  bpm: number,
   canvasWidth: number,
-  canvasHeight: number,
+  syncMode: boolean,
 ): void {
-  const SAMPLE_RATE = 44100;
-  const samplesPerBeat = (SAMPLE_RATE * 60) / bpm;
-  const samplesPerBar  = samplesPerBeat * 4;
-
+  const H = TOP_BAND_HEIGHT;
   const { playhead, samplesPerPixel } = layout;
-  const halfView  = (canvasWidth * samplesPerPixel) / 2;
-  const viewStart = playhead - halfView;
-  const viewEnd   = playhead + halfView;
 
-  const barWidthPx  = samplesPerBar  / samplesPerPixel;
-  const beatWidthPx = samplesPerBeat / samplesPerPixel;
-
-  if (barWidthPx < 4) return;
-  const drawBeats = beatWidthPx >= 8;
-  const step = drawBeats ? samplesPerBeat : samplesPerBar;
-  const beatsPerStep = drawBeats ? 1 : 4;
-  const firstIndex = Math.ceil(viewStart / step);
-  const lastIndex  = Math.floor(viewEnd   / step);
-
-  ctx.lineWidth = 1;
-  for (let i = firstIndex; i <= lastIndex; i++) {
-    const tapeSample = i * step;
-    const x = tapeToPixel(tapeSample, layout);
-    const isBar = (i * beatsPerStep) % 4 === 0;
-    ctx.strokeStyle = isBar ? 'rgba(255,255,255,0.12)' : 'rgba(255,255,255,0.04)';
-    ctx.beginPath();
-    ctx.moveTo(x + 0.5, TIME_AXIS_HEIGHT);
-    ctx.lineTo(x + 0.5, canvasHeight);
-    ctx.stroke();
+  // Beat ticks — sync mode only
+  if (syncMode) {
+    const SAMPLE_RATE = 44100;
+    const samplesPerBeat = (SAMPLE_RATE * 60) / tape.bpm;
+    const beatWidthPx    = samplesPerBeat / samplesPerPixel;
+    if (beatWidthPx >= 4) {
+      const halfView  = (canvasWidth * samplesPerPixel) / 2;
+      const viewStart = playhead - halfView;
+      const viewEnd   = playhead + halfView;
+      const firstBeat = Math.ceil(viewStart / samplesPerBeat);
+      const lastBeat  = Math.floor(viewEnd   / samplesPerBeat);
+      ctx.lineWidth = 1;
+      for (let i = firstBeat; i <= lastBeat; i++) {
+        const x     = tapeToPixel(i * samplesPerBeat, layout);
+        const isBar = i % 4 === 0;
+        const tickH = isBar ? H : Math.round(H * 0.45);
+        ctx.strokeStyle = isBar
+          ? 'rgba(255,255,255,0.45)'
+          : 'rgba(255,255,255,0.18)';
+        ctx.beginPath();
+        ctx.moveTo(x + 0.5, H - tickH);
+        ctx.lineTo(x + 0.5, H);
+        ctx.stroke();
+      }
+      ctx.lineWidth = 1;
+    }
   }
-  ctx.lineWidth = 1;
+
+  // Loop in / out markers — yellow when enabled, faint gray when disabled
+  if (tape.loopOut > tape.loopIn) {
+    const inX  = tapeToPixel(tape.loopIn,  layout);
+    const outX = tapeToPixel(tape.loopOut, layout);
+    ctx.fillStyle = tape.loopEnabled ? '#facc15' : '#4a4a4a';
+    // In: vertical bar + small foot pointing right
+    ctx.fillRect(inX,      0, 2, H);
+    ctx.fillRect(inX,      H - 2, 5, 2);
+    // Out: vertical bar + small foot pointing left
+    ctx.fillRect(outX - 2, 0, 2, H);
+    ctx.fillRect(outX - 5, H - 2, 5, 2);
+  }
 }
 
 function drawClipWaveform(
@@ -211,6 +202,7 @@ function drawClipWaveform(
   clipH: number,
   muted: boolean,
   active: boolean,
+  selected: boolean,
 ): void {
   const samples = pool.get(clip.audioBufferId);
   if (!samples || clip.duration === 0) return;
@@ -220,7 +212,15 @@ function drawClipWaveform(
   const pixelCount = Math.ceil(clipW);
   const samplesPerPx = clip.duration / pixelCount;
 
-  ctx.strokeStyle = muted ? '#3f3f46' : active ? '#4ade80' : '#2d9a5f';
+  // Waveform is lighter than the clip background
+  ctx.strokeStyle = muted
+    ? '#444'
+    : selected
+    ? '#d46000'   // warm amber for selected (orange take)
+    : active
+    ? '#2878c8'   // lighter blue for active lane
+    : '#2a4060';  // muted blue for other lanes
+
   ctx.beginPath();
   for (let px = 0; px < pixelCount; px++) {
     const s0 = clip.sourceStart + Math.floor(px * samplesPerPx);
@@ -236,66 +236,6 @@ function drawClipWaveform(
     ctx.lineTo(x, mid + max * amp);
   }
   ctx.stroke();
-}
-
-function drawTimeAxis(
-  ctx: CanvasRenderingContext2D,
-  layout: TimelineLayout,
-  canvasWidth: number,
-): void {
-  const { playhead, samplesPerPixel } = layout;
-  const sampleRate = 44100;
-  const visibleSamples = canvasWidth * samplesPerPixel;
-  const viewStart = playhead - visibleSamples / 2;
-  const viewEnd   = playhead + visibleSamples / 2;
-  const tickIntervalSecs = pickTickInterval(visibleSamples / sampleRate);
-  const tickIntervalSamples = tickIntervalSecs * sampleRate;
-
-  ctx.fillStyle = '#18181b';
-  ctx.fillRect(0, 0, canvasWidth, TIME_AXIS_HEIGHT);
-
-  ctx.strokeStyle = '#3f3f46';
-  ctx.fillStyle = '#71717a';
-  ctx.font = '9px sans-serif';
-  ctx.textAlign = 'center';
-
-  const firstTick = Math.ceil(viewStart / tickIntervalSamples) * tickIntervalSamples;
-  for (let tick = firstTick; tick <= viewEnd; tick += tickIntervalSamples) {
-    const x = tapeToPixel(tick, layout);
-    ctx.beginPath();
-    ctx.moveTo(x, TIME_AXIS_HEIGHT - 4);
-    ctx.lineTo(x, TIME_AXIS_HEIGHT);
-    ctx.stroke();
-    ctx.fillText(formatTime(tick / sampleRate), x, TIME_AXIS_HEIGHT - 5);
-  }
-}
-
-function pickTickInterval(visibleSecs: number): number {
-  for (const c of [0.1, 0.25, 0.5, 1, 2, 5, 10, 30, 60, 120]) {
-    if (visibleSecs / c <= 8) return c;
-  }
-  return 120;
-}
-
-function formatTime(secs: number): string {
-  const m = Math.floor(secs / 60);
-  const s = (secs % 60).toFixed(1);
-  return m > 0 ? `${m}:${s.padStart(4, '0')}` : `${s}s`;
-}
-
-function drawLoopMarkers(
-  ctx: CanvasRenderingContext2D,
-  tape: Tape,
-  layout: TimelineLayout,
-  canvasHeight: number,
-): void {
-  const inX  = tapeToPixel(tape.loopIn,  layout);
-  const outX = tapeToPixel(tape.loopOut, layout);
-  ctx.fillStyle = '#facc15';
-  ctx.fillRect(inX,      canvasHeight - LOOP_MARKER_HEIGHT, 2, LOOP_MARKER_HEIGHT);
-  ctx.fillRect(inX,      canvasHeight - LOOP_MARKER_HEIGHT, 5, 2);
-  ctx.fillRect(outX - 2, canvasHeight - LOOP_MARKER_HEIGHT, 2, LOOP_MARKER_HEIGHT);
-  ctx.fillRect(outX - 5, canvasHeight - LOOP_MARKER_HEIGHT, 5, 2);
 }
 
 // ---------------------------------------------------------------------------

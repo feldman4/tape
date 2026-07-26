@@ -12,12 +12,15 @@ interface WorkletClip {
   duration: number;  // samples (may be < samples.length when sourceStart > 0)
   sourceStart: number; // offset into samples[] where this clip begins
   gain: number;
+  pan: number;   // -1 (full L) .. 0 (centre) .. +1 (full R)
   muted: boolean;
 }
 
 type ToProcessorMessage =
   | { type: 'record-start' }
   | { type: 'record-stop' }
+  /** Flush recorded chunks to main thread and reset buffer, but keep recording. */
+  | { type: 'record-rotate' }
   | { type: 'set-tape'; clips: WorkletClip[] }
   | { type: 'play'; tapeStart: number; atAudioFrame: number; loopIn: number; loopOut: number; loopEnabled: boolean }
   | { type: 'set-loop'; loopIn: number; loopOut: number; loopEnabled: boolean }
@@ -65,6 +68,11 @@ class TapeProcessor extends AudioWorkletProcessor {
       case 'record-stop':
         this.recording = false;
         this.flushRecording();
+        break;
+      case 'record-rotate':
+        // Flush current buffer to main thread, reset, keep recording=true.
+        this.flushRecording();
+        this.recordStartFrame = currentFrame;
         break;
       case 'set-tape':
         this.tapeClips = msg.clips;
@@ -123,57 +131,62 @@ class TapeProcessor extends AudioWorkletProcessor {
   }
 
   process(inputs: Float32Array[][], outputs: Float32Array[][]): boolean {
-    const input = inputs[0]?.[0];
-    const output = outputs[0]?.[0];
+    const input  = inputs[0]?.[0];
+    const outL   = outputs[0]?.[0]; // left  channel
+    const outR   = outputs[0]?.[1]; // right channel
     const blockStartFrame = currentFrame;
 
     if (this.recording && input) {
       this.recordedChunks.push(input.slice());
     }
 
-    if (output) {
-      output.fill(0);
-      const blockSize = output.length;
+    if (outL) outL.fill(0);
+    if (outR) outR.fill(0);
 
-      if (this.playing && this.tapeClips.length > 0) {
-        for (let i = 0; i < blockSize; i++) {
-          const rawTapePos = this.playbackTapeStart + (blockStartFrame + i - this.playbackAudioStart);
+    const blockSize = outL?.length ?? outR?.length ?? 0;
 
-          // Stop playback if we've gone past all clip content and loop is off.
-          // We check this once per block at the block boundary rather than per-sample for efficiency.
-          if (!this.loopEnabled && i === 0) {
-            const tapeEnd = Math.max(...this.tapeClips.map((c) => c.tapeStart + c.duration));
-            if (rawTapePos >= tapeEnd) {
-              this.playing = false;
-              break;
-            }
+    if (blockSize > 0 && this.playing && this.tapeClips.length > 0) {
+      for (let i = 0; i < blockSize; i++) {
+        const rawTapePos = this.playbackTapeStart + (blockStartFrame + i - this.playbackAudioStart);
+
+        // Stop playback if we’ve gone past all clip content and loop is off.
+        if (!this.loopEnabled && i === 0) {
+          const tapeEnd = Math.max(...this.tapeClips.map((c) => c.tapeStart + c.duration));
+          if (rawTapePos >= tapeEnd) {
+            this.playing = false;
+            break;
           }
+        }
 
-          const tapePos = this.effectiveTapePos(rawTapePos);
+        const tapePos = this.effectiveTapePos(rawTapePos);
 
-          let sample = 0;
-          for (const clip of this.tapeClips) {
-            if (clip.muted) continue;
-            const clipOffset = tapePos - clip.tapeStart;
-            if (clipOffset >= 0 && clipOffset < clip.duration) {
-              const srcIdx = clip.sourceStart + Math.floor(clipOffset);
-              sample += (clip.samples[srcIdx] ?? 0) * clip.gain;
-            }
+        for (const clip of this.tapeClips) {
+          if (clip.muted) continue;
+          const clipOffset = tapePos - clip.tapeStart;
+          if (clipOffset >= 0 && clipOffset < clip.duration) {
+            const srcIdx = clip.sourceStart + Math.floor(clipOffset);
+            const raw = (clip.samples[srcIdx] ?? 0) * clip.gain;
+            // Constant-power pan: angle in [0, π/2]
+            const angle = (clip.pan + 1) * 0.7853981633974483; // (pan+1)*π/4
+            if (outL) outL[i] += raw * Math.cos(angle);
+            if (outR) outR[i] += raw * Math.sin(angle);
           }
-          output[i] = sample;
         }
       }
+    }
 
-      if (this.clickAtFrame !== null) {
-        for (let i = 0; i < blockSize; i++) {
-          const clickIndex = blockStartFrame + i - this.clickAtFrame;
-          if (clickIndex >= 0 && clickIndex < CLICK_LENGTH) {
-            output[i] += CLICK_WAVEFORM[clickIndex];
-          }
+    // Click (latency test) — plays centred on both channels.
+    if (this.clickAtFrame !== null && blockSize > 0) {
+      for (let i = 0; i < blockSize; i++) {
+        const clickIndex = blockStartFrame + i - this.clickAtFrame;
+        if (clickIndex >= 0 && clickIndex < CLICK_LENGTH) {
+          const clickSample = CLICK_WAVEFORM[clickIndex]!;
+          if (outL) outL[i] += clickSample;
+          if (outR) outR[i] += clickSample;
         }
-        if (blockStartFrame + blockSize > this.clickAtFrame + CLICK_LENGTH) {
-          this.clickAtFrame = null;
-        }
+      }
+      if (blockStartFrame + blockSize > this.clickAtFrame + CLICK_LENGTH) {
+        this.clickAtFrame = null;
       }
     }
 

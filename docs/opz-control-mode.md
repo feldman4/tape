@@ -28,8 +28,8 @@ The four encoders follow the OP-1 Field tape-mode colour convention:
 
 | Encoder | CC | Primary action | Shift action |
 |---------|----|----------------|--------------|
-| 1 (green)  | CC 1 | Loop out point — adjust by 1 beat per tick, snapped to grid | Loop in point — same |
-| 2 (blue)   | CC 2 | Scrub tape position (sync: 1 beat/tick on grid; free: 1 px/tick) | *(reserved — slide clip)* |
+| 1 (green)  | CC 1 | Loop out point — 1 beat/tick (Snap on) or 1 px/tick (Snap off) | Loop in point — same |
+| 2 (blue)   | CC 2 | Scrub playhead — 1 beat/tick (Snap on) or 1 px/tick (Snap off) | **Slide clip** — moves selected clip and playhead together by the same amount |
 | 3 (white)  | CC 3 | *(reserved — tape speed)* | *(reserved)* |
 | 4 (orange) | CC 4 | *(reserved — recording level)* | *(reserved — recording pan)* |
 
@@ -69,8 +69,17 @@ Black keys are grouped by function.  All send Note On/Off on channel 15.
 |------|--------|--------|
 | D#5  | 75 | **Shift** — hold to activate secondary actions |
 
-All non-sharp (white) keys on channel 15 are reserved for future use and are
+All non-sharp (white) keys on channel 15 above B3 are reserved for future use and are
 currently ignored.
+
+### Lane select / mute  (octave 3, white keys)
+
+| Note | MIDI # | Primary | Shift |
+|------|--------|---------|-------|
+| F3   | 53 | **Lane 1** — select active lane | **Mute/Unmute Lane 1** |
+| G3   | 55 | **Lane 2** — select active lane | **Mute/Unmute Lane 2** |
+| A3   | 57 | **Lane 3** — select active lane | **Mute/Unmute Lane 3** |
+| B3   | 59 | **Lane 4** — select active lane | **Mute/Unmute Lane 4** |
 
 ---
 
@@ -112,11 +121,17 @@ convention: hold the key, act, release.
 
   75  D#5               [SHIFT — hold]
 
-  White keys  (reserved)
+  White keys (oct 3)    primary            shift
+    53  F3              Lane 1 select      Lane 1 mute/unmute
+    55  G3              Lane 2 select      Lane 2 mute/unmute
+    57  A3              Lane 3 select      Lane 3 mute/unmute
+    59  B3              Lane 4 select      Lane 4 mute/unmute
+
+  (other white keys — reserved)
 
   Encoders              primary            shift
     CC 1  green         loop out point     loop in point
-    CC 2  blue          scrub              (slide clip — todo)
+    CC 2  blue          scrub              slide clip + playhead
     CC 3  white         (tape speed — todo)
     CC 4  orange        (record level — todo)
  ─────────────────────────────────────────────────────────────────
@@ -132,6 +147,10 @@ convention: hold the key, act, release.
   absolute stream.
 - **Reset threshold** is 30 steps from centre (64).  Adjust `CC_RESET_THRESHOLD`
   in `opzControlMode.ts` if encoders feel sluggish or reset too aggressively.
+- **Snap mode** (toggled by the **X** key in the TAPE tab) determines the
+  step size for encoders 1 and 2: when Snap is on, each tick moves by one
+  beat; when Snap is off, each tick moves by one pixel of the current zoom.
+  Snap is independent of Free/Sync mode and is saved with the session.
 - `OpzControlMode` uses `addEventListener('midimessage')` on the shared
   `MIDIAccess`, so it coexists with `SyncEngine`'s clock/transport listener
   on the same MIDI port without conflict.

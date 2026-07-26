@@ -9,7 +9,7 @@
 // copying the raw .ts source as a static asset (which the browser can't
 // execute). This is the standard Vite technique for AudioWorklet modules.
 import tapeProcessorUrl from './worklets/tape-processor.ts?worker&url';
-import type { Clip } from '../tape/model';
+import type { Lane } from '../tape/model';
 import type { AudioPool } from './audioPool';
 
 // Shape sent to the worklet (must match WorkletClip in tape-processor.ts)
@@ -19,6 +19,7 @@ export interface WorkletClip {
   duration: number;
   sourceStart: number;
   gain: number;
+  pan: number;
   muted: boolean;
 }
 
@@ -47,7 +48,7 @@ export class AudioEngine {
   private currentOutputDeviceId: string = '';  // '' = system default
 
   private playheadListeners = new Set<(info: PlayheadInfo) => void>();
-  private pendingRecording: ((result: { samples: Float32Array; startFrame: number }) => void) | null = null;
+  private pendingRecordingQueue: ((result: { samples: Float32Array; startFrame: number }) => void)[] = [];
 
   get audioContext(): AudioContext {
     if (!this.ctx) throw new Error('AudioEngine not initialized: call init() first');
@@ -88,9 +89,10 @@ export class AudioEngine {
     this.node = new AudioWorkletNode(this.ctx, 'tape-processor', {
       numberOfInputs: 1,
       numberOfOutputs: 1,
-      channelCount: 1,
+      channelCount: 1,           // mono input (mic)
       channelCountMode: 'explicit',
       channelInterpretation: 'discrete',
+      outputChannelCount: [2],   // stereo output for panning
     });
     this.node.port.onmessage = (event: MessageEvent<FromProcessorMessage>) => this.handleMessage(event.data);
 
@@ -134,8 +136,7 @@ export class AudioEngine {
   private handleMessage(msg: FromProcessorMessage): void {
     switch (msg.type) {
       case 'recorded':
-        this.pendingRecording?.({ samples: msg.samples, startFrame: msg.startFrame });
-        this.pendingRecording = null;
+        this.pendingRecordingQueue.shift()?.({ samples: msg.samples, startFrame: msg.startFrame });
         break;
       case 'playhead':
         for (const listener of this.playheadListeners) {
@@ -161,31 +162,46 @@ export class AudioEngine {
 
   stopRecording(): Promise<{ samples: Float32Array; startFrame: number }> {
     return new Promise((resolve) => {
-      this.pendingRecording = resolve;
+      this.pendingRecordingQueue.push(resolve);
       this.node!.port.postMessage({ type: 'record-stop' });
     });
   }
 
   /**
-   * Sends all tape clips to the worklet (structured clone — main thread retains originals in pool).
-   * Must be called whenever clips change before the next play().
+   * Atomically flushes the current recording buffer to the main thread and resets
+   * it, WITHOUT stopping recording.  Used for per-loop-pass overdub in free mode.
    */
-  loadTape(clips: Clip[], pool: AudioPool): void {
+  rotateRecording(): Promise<{ samples: Float32Array; startFrame: number }> {
+    return new Promise((resolve) => {
+      this.pendingRecordingQueue.push(resolve);
+      this.node!.port.postMessage({ type: 'record-rotate' });
+    });
+  }
+
+  /**
+   * Sends all tape lanes to the worklet, applying per-lane gain, pan, and mute.
+   * Must be called whenever clips or lane settings change before the next play().
+   */
+  loadTape(lanes: Lane[], pool: AudioPool): void {
     const workletClips: WorkletClip[] = [];
-    for (const clip of clips) {
-      if (clip.muted) continue; // muted clips sent with muted=true so worklet skips them
-      const samples = pool.get(clip.audioBufferId);
-      if (!samples) continue;
-      workletClips.push({
-        samples,
-        tapeStart: clip.tapeStart,
-        duration: clip.duration,
-        sourceStart: clip.sourceStart,
-        gain: clip.gain,
-        muted: clip.muted,
-      });
+    for (const lane of lanes) {
+      if (lane.muted) continue;
+      for (const clip of lane.clips) {
+        if (clip.muted) continue;
+        const samples = pool.get(clip.audioBufferId);
+        if (!samples) continue;
+        workletClips.push({
+          samples,
+          tapeStart:   clip.tapeStart,
+          duration:    clip.duration,
+          sourceStart: clip.sourceStart,
+          gain:        clip.gain * lane.gain,
+          pan:         lane.pan,
+          muted:       false,
+        });
+      }
     }
-    // Structured clone (no transfer list) so pool retains original Float32Arrays for rendering.
+    // Structured clone so pool retains original Float32Arrays for rendering.
     this.node!.port.postMessage({ type: 'set-tape', clips: workletClips });
   }
 

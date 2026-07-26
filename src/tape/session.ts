@@ -3,7 +3,7 @@
 // Object store: "sessions" (key = session name string)
 // Each record: SessionRecord
 
-import type { Clip, Tape } from './model';
+import type { Clip, Lane, Tape } from './model';
 import { makeClip, LANE_COUNT } from './model';
 import { AudioPool } from '../audio/audioPool';
 import type { AudioBufferId } from '../audio/audioPool';
@@ -23,6 +23,11 @@ export interface SessionRecord {
   bpm?: number;
   playhead?: number;
   activeLane?: 0 | 1 | 2 | 3;
+  laneMuted?: boolean[];
+  laneGain?: number[];
+  lanePan?: number[];
+  mode?: 'free' | 'sync';
+  snap?: boolean;
   audioBuffers: { id: AudioBufferId; buffer: ArrayBuffer }[];
 }
 
@@ -53,7 +58,7 @@ function rehydrateClips(raw: Clip[]): Clip[] {
   );
 }
 
-export async function saveSession(name: string, tape: Tape, pool: AudioPool): Promise<void> {
+export async function saveSession(name: string, tape: Tape, pool: AudioPool, mode: 'free' | 'sync' = 'sync', snap = true): Promise<void> {
   const allBuffers = pool.getAllBuffers();
   const allClips = tape.lanes.flatMap((l) => l.clips);
   const referencedIds = new Set(allClips.map((c) => c.audioBufferId));
@@ -75,6 +80,11 @@ export async function saveSession(name: string, tape: Tape, pool: AudioPool): Pr
     bpm: tape.bpm,
     playhead: tape.playhead,
     activeLane: tape.activeLane,
+    laneMuted: tape.lanes.map((l) => l.muted),
+    laneGain:  tape.lanes.map((l) => l.gain),
+    lanePan:   tape.lanes.map((l) => l.pan),
+    mode,
+    snap,
     audioBuffers,
   };
 
@@ -88,7 +98,7 @@ export async function saveSession(name: string, tape: Tape, pool: AudioPool): Pr
   db.close();
 }
 
-export async function loadSession(name: string): Promise<{ tape: Tape; pool: AudioPool } | null> {
+export async function loadSession(name: string): Promise<{ tape: Tape; pool: AudioPool; mode: 'free' | 'sync'; snap: boolean } | null> {
   const db = await openDb();
   const record = await new Promise<SessionRecord | undefined>((resolve, reject) => {
     const tx = db.transaction(STORE_NAME, 'readonly');
@@ -111,8 +121,13 @@ export async function loadSession(name: string): Promise<{ tape: Tape; pool: Aud
     : [record.clips ?? [], [], [], []];
 
   const lanes = Array.from({ length: LANE_COUNT }, (_, i) =>
-    ({ clips: rehydrateClips(rawLanes[i] ?? []) }),
-  ) as [{ clips: Clip[] }, { clips: Clip[] }, { clips: Clip[] }, { clips: Clip[] }];
+    ({
+      clips: rehydrateClips(rawLanes[i] ?? []),
+      muted: record.laneMuted?.[i] ?? false,
+      gain:  record.laneGain?.[i]  ?? 1.0,
+      pan:   record.lanePan?.[i]   ?? 0.0,
+    }),
+  ) as [Lane, Lane, Lane, Lane];
 
   const allClips = lanes.flatMap((l) => l.clips);
   const tapeLength = allClips.length === 0 ? 0 : Math.max(...allClips.map((c) => c.tapeStart + c.duration));
@@ -128,7 +143,7 @@ export async function loadSession(name: string): Promise<{ tape: Tape; pool: Aud
     bpm: record.bpm ?? 120,
   };
 
-  return { tape, pool };
+  return { tape, pool, mode: record.mode ?? 'sync', snap: record.snap ?? true };
 }
 
 export async function listSessions(): Promise<string[]> {

@@ -180,3 +180,60 @@ export function tapeLengthFromLanes(lanes: Tape['lanes']): number {
   if (all.length === 0) return 0;
   return Math.max(...all.map((c) => c.tapeStart + c.duration));
 }
+
+// ---------------------------------------------------------------------------
+// applyOverwrite
+// ---------------------------------------------------------------------------
+/**
+ * Applies destructive tape overwrite: inserts `newClip` into `clips` and
+ * truncates or removes any existing clips whose tape range overlaps with it.
+ *
+ * Rules (all coordinates are sample positions):
+ *  - Existing clip fully inside new clip → deleted.
+ *  - Existing clip overlaps on the left only → right edge trimmed to newClip.tapeStart.
+ *  - Existing clip overlaps on the right only → left edge advanced to newClip end;
+ *    sourceStart adjusted accordingly.
+ *  - Existing clip completely surrounds new clip → split into left and right tails.
+ *
+ * The returned array is sorted by tapeStart.
+ */
+export function applyOverwrite(clips: Clip[], newClip: Clip): Clip[] {
+  const newStart = newClip.tapeStart;
+  const newEnd   = newClip.tapeStart + newClip.duration;
+
+  const result: Clip[] = [];
+
+  for (const clip of clips) {
+    const clipStart = clip.tapeStart;
+    const clipEnd   = clip.tapeStart + clip.duration;
+
+    // No overlap — keep untouched.
+    if (clipEnd <= newStart || clipStart >= newEnd) {
+      result.push(clip);
+      continue;
+    }
+
+    // Left tail: the part of the existing clip that sits before the new clip.
+    if (clipStart < newStart) {
+      result.push({ ...clip, duration: newStart - clipStart });
+    }
+
+    // Right tail: the part of the existing clip that sits after the new clip.
+    if (clipEnd > newEnd) {
+      const trimSamples = newEnd - clipStart; // how far into the source we skip
+      result.push({
+        ...clip,
+        id: newClipId(),
+        tapeStart: newEnd,
+        sourceStart: clip.sourceStart + trimSamples,
+        duration: clipEnd - newEnd,
+      });
+    }
+
+    // If neither tail exists the clip was fully overwritten — just drop it.
+  }
+
+  result.push(newClip);
+  result.sort((a, b) => a.tapeStart - b.tapeStart);
+  return result;
+}
