@@ -7,8 +7,10 @@ export type TapeAction =
   | { type: 'play'; countIn?: boolean }
   | { type: 'stop' }
   // ── Engine events ─────────────────────────────────────────────────────────
-  /** MIDI clock start received while transport is armed → triggers recording. */
-  | { type: 'midiClockStart' }
+  /** MIDI clock start: always drives transport.  startSamples = nearest beat to playhead. */
+  | { type: 'midiClockStart'; startSamples: number }
+  /** MIDI clock stop received: stops transport or rewinds if already idle. */
+  | { type: 'midiClockStop' }
   /** Worklet reported playback stopped while transport was 'playing'. */
   | { type: 'workletPlaybackStopped' }
   // ── Navigation ────────────────────────────────────────────────────────────

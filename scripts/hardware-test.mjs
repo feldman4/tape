@@ -14,12 +14,17 @@
 //   - The OP-Z's channel-1 percussion track has an audible voice assigned,
 //     and its project tempo is set to whatever it should be for this run
 //     (tempo/pattern are not remote-controlled by this script).
+//   - For the metronome calibration step (1.5): the OP-Z's sequencer should
+//     have no active notes so only the built-in metronome click sounds into
+//     the mic.  (Other steps are unaffected by this.)
 //
 // What it exercises:
-//   1. OP-Z note-to-sound latency (send Note On -> record -> onset-detect).
-//   2. Free-mode recording (record while triggering a percussion note).
-//   3. Sync-mode recording (send MIDI Start, let the OP-Z drive Sync mode
-//      via its own MIDI Clock, verify a beat-accurate clip is produced).
+//   1.   OP-Z note-to-sound latency (send Note On -> record -> onset-detect).
+//   1.5. Metronome latency calibration (record metronome clicks while MIDI
+//        Clock runs; measure per-beat offsets; derive calibrated L_in).
+//   2.   Free-mode recording (record while triggering a percussion note).
+//   3.   Sync-mode recording (send MIDI Start, let the OP-Z drive Sync mode
+//        via its own MIDI Clock, verify a beat-accurate clip is produced).
 //
 // This does not replace docs/testing_proposal.md's DSP/property tests (those
 // need no hardware); it covers the two tiers that do.
@@ -85,6 +90,39 @@ async function main() {
     const latencyOk = typeof state.noteLatency.latencyMs === 'number' && state.noteLatency.latencyMs >= 0 && state.noteLatency.latencyMs < 1000;
     record('OP-Z note-to-sound latency measured', latencyOk, `${state.noteLatency.latencyMs?.toFixed(1)} ms`);
 
+    // --- 1.5. Metronome latency calibration ---
+    // For accurate results the OP-Z sequencer should have no active notes here;
+    // only the built-in metronome click should be audible.
+    // Robust to hardware not being present: timeout is caught, assertions are skipped.
+    const calibHandle = page.evaluate(() => window.__tapeTest.calibrateMetronomeLatency(8));
+    await page.getByRole('button', { name: 'Send MIDI Start' }).click();
+    let cal = null;
+    try {
+      cal = await calibHandle;
+    } catch (e) {
+      record('Metronome calibration completed', false, String(e.message));
+    }
+    await page.getByRole('button', { name: 'Send MIDI Stop' }).click();
+    await page
+      .waitForFunction(() => window.__tapeTest?.getState()?.transport === 'idle', { timeout: 5_000 })
+      .catch(() => {});
+    if (cal) {
+      const noteLatMs = state.noteLatency?.latencyMs ?? null;
+      // predictedOffset = noteLatency − midiLatencyMs (default 2 ms)
+      const predictedOffset = noteLatMs !== null ? noteLatMs - 2 : null;
+      record('Calibration: ≥6/8 beats detected', cal.detectedBeats >= 6, `${cal.detectedBeats}/8 beats`);
+      record('Calibration: beat jitter < 3 ms', cal.stddevMs < 3, `stddev=${cal.stddevMs.toFixed(2)} ms`);
+      record('Calibration: mean offset 0–150 ms', cal.meanOffsetMs >= 0 && cal.meanOffsetMs < 150, `mean=${cal.meanOffsetMs.toFixed(1)} ms`);
+      if (predictedOffset !== null) {
+        record(
+          'Calibration: offset consistent with note latency',
+          Math.abs(cal.meanOffsetMs - predictedOffset) < 10,
+          `rawOffset=${cal.meanOffsetMs.toFixed(1)} ms, predicted=${predictedOffset.toFixed(1)} ms`,
+        );
+      }
+      record('Calibration: L_in ≥ 0 ms', cal.calibratedLinMs >= 0, `L_in=${cal.calibratedLinMs.toFixed(1)} ms`);
+    }
+
     // --- 2. Free-mode recording ---
     await page.getByRole('radio', { name: 'Free' }).check();
     await page.getByRole('button', { name: 'Record' }).click();
@@ -98,15 +136,15 @@ async function main() {
 
     // --- 3. Sync-mode recording, driven entirely by the OP-Z's own transport ---
     await page.getByRole('radio', { name: 'Sync' }).check();
-    await page.getByRole('button', { name: 'Arm Record' }).click();
-    await page.getByRole('button', { name: 'Send Play (MIDI Start)' }).click();
+    await page.getByRole('button', { name: /arm/i }).click();
+    await page.getByRole('button', { name: 'Send MIDI Start' }).click();
     await page
       .waitForFunction(() => window.__tapeTest?.getState()?.transport === 'recording', { timeout: 5_000 })
       .catch(() => {
         throw new Error('OP-Z Start did not arrive back over MIDI in time — check the MIDI input selection/cabling.');
       });
     await page.waitForTimeout(4000); // let a few beats elapse
-    await page.getByRole('button', { name: 'Stop', exact: true }).click();
+    await page.getByRole('button', { name: /stop/i }).click();
     await page.getByRole('button', { name: 'Send MIDI Stop' }).click(); // stop the OP-Z's transport too
     await page.waitForFunction(() => window.__tapeTest?.getState()?.transport === 'idle', { timeout: 5_000 });
     state = await getState(page);

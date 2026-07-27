@@ -43,6 +43,8 @@ interface TapeTabProps {
   handleSetLoopOut: () => void;
   handleToggleLoop: () => void;
   handleLoopFromClip: () => void;
+  clickEnabled: boolean;
+  handleToggleClick: () => void;
 }
 
 export function TapeTab({
@@ -58,6 +60,7 @@ export function TapeTab({
   handleSplit, handleJoin, handleLift, handleDrop,
   handleUndo, handleRedo,
   handleSetLoopIn, handleSetLoopOut, handleToggleLoop, handleLoopFromClip,
+  clickEnabled, handleToggleClick,
 }: TapeTabProps) {
   return (
     <div style={{ maxWidth: CANVAS_WIDTH, margin: '0 auto' }}>
@@ -136,6 +139,12 @@ export function TapeTab({
               onClick={(e) => void handlePlay(e.shiftKey)}
               disabled={!ready || !hasClips || (transport !== 'idle' && transport !== 'playing' && !(transport === 'armed' && mode === 'free'))}>
               {transport === 'playing' ? '⏸ Pause' : transport === 'armed' && mode === 'free' ? '▶ Play / ⇧ Count-in' : '▶ Play'}
+            </button>
+            <button
+              title="Metronome click (hotkey: m)"
+              style={{ ...btnStyle, ...(clickEnabled ? { background: '#b45309', color: '#fde68a' } : {}) }}
+              onClick={handleToggleClick}>
+              {clickEnabled ? '♪ Click ●' : '♪ Click'}
             </button>
           </div>
 

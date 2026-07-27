@@ -67,6 +67,16 @@ export class AudioEngine {
     return this.currentOutputDeviceId;
   }
 
+  /** AudioContext output latency in seconds (time from render to speaker output). */
+  get outputLatencySecs(): number {
+    return this.ctx?.outputLatency ?? 0;
+  }
+
+  /** AudioContext input latency in seconds (time from mic capture to samples available in JS). */
+  get inputLatencySecs(): number {
+    return (this.ctx as (AudioContext & { inputLatency?: number }) | null)?.inputLatency ?? 0;
+  }
+
   /** Lists available audio output devices. Labels are only populated once mic permission has been granted. */
   async listOutputDevices(): Promise<MediaDeviceInfo[]> {
     const devices = await navigator.mediaDevices.enumerateDevices();

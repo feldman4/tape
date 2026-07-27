@@ -40,6 +40,7 @@ export function useTapeDispatch(refs: TapeEngineRefs, deps: DispatchDeps) {
   const {
     engineRef, syncEngineRef, poolRef, poolDisplayRef,
     tapeRef, transportRef, modeRef, snapRef, outputLatencyMsRef,
+    calibratedInputLatencyMsRef,
     tapeStartForRecordingRef, recordStartWallTimeRef,
     loopRotateTimeoutRef, loopRotatingRef, armedRef,
     cancelCountInRef, addLogFnRef, selectedClipIdRef, samplesPerPixelRef,
@@ -153,19 +154,22 @@ export function useTapeDispatch(refs: TapeEngineRefs, deps: DispatchDeps) {
     } else {
       const tape = tapeRef.current;
       const loopLen = tape.loopOut - tape.loopIn;
+      // Apply audio input latency so the recorded clip lands at the correct tape position.
+      const inputLatSamples = Math.round(calibratedInputLatencyMsRef.current * sr / 1000);
+      const adjTapeStart = Math.max(0, tapeStart - inputLatSamples);
       if (tape.loopEnabled && loopLen > 0) {
-        newClip = finalizeLoopRecording(poolRef.current, recording.samples, tapeStart, tape.loopIn, tape.loopOut);
-        const passes = (recording.samples.length - Math.max(0, tape.loopIn - tapeStart)) / loopLen;
-        addLogFnRef.current(`✓ Take (sync+loop): ${(recording.samples.length / sr).toFixed(3)}s raw, ${passes.toFixed(2)}x passes`);
+        newClip = finalizeLoopRecording(poolRef.current, recording.samples, adjTapeStart, tape.loopIn, tape.loopOut);
+        const passes = (recording.samples.length - Math.max(0, tape.loopIn - adjTapeStart)) / loopLen;
+        addLogFnRef.current(`✓ Take (sync+loop): ${(recording.samples.length / sr).toFixed(3)}s raw, ${passes.toFixed(2)}x passes  input-lat=${(inputLatSamples / sr * 1000).toFixed(1)}ms`);
         setLastClipBeats(null);
       } else {
         const syncEngine = syncEngineRef.current;
         const samplesPerBeat = syncEngine?.samplesPerBeat() ?? sr;
         const beatsElapsed = Math.round(recording.samples.length / samplesPerBeat);
-        newClip = finalizeSyncRecording(poolRef.current, recording.samples, tapeStart, beatsElapsed, samplesPerBeat);
+        newClip = finalizeSyncRecording(poolRef.current, recording.samples, adjTapeStart, beatsElapsed, samplesPerBeat);
         const raw = recording.samples.length;
         const target = Math.max(0, Math.round(beatsElapsed * samplesPerBeat));
-        addLogFnRef.current(`✓ Take (sync): raw=${(raw / sr).toFixed(3)}s  correction=${((target - raw) / sr * 1000).toFixed(1)}ms  beats=${beatsElapsed}`);
+        addLogFnRef.current(`✓ Take (sync): raw=${(raw / sr).toFixed(3)}s  beat-correction=${((target - raw) / sr * 1000).toFixed(1)}ms  input-lat=${(inputLatSamples / sr * 1000).toFixed(1)}ms  beats=${beatsElapsed}`);
         setLastClipBeats(beatsElapsed);
       }
     }
@@ -345,18 +349,90 @@ export function useTapeDispatch(refs: TapeEngineRefs, deps: DispatchDeps) {
       // ── Engine events ──────────────────────────────────────────────────────
 
       case 'midiClockStart': {
-        if (!armedRef.current) break;
         const engine = engineRef.current;
         if (!engine) break;
-        armedRef.current = false;
+        const tr = transportRef.current;
+        const startSamples = action.startSamples;
         const tape = tapeRef.current;
-        tapeStartForRecordingRef.current = tape.playhead;
-        recordStartWallTimeRef.current = Date.now();
+        addLogFnRef.current(`▶ MIDI Start  transport=${tr}  pos=${(startSamples / engine.sampleRate).toFixed(3)}s`);
+
+        // Update playhead to the snapped beat position.
+        setTape((prev) => { const t = { ...prev, playhead: startSamples }; tapeRef.current = t; return t; });
+
+        if (tr === 'recording') {
+          // Finalize the current take, then restart playback from the new beat.
+          engine.stopPlayback();
+          void finalizeRecordingTake(engine).then(() => {
+            const t = tapeRef.current;
+            engine.loadTape(t.lanes, poolRef.current);
+            engine.play(startSamples, { loopIn: t.loopIn, loopOut: t.loopOut, loopEnabled: t.loopEnabled });
+            transportRef.current = 'playing';
+            setTransport('playing');
+          });
+          break;
+        }
+
+        if (tr === 'counting-in') {
+          cancelCountInRef.current?.();
+          armedRef.current = false;
+        }
+
         engine.loadTape(tape.lanes, poolRef.current);
-        engine.play(tape.playhead, { loopIn: tape.loopIn, loopOut: tape.loopOut, loopEnabled: tape.loopEnabled });
-        engine.startRecording();
-        transportRef.current = 'recording';
-        setTransport('recording');
+
+        if (armedRef.current) {
+          armedRef.current = false;
+          tapeStartForRecordingRef.current = startSamples;
+          recordStartWallTimeRef.current = Date.now();
+          engine.play(startSamples, { loopIn: tape.loopIn, loopOut: tape.loopOut, loopEnabled: tape.loopEnabled });
+          engine.startRecording();
+          transportRef.current = 'recording';
+          setTransport('recording');
+        } else {
+          // Not armed: start (or restart) plain playback.
+          engine.play(startSamples, { loopIn: tape.loopIn, loopOut: tape.loopOut, loopEnabled: tape.loopEnabled });
+          transportRef.current = 'playing';
+          setTransport('playing');
+        }
+        break;
+      }
+
+      case 'midiClockStop': {
+        const engine = engineRef.current;
+        if (!engine) break;
+        const tr = transportRef.current;
+        addLogFnRef.current(`⏹ MIDI Stop  transport=${tr}`);
+        if (tr === 'recording') {
+          engine.stopPlayback();
+          void finalizeRecordingTake(engine).then(() => setTransport('idle'));
+          transportRef.current = 'idle';
+          break;
+        }
+        if (tr === 'playing') {
+          engine.stopPlayback();
+          transportRef.current = 'idle';
+          setTransport('idle');
+          break;
+        }
+        if (tr === 'counting-in') {
+          cancelCountInRef.current?.();
+          armedRef.current = false;
+          transportRef.current = 'idle';
+          setTransport('idle');
+          break;
+        }
+        if (tr === 'armed') {
+          armedRef.current = false;
+          transportRef.current = 'idle';
+          setTransport('idle');
+          break;
+        }
+        // idle → rewind
+        {
+          const tape = tapeRef.current;
+          const rewindPos = tape.loopEnabled ? tape.loopIn : 0;
+          setTape((prev) => { const t = { ...prev, playhead: rewindPos }; tapeRef.current = t; return t; });
+          addLogFnRef.current(`⏮ Rewind to ${(rewindPos / engine.sampleRate).toFixed(3)}s`);
+        }
         break;
       }
 

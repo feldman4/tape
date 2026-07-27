@@ -50,6 +50,77 @@ export interface NoteLatencyResult extends OnsetResult {
   latencyMs: number | null;
 }
 
+// ---------------------------------------------------------------------------
+// Multi-beat onset measurement (metronome latency calibration)
+// ---------------------------------------------------------------------------
+
+export interface BeatOnsetResult {
+  beatIndex: number;
+  /** AudioContext frame corresponding to the MIDI-derived beat time. */
+  expectedFrame: number;
+  /** Detected onset frame in the recording (absolute AudioContext frame), or null. */
+  detectedFrame: number | null;
+  /** (detectedFrame − expectedFrame) / sampleRate × 1000 ms, or null if undetected. */
+  offsetMs: number | null;
+}
+
+/**
+ * For each MIDI beat context time, searches a window in a recording for an
+ * onset transient and measures the offset from the expected beat position.
+ *
+ * Designed for OP-Z metronome calibration: each click is short, beats have
+ * silence between them, and the OP-Z synthesis delay puts the audio a few
+ * ms after the MIDI clock edge.
+ *
+ * @param samples             Raw recording buffer from the audio engine
+ * @param recordStartFrame    AudioContext frame when recording began
+ * @param beatContextTimesSecs  Per-beat AudioContext times (seconds), MIDI-latency-corrected
+ * @param sampleRate
+ * @param skipFirstBeats      Skip the first N beats (OP-Z clock / startup jitter)
+ */
+export function measureBeatOnsets(
+  samples: Float32Array,
+  recordStartFrame: number,
+  beatContextTimesSecs: number[],
+  sampleRate: number,
+  skipFirstBeats = 1,
+): BeatOnsetResult[] {
+  // Search window: 2000 samples (~45 ms) before expected beat for noise floor,
+  // 8000 samples (~181 ms) after for the onset.  Narrow enough not to bleed
+  // into adjacent beats at ≥ 60 BPM.
+  const BEFORE = 2000;
+  const AFTER  = 8000;
+
+  return beatContextTimesSecs.map((contextTimeSecs, i) => {
+    const expectedFrame = Math.round(contextTimeSecs * sampleRate);
+    const expectedInRec = expectedFrame - recordStartFrame;
+
+    if (i < skipFirstBeats) {
+      return { beatIndex: i, expectedFrame, detectedFrame: null, offsetMs: null };
+    }
+
+    const winStart = Math.max(0, expectedInRec - BEFORE);
+    const winEnd   = Math.min(samples.length, expectedInRec + AFTER);
+    if (winEnd <= winStart) {
+      return { beatIndex: i, expectedFrame, detectedFrame: null, offsetMs: null };
+    }
+
+    const windowSlice = samples.slice(winStart, winEnd);
+    // Pre-beat portion makes a good noise-floor reference.
+    const preBeatLen   = Math.max(0, expectedInRec - winStart);
+    const noiseFloor   = Math.max(64, Math.min(preBeatLen, 1500));
+    const onset = detectOnset(windowSlice, noiseFloor);
+
+    if (onset.index === null) {
+      return { beatIndex: i, expectedFrame, detectedFrame: null, offsetMs: null };
+    }
+
+    const detectedFrame = recordStartFrame + winStart + onset.index;
+    const offsetMs = ((detectedFrame - expectedFrame) / sampleRate) * 1000;
+    return { beatIndex: i, expectedFrame, detectedFrame, offsetMs };
+  });
+}
+
 /**
  * Measures note-to-sound latency: the time from sending a MIDI note to the
  * OP-Z until its audio onset appears in the recording. Includes the OP-Z's

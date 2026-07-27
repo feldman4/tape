@@ -3,8 +3,9 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { AudioEngine } from '../audio/audioEngine';
 import { AudioPool } from '../audio/audioPool';
 import { measureLatency, type LatencyResult } from '../audio/latencyTest';
-import { measureNoteLatency, type NoteLatencyResult } from '../audio/onsetDetect';
+import { measureNoteLatency, measureBeatOnsets, type NoteLatencyResult } from '../audio/onsetDetect';
 import { SyncEngine, type SyncEvent } from '../sync/syncEngine';
+import { createClickWaveform } from '../audio/clickWaveform';
 import { OpzControlMode, type ControlEvent } from '../sync/opzControlMode';
 import { makeDefaultTape, LANE_COUNT, type Clip, type Lane, type Tape } from '../tape/model';
 import { finalizeFreeRecording } from '../tape/recording';
@@ -90,11 +91,36 @@ export function TapePage() {
   const [sessionStatus, setSessionStatus] = useState('');
 
   const [latency, setLatency] = useState<LatencyResult | null>(null);
+  const latencyRef = useRef<LatencyResult | null>(null);
+  latencyRef.current = latency;
   const [noteLatency, setNoteLatency] = useState<NoteLatencyResult | null>(null);
+
+  type MetronomeCalibration = {
+    detectedBeats: number;
+    meanOffsetMs: number;
+    stddevMs: number;
+    calibratedLinMs: number;
+    loopbackLatencyMs: number | null;
+    outputLatencyMs: number;
+    beatResults: { beatIndex: number; offsetMs: number | null }[];
+  };
+  const [metronomeCalibration, setMetronomeCalibration] = useState<MetronomeCalibration | null>(null);
 
   const [outputLatencyMs, setOutputLatencyMs] = useState(20);
   const outputLatencyMsRef = useRef(20);
   outputLatencyMsRef.current = outputLatencyMs;
+
+  // Calibrated input latency — set from AudioContext.inputLatency on init,
+  // refined by calibrateMetronomeLatency().  Used for sync recording placement.
+  const calibratedInputLatencyMsRef = useRef(0);
+
+  const [midiLatencyMs, setMidiLatencyMs] = useState(2);
+  const midiLatencyMsRef = useRef(2);
+  midiLatencyMsRef.current = midiLatencyMs;
+
+  const [clickEnabled, setClickEnabled] = useState(false);
+  const clickEnabledRef = useRef(false);
+  clickEnabledRef.current = clickEnabled;
 
   // ---------------------------------------------------------------------------
   // Refs for real-time values (avoid stale closures in rAF / MIDI callbacks)
@@ -127,7 +153,8 @@ export function TapePage() {
   const refs: TapeEngineRefs = {
     engineRef, syncEngineRef, ctrlModeRef, ctrlModeHandlerRef,
     poolRef, poolDisplayRef, tapeRef, transportRef, modeRef, snapRef,
-    outputLatencyMsRef, tapeStartForRecordingRef, recordStartWallTimeRef,
+    outputLatencyMsRef, calibratedInputLatencyMsRef,
+    tapeStartForRecordingRef, recordStartWallTimeRef,
     loopRotateTimeoutRef, loopRotatingRef, armedRef, clocksSinceStartRef,
     cancelCountInRef, addLogFnRef, samplesPerPixelRef, selectedClipIdRef,
   };
@@ -161,8 +188,9 @@ export function TapePage() {
   const handleDeleteSession = (name: string) => dispatch({ type: 'deleteSession', name });
   const handleLaneGain = (laneIndex: 0|1|2|3, gain: number) => dispatch({ type: 'setLaneGain', lane: laneIndex, gain });
   const handleLanePan  = (laneIndex: 0|1|2|3, pan: number)  => dispatch({ type: 'setLanePan',  lane: laneIndex, pan });
-  const handleLaneMute = (laneIndex: 0|1|2|3) => dispatch({ type: 'toggleMuteLane', lane: laneIndex });
-  const setActiveLane  = (lane: 0|1|2|3) => dispatch({ type: 'selectLane', lane });
+  const handleLaneMute    = (laneIndex: 0|1|2|3) => dispatch({ type: 'toggleMuteLane', lane: laneIndex });
+  const setActiveLane     = (lane: 0|1|2|3) => dispatch({ type: 'selectLane', lane });
+  const handleToggleClick = useCallback(() => setClickEnabled((v) => !v), []);
 
   // ---------------------------------------------------------------------------
   // Init
@@ -175,6 +203,7 @@ export function TapePage() {
       const engine = new AudioEngine();
       await engine.init();
       engineRef.current = engine;
+      calibratedInputLatencyMsRef.current = engine.inputLatencySecs * 1000;
       poolDisplayRef.current = poolRef.current;
 
       const devices = await engine.listInputDevices();
@@ -213,13 +242,46 @@ export function TapePage() {
         ctrlModeRef.current = ctrlMode;
       }
 
+      // Pre-build a reusable click buffer for the metronome (constant; created once per init).
+      const clickWf = createClickWaveform(engine.audioContext.sampleRate);
+      const clickBuf = engine.audioContext.createBuffer(1, clickWf.length, engine.audioContext.sampleRate);
+      clickBuf.copyToChannel(new Float32Array(clickWf), 0);
+
+      const scheduleMetronomeClick = (contextTimeSecs: number, isDownbeat: boolean) => {
+        const ctx = engine.audioContext;
+        const node = ctx.createBufferSource();
+        node.buffer = clickBuf;
+        const gainNode = ctx.createGain();
+        gainNode.gain.value = isDownbeat ? 1.0 : 0.55;
+        node.connect(gainNode);
+        gainNode.connect(ctx.destination);
+        // Never schedule in the past.
+        node.start(Math.max(ctx.currentTime + 0.001, contextTimeSecs));
+      };
+
       syncEngine.on((event: SyncEvent) => {
         if (event.type === 'start') {
           setSyncRunning(true);
           clocksSinceStartRef.current = 0;
-          dispatch({ type: 'midiClockStart' });
+
+          // Snap playhead to nearest beat and anchor the transport estimate there.
+          const tape = tapeRef.current;
+          const sr = engine.sampleRate;
+          const bpm = Math.max(60, tape.bpm);
+          const spb = (sr * 60) / bpm;
+          const nearestBeatSamples = Math.round(tape.playhead / spb) * spb;
+          const nearestBeatSecs = nearestBeatSamples / sr;
+          syncEngine.setStartTapeOffset(nearestBeatSecs);
+
+          dispatch({ type: 'midiClockStart', startSamples: Math.max(0, Math.round(nearestBeatSamples)) });
+
+          // Metronome: schedule downbeat for the start moment.
+          if (clickEnabledRef.current) {
+            scheduleMetronomeClick(engine.audioContext.currentTime + 0.001, true);
+          }
         } else if (event.type === 'stop') {
           setSyncRunning(false);
+          dispatch({ type: 'midiClockStop' });
         } else if (event.type === 'clock') {
           clocksSinceStartRef.current += 1;
           setSyncBeatPosition(event.beatPosition);
@@ -233,6 +295,11 @@ export function TapePage() {
                 return t;
               });
             }
+          }
+          // Metronome: schedule a click on each beat boundary (every 24 pulses).
+          if (clickEnabledRef.current && clocksSinceStartRef.current % 24 === 0) {
+            const isDownbeat = event.beatIndex % 4 === 0;
+            scheduleMetronomeClick(event.contextTimeSecs, isDownbeat);
           }
         }
       });
@@ -500,6 +567,8 @@ export function TapePage() {
       const key = ev.key.toLowerCase();
       if (key in ENCODER_KEYS) { encoderKey = key; accumDx = 0; ev.preventDefault(); return; }
 
+      if (key === 'm') { setClickEnabled((v) => !v); ev.preventDefault(); return; }
+
       const action = keyEventToAction(ev);
       if (action) { dispatch(action); ev.preventDefault(); }
     };
@@ -554,6 +623,12 @@ export function TapePage() {
         latency: latency ? { latencyMs: latency.latencyMs, confidence: latency.confidence } : null,
         noteLatency: noteLatency ? { latencyMs: noteLatency.latencyMs, index: noteLatency.index } : null,
         sync: { running: syncRunning, bpm: syncBpm, beatPosition: syncBeatPosition },
+        metronomeCalibration: metronomeCalibration ? {
+          detectedBeats: metronomeCalibration.detectedBeats,
+          meanOffsetMs: metronomeCalibration.meanOffsetMs,
+          stddevMs: metronomeCalibration.stddevMs,
+          calibratedLinMs: metronomeCalibration.calibratedLinMs,
+        } : null,
         selectedAudioDeviceId, selectedMidiInputId, selectedMidiOutputId,
         audioDevices: audioDevices.map((d) => ({ id: d.deviceId, label: d.label })),
         midiInputs, midiOutputs, sessions,
@@ -593,11 +668,78 @@ export function TapePage() {
       saveSession: (name: string) => saveSession(name, tapeRef.current, poolRef.current, modeRef.current, snapRef.current).then(refreshSessions),
       loadSession: (name: string) => dispatch({ type: 'loadSession', name }),
       listSessions: () => listSessions(),
+      calibrateMetronomeLatency: (numBeats = 8): Promise<unknown> => {
+        const engine = engineRef.current;
+        const sync = syncEngineRef.current;
+        if (!engine || !sync) return Promise.reject(new Error('Engine not initialized'));
+        if (transportRef.current === 'recording') {
+          return Promise.reject(new Error('Cannot calibrate while tape is recording'));
+        }
+        const beatContextTimes: number[] = [];
+        let lastBeatIndex = -1;
+        engine.startRecording();
+        return new Promise((resolve, reject) => {
+          const timeoutId = setTimeout(() => {
+            unsubscribe();
+            void engine.stopRecording().catch(() => {});
+            reject(new Error(`Calibration timeout: only ${beatContextTimes.length}/${numBeats} beats received`));
+          }, 30_000);
+          let unsubscribe: () => void = () => {};
+          unsubscribe = sync.on((event) => {
+            if (event.type !== 'clock') return;
+            if (event.beatIndex <= lastBeatIndex) return;
+            lastBeatIndex = event.beatIndex;
+            beatContextTimes.push(event.contextTimeSecs);
+            if (beatContextTimes.length < numBeats) return;
+            clearTimeout(timeoutId);
+            unsubscribe();
+            setTimeout(() => {
+              void engine.stopRecording().then((recording) => {
+                const sr = engine.sampleRate;
+                const beatResults = measureBeatOnsets(
+                  recording.samples,
+                  recording.startFrame,
+                  beatContextTimes,
+                  sr,
+                );
+                const valid = beatResults.filter((r) => r.offsetMs !== null);
+                const offsets = valid.map((r) => r.offsetMs as number);
+                const mean = offsets.length > 0
+                  ? offsets.reduce((a, b) => a + b, 0) / offsets.length
+                  : 0;
+                const stddev = offsets.length > 1
+                  ? Math.sqrt(offsets.reduce((s, o) => s + (o - mean) ** 2, 0) / offsets.length)
+                  : 0;
+                const loopbackMs = latencyRef.current?.latencyMs ?? null;
+                const outLatMs = engine.outputLatencySecs * 1000;
+                const linMs = loopbackMs !== null
+                  ? Math.max(0, loopbackMs - outLatMs)
+                  : Math.max(0, engine.inputLatencySecs * 1000);
+                calibratedInputLatencyMsRef.current = linMs;
+                const result: MetronomeCalibration = {
+                  detectedBeats: valid.length,
+                  meanOffsetMs: parseFloat(mean.toFixed(3)),
+                  stddevMs: parseFloat(stddev.toFixed(3)),
+                  calibratedLinMs: parseFloat(linMs.toFixed(3)),
+                  loopbackLatencyMs: loopbackMs,
+                  outputLatencyMs: parseFloat(outLatMs.toFixed(3)),
+                  beatResults: beatResults.map((r) => ({
+                    beatIndex: r.beatIndex,
+                    offsetMs: r.offsetMs !== null ? parseFloat(r.offsetMs.toFixed(3)) : null,
+                  })),
+                };
+                setMetronomeCalibration(result);
+                resolve(result);
+              }).catch(reject);
+            }, 500); // wait 500 ms for audio tail after last beat
+          });
+        });
+      },
       OpzControlMode,
     };
   }, [
     ready, error, mode, transport, tape, clipboard,
-    undoStack, redoStack, lastClipBeats, latency, noteLatency,
+    undoStack, redoStack, lastClipBeats, latency, noteLatency, metronomeCalibration,
     syncRunning, syncBpm, syncBeatPosition,
     selectedAudioDeviceId, selectedMidiInputId, selectedMidiOutputId,
     audioDevices, midiInputs, midiOutputs, sessions,
@@ -699,6 +841,8 @@ export function TapePage() {
           handleSetLoopOut={handleSetLoopOut}
           handleToggleLoop={handleToggleLoop}
           handleLoopFromClip={handleLoopFromClip}
+          clickEnabled={clickEnabled}
+          handleToggleClick={handleToggleClick}
         />
       )}
 
@@ -740,6 +884,11 @@ export function TapePage() {
           handleSendTestNote={handleSendTestNote}
           handleSendMidiStart={handleSendMidiStart}
           handleSendMidiStop={handleSendMidiStop}
+          midiLatencyMs={midiLatencyMs}
+          setMidiLatencyMs={(ms) => {
+            setMidiLatencyMs(ms);
+            if (syncEngineRef.current) syncEngineRef.current.midiLatencyMs = ms;
+          }}
         />
       )}
 

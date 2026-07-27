@@ -18,6 +18,8 @@ interface TestTabProps {
   handleSendTestNote: () => void;
   handleSendMidiStart: () => void;
   handleSendMidiStop: () => void;
+  midiLatencyMs: number;
+  setMidiLatencyMs: (ms: number) => void;
 }
 
 export function TestTab({
@@ -26,6 +28,7 @@ export function TestTab({
   samplesPerPixelRef, activityLogRef, forceLogUpdate,
   handleLatencyTest, handleOpZLatencyTest,
   handleSendTestNote, handleSendMidiStart, handleSendMidiStop,
+  midiLatencyMs, setMidiLatencyMs,
 }: TestTabProps) {
   if (!ready) {
     return <button onClick={handleInit} style={btnStyle}>Enable Audio + MIDI</button>;
@@ -39,6 +42,23 @@ export function TestTab({
         <button style={btnStyle} onClick={handleSendTestNote} disabled={!selectedMidiOutputId}>Send Test Note</button>
         <button style={btnStyle} onClick={handleSendMidiStart} disabled={!selectedMidiOutputId}>Send MIDI Start</button>
         <button style={btnStyle} onClick={handleSendMidiStop} disabled={!selectedMidiOutputId}>Send MIDI Stop</button>
+      </div>
+      <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 12, fontSize: 13 }}>
+        <label htmlFor="midi-lat">MIDI latency (ms):</label>
+        <input
+          id="midi-lat"
+          type="number"
+          min={0}
+          max={50}
+          step={0.5}
+          value={midiLatencyMs}
+          onChange={(e) => {
+            const v = parseFloat(e.target.value);
+            if (!isNaN(v) && v >= 0) setMidiLatencyMs(v);
+          }}
+          style={{ width: 64, background: '#27272a', color: '#e4e4e7', border: '1px solid #3f3f46', borderRadius: 4, padding: '2px 6px' }}
+        />
+        <span style={{ color: '#71717a' }}>estimated USB MIDI message delay</span>
       </div>
       {(latency || noteLatency) && (
         <div style={{ fontSize: 13, marginBottom: 8 }}>
