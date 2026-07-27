@@ -49,7 +49,7 @@ function clipBlockHeight(lrh: number): number {
 
 /**
  * Main draw call — renders the full four-lane tape timeline.
- * @param syncMode When true, beat ticks are drawn in the top band.
+ * @param snapMode When true, beat ticks are drawn in the top band.
  */
 export function drawTimeline(
   ctx: CanvasRenderingContext2D,
@@ -57,7 +57,7 @@ export function drawTimeline(
   pool: AudioPool,
   layout: TimelineLayout,
   selectedClipId: string | null,
-  syncMode = true,
+  snapMode = true,
 ): void {
   const { canvasWidth, canvasHeight } = layout;
   const lrh = laneRowHeight(canvasHeight);
@@ -123,7 +123,7 @@ export function drawTimeline(
   }
 
   // Top band — beat ticks (sync mode only) + loop markers
-  drawTopBand(ctx, tape, layout, canvasWidth, syncMode);
+  drawTopBand(ctx, tape, layout, canvasWidth, snapMode);
 
   // Playhead (always at canvas centre, full height)
   const phX = Math.round(canvasWidth / 2) + 0.5;
@@ -137,7 +137,7 @@ export function drawTimeline(
 }
 
 /**
- * Draws the top band: beat ticks (sync mode only) and loop in/out markers.
+ * Draws the top band: beat ticks (snap mode only) and loop in/out markers.
  * The band spans y=0..TOP_BAND_HEIGHT and overlays the rest of the canvas.
  */
 function drawTopBand(
@@ -145,13 +145,13 @@ function drawTopBand(
   tape: Tape,
   layout: TimelineLayout,
   canvasWidth: number,
-  syncMode: boolean,
+  snapMode: boolean,
 ): void {
   const H = TOP_BAND_HEIGHT;
   const { playhead, samplesPerPixel } = layout;
 
-  // Beat ticks — sync mode only
-  if (syncMode) {
+  // Beat ticks — snap mode only
+  if (snapMode) {
     const SAMPLE_RATE = 44100;
     const samplesPerBeat = (SAMPLE_RATE * 60) / tape.bpm;
     const beatWidthPx    = samplesPerBeat / samplesPerPixel;
@@ -159,7 +159,7 @@ function drawTopBand(
       const halfView  = (canvasWidth * samplesPerPixel) / 2;
       const viewStart = playhead - halfView;
       const viewEnd   = playhead + halfView;
-      const firstBeat = Math.ceil(viewStart / samplesPerBeat);
+      const firstBeat = Math.max(0, Math.ceil(viewStart / samplesPerBeat));
       const lastBeat  = Math.floor(viewEnd   / samplesPerBeat);
       ctx.lineWidth = 1;
       for (let i = firstBeat; i <= lastBeat; i++) {

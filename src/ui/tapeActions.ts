@@ -1,0 +1,44 @@
+// TapeAction — all user and engine intents that modify tape state.
+// Produced by input adapters (keyboard/MIDI/canvas) and engine callbacks.
+// Consumed exclusively by useTapeDispatch.
+export type TapeAction =
+  // ── Transport ─────────────────────────────────────────────────────────────
+  | { type: 'record' }
+  | { type: 'play'; countIn?: boolean }
+  | { type: 'stop' }
+  // ── Engine events ─────────────────────────────────────────────────────────
+  /** MIDI clock start received while transport is armed → triggers recording. */
+  | { type: 'midiClockStart' }
+  /** Worklet reported playback stopped while transport was 'playing'. */
+  | { type: 'workletPlaybackStopped' }
+  // ── Navigation ────────────────────────────────────────────────────────────
+  | { type: 'selectLane'; lane: 0|1|2|3 }
+  | { type: 'toggleMuteLane'; lane: 0|1|2|3 }
+  | { type: 'seekPlayhead'; samples: number }
+  // ── Encoder ───────────────────────────────────────────────────────────────
+  /** Device-agnostic encoder nudge (OP-Z hardware or keyboard+mouse simulation). */
+  | { type: 'encoderNudge'; index: 0|1|2|3; delta: number; shift: boolean }
+  // ── Editing ───────────────────────────────────────────────────────────────
+  | { type: 'split' }
+  | { type: 'join' }
+  | { type: 'lift' }
+  | { type: 'drop' }
+  | { type: 'undo' }
+  | { type: 'redo' }
+  | { type: 'commitDrag'; clipId: string; from: number; to: number }
+  // ── Loop ──────────────────────────────────────────────────────────────────
+  | { type: 'setLoopIn' }
+  | { type: 'setLoopOut' }
+  | { type: 'toggleLoop' }
+  | { type: 'loopFromClip' }
+  // ── Mixer ─────────────────────────────────────────────────────────────────
+  | { type: 'setLaneGain'; lane: 0|1|2|3; gain: number }
+  | { type: 'setLanePan';  lane: 0|1|2|3; pan:  number }
+  // ── Settings ──────────────────────────────────────────────────────────────
+  | { type: 'toggleMode' }
+  | { type: 'toggleSnap' }
+  // ── Session ───────────────────────────────────────────────────────────────
+  | { type: 'saveSession' }
+  | { type: 'loadSession'; name: string }
+  | { type: 'newSession' }
+  | { type: 'deleteSession'; name: string };

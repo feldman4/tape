@@ -53,6 +53,12 @@ class TapeProcessor extends AudioWorkletProcessor {
   private clickAtFrame: number | null = null;
   private blockCounter = 0;
 
+  // Gain ramp — eliminates start/stop clicks.
+  // ~5 ms at 44100 Hz; inaudible as a fade but removes the transient.
+  private static readonly FADE_SAMPLES = 220;
+  private fadeGain = 1;
+  private fadeDir = 0; // 1 = fading in, -1 = fading out, 0 = stable
+
   constructor() {
     super();
     this.port.onmessage = (event: MessageEvent<ToProcessorMessage>) => this.handleMessage(event.data);
@@ -84,6 +90,8 @@ class TapeProcessor extends AudioWorkletProcessor {
         this.loopOut = msg.loopOut;
         this.loopEnabled = msg.loopEnabled;
         this.playing = true;
+        this.fadeGain = 0;
+        this.fadeDir = 1;
         break;
       case 'set-loop':
         if (this.playing) {
@@ -100,7 +108,9 @@ class TapeProcessor extends AudioWorkletProcessor {
         this.loopEnabled = msg.loopEnabled;
         break;
       case 'stop-playback':
-        this.playing = false;
+        if (this.playing) {
+          this.fadeDir = -1;
+        }
         break;
       case 'click':
         this.clickAtFrame = msg.atFrame;
@@ -187,6 +197,31 @@ class TapeProcessor extends AudioWorkletProcessor {
       }
       if (blockStartFrame + blockSize > this.clickAtFrame + CLICK_LENGTH) {
         this.clickAtFrame = null;
+      }
+    }
+
+    // Apply fade-in / fade-out envelope.
+    const fadeStep = 1 / TapeProcessor.FADE_SAMPLES;
+    if (this.fadeDir !== 0 && blockSize > 0) {
+      for (let i = 0; i < blockSize; i++) {
+        if (outL) outL[i] *= this.fadeGain;
+        if (outR) outR[i] *= this.fadeGain;
+        if (this.fadeDir === 1) {
+          this.fadeGain += fadeStep;
+          if (this.fadeGain >= 1) { this.fadeGain = 1; this.fadeDir = 0; }
+        } else {
+          this.fadeGain -= fadeStep;
+          if (this.fadeGain <= 0) {
+            this.fadeGain = 0;
+            this.fadeDir = 0;
+            this.playing = false;
+            for (let j = i + 1; j < blockSize; j++) {
+              if (outL) outL[j] = 0;
+              if (outR) outR[j] = 0;
+            }
+            break;
+          }
+        }
       }
     }
 

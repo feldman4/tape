@@ -22,8 +22,8 @@ import { CANVAS_WIDTH, CANVAS_HEIGHT, DEFAULT_SAMPLES_PER_PIXEL } from './canvas
 import { btnStyle } from './btnStyle';
 import type { Mode, TransportState, UndoEntry, DragState, TapeEngineRefs } from './tapeRefs';
 import { useActivityLog } from './hooks/useActivityLog';
-import { useTransport } from './hooks/useTransport';
-import { useEditOps } from './hooks/useEditOps';
+import { useTapeDispatch } from './hooks/useTapeDispatch';
+import { controlEventToAction, keyEventToAction } from './inputAdapters';
 import { ComTab } from './tabs/ComTab';
 import { TapeTab } from './tabs/TapeTab';
 import { MixerTab } from './tabs/MixerTab';
@@ -119,7 +119,7 @@ export function TapePage() {
   // ---------------------------------------------------------------------------
   // Activity log
   // ---------------------------------------------------------------------------
-  const { activityLogRef, addLogFnRef, addLog, forceLogUpdate } = useActivityLog();
+  const { activityLogRef, addLogFnRef, forceLogUpdate } = useActivityLog();
 
   // ---------------------------------------------------------------------------
   // Shared ref bundle — passed to hooks so they don't each take 20 args
@@ -133,27 +133,36 @@ export function TapePage() {
   };
 
   // ---------------------------------------------------------------------------
-  // Edit operations (undo/redo, clip edits, loop points, session CRUD)
+  // Tape dispatch — single action-based entry point for all state mutations.
   // ---------------------------------------------------------------------------
-  const {
-    applyEdit,
-    handleUndo, handleRedo,
-    handleSplit, handleLift, handleDrop, handleJoin,
-    syncLoopToEngine,
-    handleSetLoopIn, handleSetLoopOut, handleToggleLoop, handleLoopFromClip,
-    refreshSessions, handleSave, handleLoad, handleNew, handleDeleteSession,
-  } = useEditOps(refs, {
-    setTape, setUndoStack, setRedoStack, setClipboard,
+  const { dispatch, refreshSessions } = useTapeDispatch(refs, {
+    setTape, setTransport, setUndoStack, setRedoStack, setClipboard,
     setSessions, setSessionStatus, setSessionName, setMode, setSnap,
-    clipboard, sessionName,
+    setLastClipBeats, clipboard, sessionName,
   });
 
-  // ---------------------------------------------------------------------------
-  // Transport (record/play/stop/finalize)
-  // ---------------------------------------------------------------------------
-  const { handleRecord, handleStop, handlePlay } = useTransport(refs, {
-    applyEdit, setTransport, setTape, setLastClipBeats,
-  });
+  // Thin wrappers preserve existing tab-component prop signatures.
+  const handleRecord   = () => dispatch({ type: 'record' });
+  const handlePlay     = (countIn?: boolean) => dispatch({ type: 'play', countIn });
+  const handleStop     = () => dispatch({ type: 'stop' });
+  const handleSplit    = () => dispatch({ type: 'split' });
+  const handleJoin     = () => dispatch({ type: 'join' });
+  const handleLift     = () => dispatch({ type: 'lift' });
+  const handleDrop     = () => dispatch({ type: 'drop' });
+  const handleUndo     = () => dispatch({ type: 'undo' });
+  const handleRedo     = () => dispatch({ type: 'redo' });
+  const handleSetLoopIn    = () => dispatch({ type: 'setLoopIn' });
+  const handleSetLoopOut   = () => dispatch({ type: 'setLoopOut' });
+  const handleToggleLoop   = () => dispatch({ type: 'toggleLoop' });
+  const handleLoopFromClip = () => dispatch({ type: 'loopFromClip' });
+  const handleSave         = () => dispatch({ type: 'saveSession' });
+  const handleLoad         = (name: string) => dispatch({ type: 'loadSession', name });
+  const handleNew          = () => dispatch({ type: 'newSession' });
+  const handleDeleteSession = (name: string) => dispatch({ type: 'deleteSession', name });
+  const handleLaneGain = (laneIndex: 0|1|2|3, gain: number) => dispatch({ type: 'setLaneGain', lane: laneIndex, gain });
+  const handleLanePan  = (laneIndex: 0|1|2|3, pan: number)  => dispatch({ type: 'setLanePan',  lane: laneIndex, pan });
+  const handleLaneMute = (laneIndex: 0|1|2|3) => dispatch({ type: 'toggleMuteLane', lane: laneIndex });
+  const setActiveLane  = (lane: 0|1|2|3) => dispatch({ type: 'selectLane', lane });
 
   // ---------------------------------------------------------------------------
   // Init
@@ -208,17 +217,7 @@ export function TapePage() {
         if (event.type === 'start') {
           setSyncRunning(true);
           clocksSinceStartRef.current = 0;
-          if (armedRef.current) {
-            armedRef.current = false;
-            const armTape = tapeRef.current;
-            tapeStartForRecordingRef.current = armTape.playhead;
-            recordStartWallTimeRef.current = Date.now();
-            engine.loadTape(armTape.lanes, poolRef.current);
-            engine.play(armTape.playhead, { loopIn: armTape.loopIn, loopOut: armTape.loopOut, loopEnabled: armTape.loopEnabled });
-            engine.startRecording();
-            transportRef.current = 'recording';
-            setTransport('recording');
-          }
+          dispatch({ type: 'midiClockStart' });
         } else if (event.type === 'stop') {
           setSyncRunning(false);
         } else if (event.type === 'clock') {
@@ -245,9 +244,7 @@ export function TapePage() {
           addLogFnRef.current(`\u25b6 worklet: started  tape=${(tapePosition / engineSr).toFixed(3)}s`);
         } else if (!playing && wasPlayingWorklet) {
           addLogFnRef.current(`\u23f9 worklet: stopped  tape=${(tapePosition / engineSr).toFixed(3)}s  transportRef=${transportRef.current}`);
-          if (transportRef.current === 'playing') {
-            setTransport('idle');
-          }
+          dispatch({ type: 'workletPlaybackStopped' });
         }
         wasPlayingWorklet = playing;
         if (playing) {
@@ -325,45 +322,12 @@ export function TapePage() {
         );
         const currentSelectedId = matches.length === 0 ? null
           : matches.reduce((a, b) => b.tapeStart > a.tapeStart ? b : a).id;
-        drawTimeline(ctx, displayTape, poolDisplayRef.current, layout, currentSelectedId, modeRef.current === 'sync');
+        drawTimeline(ctx, displayTape, poolDisplayRef.current, layout, currentSelectedId, snapRef.current);
       }
       raf = requestAnimationFrame(render);
     };
     raf = requestAnimationFrame(render);
     return () => cancelAnimationFrame(raf);
-  }, []);
-
-  // ---------------------------------------------------------------------------
-  // Mixer — per-lane gain, pan, mute
-  // ---------------------------------------------------------------------------
-  const handleLaneGain = useCallback((laneIndex: 0|1|2|3, gain: number) => {
-    setTape((prev) => {
-      const newLanes = prev.lanes.map((l, i) => i === laneIndex ? { ...l, gain } : l) as [Lane,Lane,Lane,Lane];
-      const t = { ...prev, lanes: newLanes };
-      tapeRef.current = t;
-      engineRef.current?.loadTape(newLanes, poolRef.current);
-      return t;
-    });
-  }, []);
-
-  const handleLanePan = useCallback((laneIndex: 0|1|2|3, pan: number) => {
-    setTape((prev) => {
-      const newLanes = prev.lanes.map((l, i) => i === laneIndex ? { ...l, pan } : l) as [Lane,Lane,Lane,Lane];
-      const t = { ...prev, lanes: newLanes };
-      tapeRef.current = t;
-      engineRef.current?.loadTape(newLanes, poolRef.current);
-      return t;
-    });
-  }, []);
-
-  const handleLaneMute = useCallback((laneIndex: 0|1|2|3) => {
-    setTape((prev) => {
-      const newLanes = prev.lanes.map((l, i) => i === laneIndex ? { ...l, muted: !l.muted } : l) as [Lane,Lane,Lane,Lane];
-      const t = { ...prev, lanes: newLanes };
-      tapeRef.current = t;
-      engineRef.current?.loadTape(newLanes, poolRef.current);
-      return t;
-    });
   }, []);
 
   // ---------------------------------------------------------------------------
@@ -398,11 +362,7 @@ export function TapePage() {
       : undefined;
 
     if (clickedLane >= 0 && clickedLane !== currentTape.activeLane) {
-      setTape((prev) => {
-        const t = { ...prev, activeLane: clickedLane as 0|1|2|3 };
-        tapeRef.current = t;
-        return t;
-      });
+      dispatch({ type: 'selectLane', lane: clickedLane as 0|1|2|3 });
     }
 
     if (hitClip) {
@@ -415,13 +375,9 @@ export function TapePage() {
         const samplesPerBeat = (sr * 60) / bpm;
         seekPos = Math.max(0, Math.round(Math.round(tapePos / samplesPerBeat) * samplesPerBeat));
       }
-      setTape((prev) => {
-        const t = { ...prev, playhead: seekPos };
-        tapeRef.current = t;
-        return t;
-      });
+      dispatch({ type: 'seekPlayhead', samples: seekPos });
     }
-  }, [getLayout]);
+  }, [getLayout, dispatch]);
 
   const handleCanvasMouseMove = useCallback((e: React.MouseEvent<HTMLCanvasElement>) => {
     const drag = dragRef.current;
@@ -449,19 +405,9 @@ export function TapePage() {
     const currentTape = tapeRef.current;
     const movedClip = currentTape.lanes[currentTape.activeLane].clips.find((c) => c.id === drag.clipId);
     if (movedClip && movedClip.tapeStart !== drag.origTapeStart) {
-      setUndoStack((prev) => [
-        ...prev,
-        {
-          lanes: currentTape.lanes,
-          loopIn: currentTape.loopIn,
-          loopOut: currentTape.loopOut,
-          loopEnabled: currentTape.loopEnabled,
-        },
-      ]);
-      setRedoStack([]);
-      engineRef.current?.loadTape(currentTape.lanes, poolRef.current);
+      dispatch({ type: 'commitDrag', clipId: drag.clipId, from: drag.origTapeStart, to: movedClip.tapeStart });
     }
-  }, []);
+  }, [dispatch]);
 
   // ---------------------------------------------------------------------------
   // Device change handlers
@@ -527,78 +473,8 @@ export function TapePage() {
   // OP-Z control mode handler (updated every render)
   // ---------------------------------------------------------------------------
   ctrlModeHandlerRef.current = (event: ControlEvent) => {
-    switch (event.type) {
-      case 'record':     void handleRecord(); break;
-      case 'play':       void handlePlay(event.shift); break;
-      case 'stop':       void handleStop(); break;
-      case 'lift':       handleLift(); break;
-      case 'drop':       handleDrop(); break;
-      case 'split':      event.shift ? handleJoin() : handleSplit(); break;
-      case 'loopIn':     handleSetLoopIn(); break;
-      case 'loopOut':    handleSetLoopOut(); break;
-      case 'loopToggle': event.shift ? handleLoopFromClip() : handleToggleLoop(); break;
-      case 'selectLane': {
-        const { lane, shift } = event;
-        if (shift) {
-          setTape((prev) => {
-            const newLanes = prev.lanes.map((l, i) =>
-              i === lane ? { ...l, muted: !l.muted } : l
-            ) as [Lane, Lane, Lane, Lane];
-            const t = { ...prev, lanes: newLanes };
-            tapeRef.current = t;
-            engineRef.current?.loadTape(newLanes, poolRef.current);
-            return t;
-          });
-          addLog(`\u25c8 Lane ${lane + 1} mute toggled`);
-        } else {
-          setTape((prev) => { const t = { ...prev, activeLane: lane }; tapeRef.current = t; return t; });
-          addLog(`\u25c8 Lane ${lane + 1} selected`);
-        }
-        break;
-      }
-      case 'encoderDelta': {
-        const { index, delta, shift } = event;
-        const currentTape = tapeRef.current;
-        const sr2 = engineRef.current?.sampleRate ?? 44100;
-        const spb = (sr2 * 60) / currentTape.bpm;
-
-        if (index === 1 && !shift) {
-          if (transportRef.current === 'recording' || transportRef.current === 'armed') break;
-          const newPlayhead = snapRef.current
-            ? Math.max(0, Math.round((Math.round(currentTape.playhead / spb) + delta) * spb))
-            : Math.max(0, Math.round(currentTape.playhead + delta * samplesPerPixelRef.current));
-          setTape((prev) => { const t = { ...prev, playhead: newPlayhead }; tapeRef.current = t; return t; });
-        } else if (index === 1 && shift) {
-          const sid = selectedClipIdRef.current;
-          if (!sid) break;
-          const activeLane = currentTape.activeLane;
-          const clip = currentTape.lanes[activeLane].clips.find((c) => c.id === sid);
-          if (!clip) break;
-          const deltaSamples = snapRef.current
-            ? Math.round(delta * spb)
-            : Math.round(delta * samplesPerPixelRef.current);
-          const newTapeStart = Math.max(0, clip.tapeStart + deltaSamples);
-          const actualDelta = newTapeStart - clip.tapeStart;
-          const newPlayhead = Math.max(0, currentTape.playhead + actualDelta);
-          applyEdit(currentTape, moveClip(currentTape.lanes[activeLane].clips, sid, newTapeStart), { playhead: newPlayhead });
-        } else if (index === 0) {
-          const cur = shift ? currentTape.loopIn : currentTape.loopOut;
-          const newVal = snapRef.current
-            ? Math.max(0, Math.round((Math.round(cur / spb) + delta) * spb))
-            : Math.max(0, Math.round(cur + delta * samplesPerPixelRef.current));
-          const patch = shift ? { loopIn: newVal } : { loopOut: newVal };
-          setTape((prev) => { const t = { ...prev, ...patch }; tapeRef.current = t; return t; });
-          const newLoopIn  = shift ? newVal : currentTape.loopIn;
-          const newLoopOut = shift ? currentTape.loopOut : newVal;
-          syncLoopToEngine(newLoopIn, newLoopOut, currentTape.loopEnabled);
-          if (snapRef.current) {
-            const label = shift ? 'in' : 'out';
-            addLog(`loop ${label} \u2192 ${(newVal / spb).toFixed(2)} beats  (${(newVal / sr2).toFixed(2)}s)`);
-          }
-        }
-        break;
-      }
-    }
+    const action = controlEventToAction(event);
+    if (action) dispatch(action);
   };
 
   // ---------------------------------------------------------------------------
@@ -622,33 +498,10 @@ export function TapePage() {
       if (ev.metaKey || ev.ctrlKey) return;
 
       const key = ev.key.toLowerCase();
-      const shift = ev.shiftKey;
-
       if (key in ENCODER_KEYS) { encoderKey = key; accumDx = 0; ev.preventDefault(); return; }
 
-      const ctrl = ctrlModeHandlerRef.current;
-      if (!ctrl) return;
-
-      let handled = true;
-      switch (ev.key) {
-        case '1': case '!': ctrl({ type: 'selectLane', lane: 0, shift }); break;
-        case '2': case '@': ctrl({ type: 'selectLane', lane: 1, shift }); break;
-        case '3': case '#': ctrl({ type: 'selectLane', lane: 2, shift }); break;
-        case '4': case '$': ctrl({ type: 'selectLane', lane: 3, shift }); break;
-        case 'r': case 'R': ctrl({ type: 'record', shift }); break;
-        case ' ':            ctrl({ type: 'play',   shift }); break;
-        case 'Escape':       ctrl({ type: 'stop',   shift: false }); break;
-        case '[':            ctrl({ type: 'loopIn'  }); break;
-        case ']':            ctrl({ type: 'loopOut' }); break;
-        case '\\':           ctrl({ type: 'loopToggle', shift }); break;
-        case 'l': case 'L': ctrl({ type: 'lift',  shift }); break;
-        case 'd': case 'D': ctrl({ type: 'drop',  shift }); break;
-        case 'z': case 'Z': if (transportRef.current !== 'playing' && transportRef.current !== 'recording') setMode((m) => m === 'sync' ? 'free' : 'sync'); break;
-        case 'x': case 'X': setSnap((s) => !s); break;
-        case 's': case 'S': ctrl({ type: 'split', shift }); break;
-        default: handled = false;
-      }
-      if (handled) ev.preventDefault();
+      const action = keyEventToAction(ev);
+      if (action) { dispatch(action); ev.preventDefault(); }
     };
 
     const onKeyUp = (ev: KeyboardEvent) => {
@@ -664,7 +517,7 @@ export function TapePage() {
       if (ticks !== 0) {
         accumDx -= ticks * PX_PER_TICK;
         const index = ENCODER_KEYS[encoderKey]!;
-        ctrlModeHandlerRef.current?.({ type: 'encoderDelta', index, delta: ticks, shift: ev.shiftKey });
+        dispatch({ type: 'encoderNudge', index, delta: ticks, shift: ev.shiftKey });
       }
     };
 
@@ -738,7 +591,7 @@ export function TapePage() {
         });
       },
       saveSession: (name: string) => saveSession(name, tapeRef.current, poolRef.current, modeRef.current, snapRef.current).then(refreshSessions),
-      loadSession: (name: string) => handleLoad(name),
+      loadSession: (name: string) => dispatch({ type: 'loadSession', name }),
       listSessions: () => listSessions(),
       OpzControlMode,
     };
@@ -748,7 +601,7 @@ export function TapePage() {
     syncRunning, syncBpm, syncBeatPosition,
     selectedAudioDeviceId, selectedMidiInputId, selectedMidiOutputId,
     audioDevices, midiInputs, midiOutputs, sessions,
-    refreshSessions, handleLoad,
+    refreshSessions, dispatch,
   ]);
 
   // ---------------------------------------------------------------------------
@@ -765,10 +618,6 @@ export function TapePage() {
   const selectedClipId = selMatches.length === 0 ? null
     : selMatches.reduce((a, b) => b.tapeStart > a.tapeStart ? b : a).id;
   selectedClipIdRef.current = selectedClipId;
-
-  const setActiveLane = useCallback((lane: 0|1|2|3) => {
-    setTape((prev) => { const t = { ...prev, activeLane: lane }; tapeRef.current = t; return t; });
-  }, []);
 
   return (
     <div style={{ fontFamily: 'sans-serif', color: '#e4e4e7', background: '#000000', minHeight: '100vh', padding: 24 }}>
