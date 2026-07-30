@@ -11,14 +11,11 @@ import type { TapeAction } from './tapeActions';
  */
 export function controlEventToAction(event: ControlEvent): TapeAction | null {
   switch (event.type) {
-    case 'record':     return { type: 'record' };
-    case 'play':       return { type: 'play', countIn: event.shift };
-    case 'stop':       return { type: 'stop' };
+    case 'recordState': return { type: 'setRecordEnabled', enabled: event.enabled };
     case 'lift':       return event.shift ? { type: 'liftAll' } : { type: 'lift' };
     case 'drop':       return event.shift ? { type: 'mergeDrop' } : { type: 'drop' };
     case 'split':      return event.shift ? { type: 'join' } : { type: 'split' };
-    case 'loopIn':     return { type: 'setLoopIn' };
-    case 'loopOut':    return { type: 'setLoopOut' };
+    case 'loop':       return event.shift ? { type: 'setLoopIn' } : { type: 'setLoopOut' };
     case 'loopToggle': return event.shift ? { type: 'loopFromClip' } : { type: 'toggleLoop' };
     case 'selectLane': return event.shift
       ? { type: 'toggleMuteLane', lane: event.lane }
@@ -29,6 +26,7 @@ export function controlEventToAction(event: ControlEvent): TapeAction | null {
       delta: event.delta,
       shift: event.shift,
     };
+    case 'grid':        return { type: 'toggleSnap' };
     case 'shiftChange': return null;
   }
 }

@@ -15,24 +15,24 @@
 //   This keeps the encoder near centre so it always has headroom in both
 //   directions, without the user having to physically re-centre it.
 //
-// BLACK KEYS  (sharps/flats — tape-edit buttons)
-//   54  F#3  →  Lift
-//   56  G#3  →  Drop
-//   58  A#3  →  Split
+// BLACK KEYS  (sharps/flats)
+//   54  F#3  →  Tape 1
+//   56  G#3  →  Tape 2
+//   58  A#3  →  Tape 3
+//   61  C#4  →  Tape 4
+//   63  D#4  →  Lift
+//   66  F#4  →  Drop
+//   68  G#4  →  Split
+//   70  A#4  →  Loop out (shift: Loop in)
+//   73  C#5  →  Loop toggle (shift: Loop clip)
 //   75  D#5  →  Shift  (modifier; held while pressing other keys or turning
 //                       encoders to access secondary actions, matching the
 //                       OP-1 Field shift convention)
 //
-// WHITE KEYS  (non-sharp notes) — reserved for future use; ignored for now.
-//
 // SHIFT MODIFIER
-//   While Shift (75) is held, 'encoderDelta' events carry shift=true.
-//   Consumers can map this to secondary encoder actions, e.g.:
-//     Encoder 2 (blue)  + no shift  →  scrub tape position
-//     Encoder 2 (blue)  + shift     →  slide active clip (OP-1 Field: SHIFT+Blue)
-//     Encoder 4 (white) + no shift  →  tape speed
-//   The exact action mapping lives in the consumer (TapePage / future controller
-//   layer), not here.
+//   While Shift (75) is held, 'encoderDelta' events carry shift=true. The
+//   consumer maps encoder 1 to scrub/slide, encoders 2 and 3 to loop out/in,
+//   and encoder 4 to recording level.
 //
 // INTEGRATION
 //   OpzControlMode shares the same MIDIAccess as SyncEngine.  It uses
@@ -82,22 +82,12 @@ const CC_RESET_THRESHOLD = 30;
 //
 //   D#5  75  Shift modifier (hold)
 
-// WHITE KEYS — lane select (channel 15)
-const NOTE_LANE = [53, 55, 57, 59] as const; // F3, G3, A3, B3 → lanes 1-4
-
-// Tape edit
-const NOTE_LIFT  = 54; // F#3
-const NOTE_DROP  = 56; // G#3
-const NOTE_SPLIT = 58; // A#3
-
-// Transport
-const NOTE_RECORD = 61; // C#4
-const NOTE_PLAY   = 63; // D#4
-const NOTE_STOP   = 66; // F#4
-
-// Loop
-const NOTE_LOOP_IN     = 68; // G#4
-const NOTE_LOOP_OUT    = 70; // A#4
+const CC_GROUP_AUDIO_MUTE = 54;
+const NOTE_TAPE = [54, 56, 58, 61] as const; // F#3, G#3, A#3, C#4
+const NOTE_LIFT = 63; // D#4
+const NOTE_DROP = 66; // F#4
+const NOTE_SPLIT = 68; // G#4
+const NOTE_LOOP = 70; // A#4
 const NOTE_LOOP_TOGGLE = 73; // C#5
 
 // Modifier
@@ -106,6 +96,8 @@ const NOTE_SHIFT = 75; // D#5
 // ── Public event types ──────────────────────────────────────────────────────
 
 export type ControlEvent =
+  /** Group 15 audio mute (CC 54) controls whether Tape should record. */
+  | { type: 'recordState'; enabled: boolean }
   // ── Tape edit ────────────────────────────────────────────────────────────
   /** Lift active clip to clipboard (F#3 / 54).  Shift: lift all in loop. */
   | { type: 'lift';  shift: boolean }
@@ -113,22 +105,15 @@ export type ControlEvent =
   | { type: 'drop';  shift: boolean }
   /** Split active clip at playhead (A#3 / 58).  Shift: join. */
   | { type: 'split'; shift: boolean }
-  // ── Transport ────────────────────────────────────────────────────────────
-  /** Toggle record arm (C#4 / 61).  Shift: arm with count-in. */
-  | { type: 'record'; shift: boolean }
-  /** Play (D#4 / 63).  Shift: play in reverse. */
-  | { type: 'play';   shift: boolean }
-  /** Stop (F#4 / 66).  Shift: set tape grid resolution. */
-  | { type: 'stop';   shift: boolean }
   // ── Loop ─────────────────────────────────────────────────────────────────
-  /** Set loop in point at playhead (G#4 / 68). */
-  | { type: 'loopIn' }
-  /** Set loop out point at playhead (A#4 / 70). */
-  | { type: 'loopOut' }
+  /** Set loop out at playhead (A#4 / 70). Shift: set loop in. */
+  | { type: 'loop'; shift: boolean }
   /** Toggle loop on/off (C#5 / 73).  Shift: loop current clip. */
   | { type: 'loopToggle'; shift: boolean }
-  /** Select active tape lane 0-3 (white keys F3/G3/A3/B3). Shift: mute/unmute. */
+  /** Select active tape lane 0-3. Shift: mute/unmute. */
   | { type: 'selectLane'; lane: 0 | 1 | 2 | 3; shift: boolean }
+  /** Shift plus the standard OP-Z Stop message selects Tape's grid setting. */
+  | { type: 'grid' }
   // ── Modifier / encoder ───────────────────────────────────────────────────
   /** Shift key state changed (D#5 / 75). */
   | { type: 'shiftChange'; held: boolean }
@@ -218,6 +203,11 @@ export class OpzControlMode {
     return this.shiftHeld;
   }
 
+  /** Mirrors Tape's record state to the OP-Z group-15 audio mute control. */
+  setGroup15AudioMuted(muted: boolean): void {
+    this.getOutput()?.send([STATUS_CC, CC_GROUP_AUDIO_MUTE, muted ? 1 : 0]);
+  }
+
   // ── Private MIDI handling ────────────────────────────────────────────────
 
   private getOutput(): MIDIOutput | null {
@@ -229,6 +219,11 @@ export class OpzControlMode {
     const data = event.data;
     if (!data || data.length === 0) return;
     const status = data[0]!;
+
+    if (status === 0xfc) {
+      if (this.shiftHeld) this.emit({ type: 'grid' });
+      return;
+    }
 
     if (status === STATUS_CC && data.length >= 3) {
       this.handleCC(data[1]!, data[2]!);
@@ -250,6 +245,11 @@ export class OpzControlMode {
   }
 
   private handleCC(cc: number, value: number): void {
+    if (cc === CC_GROUP_AUDIO_MUTE) {
+      this.emit({ type: 'recordState', enabled: value !== 0 });
+      return;
+    }
+
     const encIdx = ENCODER_CC.indexOf(cc as typeof ENCODER_CC[number]);
     if (encIdx === -1) return; // not one of our encoders
     const idx = encIdx as EncoderIndex;
@@ -274,26 +274,19 @@ export class OpzControlMode {
         this.shiftHeld = true;
         this.emit({ type: 'shiftChange', held: true });
         break;
+      // Tape lanes
+      case NOTE_TAPE[0]: this.emit({ type: 'selectLane', lane: 0, shift: this.shiftHeld }); break;
+      case NOTE_TAPE[1]: this.emit({ type: 'selectLane', lane: 1, shift: this.shiftHeld }); break;
+      case NOTE_TAPE[2]: this.emit({ type: 'selectLane', lane: 2, shift: this.shiftHeld }); break;
+      case NOTE_TAPE[3]: this.emit({ type: 'selectLane', lane: 3, shift: this.shiftHeld }); break;
       // Tape edit
       case NOTE_LIFT:  this.emit({ type: 'lift',  shift: this.shiftHeld }); break;
       case NOTE_DROP:  this.emit({ type: 'drop',  shift: this.shiftHeld }); break;
       case NOTE_SPLIT: this.emit({ type: 'split', shift: this.shiftHeld }); break;
-      // Transport
-      case NOTE_RECORD: this.emit({ type: 'record', shift: this.shiftHeld }); break;
-      case NOTE_PLAY:   this.emit({ type: 'play',   shift: this.shiftHeld }); break;
-      case NOTE_STOP:   this.emit({ type: 'stop',   shift: this.shiftHeld }); break;
       // Loop
-      case NOTE_LOOP_IN:     this.emit({ type: 'loopIn' }); break;
-      case NOTE_LOOP_OUT:    this.emit({ type: 'loopOut' }); break;
+      case NOTE_LOOP:        this.emit({ type: 'loop', shift: this.shiftHeld }); break;
       case NOTE_LOOP_TOGGLE: this.emit({ type: 'loopToggle', shift: this.shiftHeld }); break;
-      // Lane select — first four white keys
-      case NOTE_LANE[0]: this.emit({ type: 'selectLane', lane: 0, shift: this.shiftHeld }); break;
-      case NOTE_LANE[1]: this.emit({ type: 'selectLane', lane: 1, shift: this.shiftHeld }); break;
-      case NOTE_LANE[2]: this.emit({ type: 'selectLane', lane: 2, shift: this.shiftHeld }); break;
-      case NOTE_LANE[3]: this.emit({ type: 'selectLane', lane: 3, shift: this.shiftHeld }); break;
-      default:
-        // Unassigned keys — reserved.
-        break;
+      default: break;
     }
   }
 

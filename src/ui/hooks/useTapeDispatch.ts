@@ -40,7 +40,7 @@ interface DispatchDeps {
 export function useTapeDispatch(refs: TapeEngineRefs, deps: DispatchDeps) {
   const {
     engineRef, poolRef, poolDisplayRef,
-    tapeRef, transportRef, modeRef, snapRef, outputLatencyMsRef,
+    tapeRef, transportRef, modeRef, snapRef, outputLatencyMsRef, ctrlModeRef,
     tapeStartForRecordingRef, recordStartWallTimeRef,
     loopRotateTimeoutRef, loopRotatingRef, armedRef,
     cancelCountInRef, addLogFnRef, selectedClipIdRef, viewWidthSamplesRef,
@@ -89,6 +89,20 @@ export function useTapeDispatch(refs: TapeEngineRefs, deps: DispatchDeps) {
     const names = await listSessions();
     setSessions(names);
   }, [setSessions]);
+
+  const setTransportState = useCallback((next: TransportState) => {
+    const previous = transportRef.current;
+    transportRef.current = next;
+    setTransport(next);
+
+    if (modeRef.current === 'sync') {
+      const wasRecordEnabled = previous === 'armed' || previous === 'recording';
+      const isRecordEnabled = next === 'armed' || next === 'recording';
+      if (wasRecordEnabled !== isRecordEnabled) {
+        ctrlModeRef.current?.setGroup15AudioMuted(isRecordEnabled);
+      }
+    }
+  }, [ctrlModeRef, modeRef, setTransport, transportRef]);
 
   const startLoopRotation = useCallback((firstPassStart: number, firstWallTime: number) => {
     loopRotatingRef.current = true;
@@ -198,6 +212,15 @@ export function useTapeDispatch(refs: TapeEngineRefs, deps: DispatchDeps) {
 
       // ── Transport ──────────────────────────────────────────────────────────
 
+      case 'setRecordEnabled': {
+        const tr = transportRef.current;
+        if ((action.enabled && (tr === 'idle' || tr === 'playing')) ||
+            (!action.enabled && (tr === 'armed' || tr === 'recording'))) {
+          dispatchImplRef.current({ type: 'record' });
+        }
+        break;
+      }
+
       case 'record': {
         const engine = engineRef.current;
         if (!engine) break;
@@ -205,16 +228,14 @@ export function useTapeDispatch(refs: TapeEngineRefs, deps: DispatchDeps) {
         addLogFnRef.current(`⏺ Record  transport=${tr}  mode=${modeRef.current}`);
         if (tr === 'recording') {
           void finalizeRecordingTake(engine).then(() => {
-            transportRef.current = 'playing';
-            setTransport('playing');
+            setTransportState('playing');
           });
           break;
         }
         if (tr === 'counting-in') {
           cancelCountInRef.current?.();
           armedRef.current = false;
-          transportRef.current = 'idle';
-          setTransport('idle');
+          setTransportState('idle');
           addLogFnRef.current('→ count-in cancelled');
           break;
         }
@@ -226,22 +247,19 @@ export function useTapeDispatch(refs: TapeEngineRefs, deps: DispatchDeps) {
           if (modeRef.current === 'free' && tape.loopEnabled && tape.loopOut > tape.loopIn) {
             startLoopRotation(tape.playhead, Date.now() + Math.max(0, (tape.loopOut - tape.playhead) / engine.sampleRate * 1000));
           }
-          transportRef.current = 'recording';
-          setTransport('recording');
+          setTransportState('recording');
           addLogFnRef.current(`⏺ Recording started at ${(tape.playhead / engine.sampleRate).toFixed(3)}s`);
           break;
         }
         if (tr === 'armed') {
           armedRef.current = false;
-          transportRef.current = 'idle';
-          setTransport('idle');
+          setTransportState('idle');
           addLogFnRef.current('→ disarmed');
           break;
         }
         // idle → arm
         armedRef.current = true;
-        transportRef.current = 'armed';
-        setTransport('armed');
+        setTransportState('armed');
         if (modeRef.current === 'free') {
           addLogFnRef.current('⏺ Armed (free) — press Play to record, Shift+Play for count-in');
         } else {
@@ -261,18 +279,17 @@ export function useTapeDispatch(refs: TapeEngineRefs, deps: DispatchDeps) {
           addLogFnRef.current(`⏮ Rewind to ${(rewindPos / engine.sampleRate).toFixed(3)}s`);
           break;
         }
-        if (tr === 'playing')     { engine.stopPlayback(); setTransport('idle'); addLogFnRef.current('⏸ Pause'); break; }
-        if (tr === 'armed')       { armedRef.current = false; setTransport('idle'); break; }
+        if (tr === 'playing')     { engine.stopPlayback(); setTransportState('idle'); addLogFnRef.current('⏸ Pause'); break; }
+        if (tr === 'armed')       { armedRef.current = false; setTransportState('idle'); break; }
         if (tr === 'counting-in') {
           cancelCountInRef.current?.();
           armedRef.current = false;
-          transportRef.current = 'idle';
-          setTransport('idle');
+          setTransportState('idle');
           break;
         }
         if (tr === 'recording') {
           engine.stopPlayback();
-          void finalizeRecordingTake(engine).then(() => setTransport('idle'));
+          void finalizeRecordingTake(engine).then(() => setTransportState('idle'));
         }
         break;
       }
@@ -287,13 +304,12 @@ export function useTapeDispatch(refs: TapeEngineRefs, deps: DispatchDeps) {
           void finalizeRecordingTake(engine).then(() => {
             engine.stopPlayback();
             armedRef.current = true;
-            transportRef.current = 'armed';
-            setTransport('armed');
+            setTransportState('armed');
             addLogFnRef.current('⏺ Take finalized — re-armed');
           });
           break;
         }
-        if (tr === 'playing') { engine.stopPlayback(); setTransport('idle'); addLogFnRef.current('⏸ Pause'); break; }
+        if (tr === 'playing') { engine.stopPlayback(); setTransportState('idle'); addLogFnRef.current('⏸ Pause'); break; }
         if (tr === 'armed' && modeRef.current === 'free') {
           const startPlayAndRecord = () => {
             const tape = tapeRef.current;
@@ -306,8 +322,7 @@ export function useTapeDispatch(refs: TapeEngineRefs, deps: DispatchDeps) {
             if (tape.loopEnabled && tape.loopOut > tape.loopIn) {
               startLoopRotation(tape.playhead, Date.now() + Math.max(0, (tape.loopOut - tape.playhead) / engine.sampleRate * 1000));
             }
-            transportRef.current = 'recording';
-            setTransport('recording');
+            setTransportState('recording');
             addLogFnRef.current(`⏺ Recording started at ${(tape.playhead / engine.sampleRate).toFixed(3)}s`);
           };
           if (!withCountIn) { startPlayAndRecord(); break; }
@@ -337,8 +352,7 @@ export function useTapeDispatch(refs: TapeEngineRefs, deps: DispatchDeps) {
           };
           const countInMs = 4 * beatDur * 1000;
           addLogFnRef.current(`⏺ Count-in: ${bpm.toFixed(0)} BPM, ${(countInMs / 1000).toFixed(2)}s`);
-          transportRef.current = 'counting-in';
-          setTransport('counting-in');
+          setTransportState('counting-in');
           setTimeout(() => { if (!cancelled) { cancelCountInRef.current = null; startPlayAndRecord(); } }, countInMs);
           break;
         }
@@ -348,7 +362,7 @@ export function useTapeDispatch(refs: TapeEngineRefs, deps: DispatchDeps) {
         addLogFnRef.current(`▶ Play  playhead=${(tape.playhead / engine.sampleRate).toFixed(3)}s`);
         engine.loadTape(tape.lanes, poolRef.current);
         engine.play(tape.playhead, { loopIn: tape.loopIn, loopOut: tape.loopOut, loopEnabled: tape.loopEnabled });
-        setTransport('playing');
+        setTransportState('playing');
         break;
       }
 
@@ -379,8 +393,7 @@ export function useTapeDispatch(refs: TapeEngineRefs, deps: DispatchDeps) {
             const t = tapeRef.current;
             engine.loadTape(t.lanes, poolRef.current);
             engine.play(playFrom(startSamples), { loopIn: t.loopIn, loopOut: t.loopOut, loopEnabled: t.loopEnabled });
-            transportRef.current = 'playing';
-            setTransport('playing');
+            setTransportState('playing');
           });
           break;
         }
@@ -398,13 +411,12 @@ export function useTapeDispatch(refs: TapeEngineRefs, deps: DispatchDeps) {
           recordStartWallTimeRef.current = Date.now();
           engine.play(playFrom(startSamples), { loopIn: tape.loopIn, loopOut: tape.loopOut, loopEnabled: tape.loopEnabled });
           engine.startRecording();
-          transportRef.current = 'recording';
-          setTransport('recording');
+          setTransportState('recording');
         } else {
           // Not armed: start (or restart) plain playback.
           engine.play(playFrom(startSamples), { loopIn: tape.loopIn, loopOut: tape.loopOut, loopEnabled: tape.loopEnabled });
           transportRef.current = 'playing';
-          setTransport('playing');
+          setTransportState('playing');
         }
         break;
       }
@@ -416,27 +428,24 @@ export function useTapeDispatch(refs: TapeEngineRefs, deps: DispatchDeps) {
         addLogFnRef.current(`⏹ MIDI Stop  transport=${tr}`);
         if (tr === 'recording') {
           engine.stopPlayback();
-          void finalizeRecordingTake(engine).then(() => setTransport('idle'));
-          transportRef.current = 'idle';
+          setTransportState('idle');
+          void finalizeRecordingTake(engine);
           break;
         }
         if (tr === 'playing') {
           engine.stopPlayback();
-          transportRef.current = 'idle';
-          setTransport('idle');
+          setTransportState('idle');
           break;
         }
         if (tr === 'counting-in') {
           cancelCountInRef.current?.();
           armedRef.current = false;
-          transportRef.current = 'idle';
-          setTransport('idle');
+          setTransportState('idle');
           break;
         }
         if (tr === 'armed') {
           armedRef.current = false;
-          transportRef.current = 'idle';
-          setTransport('idle');
+          setTransportState('idle');
           break;
         }
         // idle → rewind
@@ -450,7 +459,7 @@ export function useTapeDispatch(refs: TapeEngineRefs, deps: DispatchDeps) {
       }
 
       case 'workletPlaybackStopped': {
-        if (transportRef.current === 'playing') setTransport('idle');
+        if (transportRef.current === 'playing') setTransportState('idle');
         break;
       }
 
@@ -491,13 +500,13 @@ export function useTapeDispatch(refs: TapeEngineRefs, deps: DispatchDeps) {
         const snap = snapRef.current;
         const spp = viewWidthSamplesRef.current / CANVAS_WIDTH;  // samples per pixel from view width
 
-        if (index === 1 && !shift) {
+        if (index === 0 && !shift) {
           if (transportRef.current === 'recording' || transportRef.current === 'armed') break;
           const newPlayhead = snap
             ? Math.max(0, Math.round((Math.round(tape.playhead / spb) - delta) * spb))
             : Math.max(0, Math.round(tape.playhead - delta * spp));
           setTape((prev) => { const t = { ...prev, playhead: newPlayhead }; tapeRef.current = t; return t; });
-        } else if (index === 1 && shift) {
+        } else if (index === 0 && shift) {
           const sid = selectedClipIdRef.current;
           if (!sid) break;
           const clip = tape.lanes[tape.activeLane].clips.find((c) => c.id === sid);
@@ -506,15 +515,17 @@ export function useTapeDispatch(refs: TapeEngineRefs, deps: DispatchDeps) {
           const newTapeStart = Math.max(0, clip.tapeStart + ds);
           const newPlayhead = Math.max(0, tape.playhead + (newTapeStart - clip.tapeStart));
           applyEdit(tape, moveClip(tape.lanes[tape.activeLane].clips, sid, newTapeStart), { playhead: newPlayhead });
-        } else if (index === 0) {
-          const cur = shift ? tape.loopIn : tape.loopOut;
+        } else if (index === 1 || index === 2) {
+          if (shift) break;
+          const isLoopIn = index === 2;
+          const cur = isLoopIn ? tape.loopIn : tape.loopOut;
           const newVal = snap
             ? Math.max(0, Math.round((Math.round(cur / spb) + delta) * spb))
             : Math.max(0, Math.round(cur + delta * spp));
-          const patch = shift ? { loopIn: newVal } : { loopOut: newVal };
+          const patch = isLoopIn ? { loopIn: newVal } : { loopOut: newVal };
           setTape((prev) => { const t = { ...prev, ...patch }; tapeRef.current = t; return t; });
-          syncLoopToEngine(shift ? newVal : tape.loopIn, shift ? tape.loopOut : newVal, tape.loopEnabled);
-          if (snap) addLogFnRef.current(`loop ${shift ? 'in' : 'out'} → ${(newVal / spb).toFixed(2)} beats  (${(newVal / sr).toFixed(2)}s)`);
+          syncLoopToEngine(isLoopIn ? newVal : tape.loopIn, isLoopIn ? tape.loopOut : newVal, tape.loopEnabled);
+          if (snap) addLogFnRef.current(`loop ${isLoopIn ? 'in' : 'out'} → ${(newVal / spb).toFixed(2)} beats  (${(newVal / sr).toFixed(2)}s)`);
         } else if (index === 3 && !shift) {
           const gain = Math.max(0, Math.min(2, tape.recordingGain + delta * 0.02));
           setTape((prev) => {

@@ -113,9 +113,26 @@ async function runBrowserTests(page) {
       return { pass: events.length === 0, detail: JSON.stringify(events) };
     });
 
-    // ── Tape edit buttons (octave 3 black keys) ─────────────────────────────
+    // ── Black-key control surface ──────────────────────────────────────────
 
-    for (const [note, type] of [[54, 'lift'], [56, 'drop'], [58, 'split']]) {
+    for (const [note, lane] of [[54, 0], [56, 1], [58, 2], [61, 3]]) {
+      test(`Note ${note} → Tape ${lane + 1}`, () => {
+        const { input, midiAccess } = makeMock();
+        const ctrl = new OpzControlMode(midiAccess);
+        ctrl.setInputDevice('all');
+        const events = [];
+        ctrl.on((e) => events.push(e));
+        fire(input, 0x9e, note, 100);
+        ctrl.dispose();
+        const e = events[0];
+        return {
+          pass: events.length === 1 && e?.type === 'selectLane' && e?.lane === lane && e?.shift === false,
+          detail: JSON.stringify(events),
+        };
+      });
+    }
+
+    for (const [note, type] of [[63, 'lift'], [66, 'drop'], [68, 'split']]) {
       test(`Note ${note} → ${type} { shift: false }`, () => {
         const { input, midiAccess } = makeMock();
         const ctrl = new OpzControlMode(midiAccess);
@@ -132,43 +149,17 @@ async function runBrowserTests(page) {
       });
     }
 
-    // ── Transport buttons (octave 4 lower black keys) ───────────────────────
-
-    for (const [note, type] of [[61, 'record'], [63, 'play'], [66, 'stop']]) {
-      test(`Note ${note} → ${type} { shift: false }`, () => {
-        const { input, midiAccess } = makeMock();
-        const ctrl = new OpzControlMode(midiAccess);
-        ctrl.setInputDevice('all');
-        const events = [];
-        ctrl.on((e) => events.push(e));
-        fire(input, 0x9e, note, 100);
-        ctrl.dispose();
-        const e = events[0];
-        return {
-          pass: events.length === 1 && e?.type === type && e?.shift === false,
-          detail: JSON.stringify(events),
-        };
-      });
-    }
-
-    // ── Loop buttons (octave 4/5 black keys) ───────────────────────────────
-
-    for (const [note, type] of [[68, 'loopIn'], [70, 'loopOut']]) {
-      test(`Note ${note} → ${type} (no shift field)`, () => {
-        const { input, midiAccess } = makeMock();
-        const ctrl = new OpzControlMode(midiAccess);
-        ctrl.setInputDevice('all');
-        const events = [];
-        ctrl.on((e) => events.push(e));
-        fire(input, 0x9e, note, 100);
-        ctrl.dispose();
-        const e = events[0];
-        return {
-          pass: events.length === 1 && e?.type === type && !('shift' in e),
-          detail: JSON.stringify(events),
-        };
-      });
-    }
+    test('Note 70 → loop { shift: false }', () => {
+      const { input, midiAccess } = makeMock();
+      const ctrl = new OpzControlMode(midiAccess);
+      ctrl.setInputDevice('all');
+      const events = [];
+      ctrl.on((e) => events.push(e));
+      fire(input, 0x9e, 70, 100);
+      ctrl.dispose();
+      const e = events[0];
+      return { pass: events.length === 1 && e?.type === 'loop' && e?.shift === false, detail: JSON.stringify(events) };
+    });
 
     test('Note 73 → loopToggle { shift: false }', () => {
       const { input, midiAccess } = makeMock();
@@ -284,7 +275,7 @@ async function runBrowserTests(page) {
       const events = [];
       ctrl.on((e) => events.push(e));
       fire(input, 0x9e, 75, 100); // shift on  → shiftChange
-      fire(input, 0x9e, 54, 100); // lift
+      fire(input, 0x9e, 63, 100); // lift
       ctrl.dispose();
       const lift = events[1];
       return {
@@ -293,36 +284,65 @@ async function runBrowserTests(page) {
       };
     });
 
-    test('Record while shift held → record { shift: true }', () => {
+    test('Tape 4 while shift held → selectLane { lane: 3, shift: true }', () => {
       const { input, midiAccess } = makeMock();
       const ctrl = new OpzControlMode(midiAccess);
       ctrl.setInputDevice('all');
       const events = [];
       ctrl.on((e) => events.push(e));
       fire(input, 0x9e, 75, 100); // shift on
-      fire(input, 0x9e, 61, 100); // record
+      fire(input, 0x9e, 61, 100); // Tape 4
       ctrl.dispose();
-      const rec = events[1];
+      const selectLane = events[1];
       return {
-        pass: events.length === 2 && rec?.type === 'record' && rec?.shift === true,
+        pass: events.length === 2 && selectLane?.type === 'selectLane' && selectLane?.lane === 3 && selectLane?.shift === true,
         detail: JSON.stringify(events),
       };
     });
 
-    test('Play while shift held → play { shift: true }', () => {
+    test('Loop while shift held → loop { shift: true }', () => {
       const { input, midiAccess } = makeMock();
       const ctrl = new OpzControlMode(midiAccess);
       ctrl.setInputDevice('all');
       const events = [];
       ctrl.on((e) => events.push(e));
       fire(input, 0x9e, 75, 100);
-      fire(input, 0x9e, 63, 100);
+      fire(input, 0x9e, 70, 100);
       ctrl.dispose();
       const ev = events[1];
       return {
-        pass: events.length === 2 && ev?.type === 'play' && ev?.shift === true,
+        pass: events.length === 2 && ev?.type === 'loop' && ev?.shift === true,
         detail: JSON.stringify(events),
       };
+    });
+
+    test('CC 54 emits recordState and setGroup15AudioMuted sends its inverse message', () => {
+      const { input, midiAccess, sentMessages } = makeMock();
+      const ctrl = new OpzControlMode(midiAccess);
+      ctrl.setInputDevice('all');
+      ctrl.setOutputDevice('mock-out');
+      const events = [];
+      ctrl.on((e) => events.push(e));
+      fire(input, 0xbe, 54, 1);
+      ctrl.setGroup15AudioMuted(false);
+      ctrl.dispose();
+      return {
+        pass: events[0]?.type === 'recordState' && events[0]?.enabled === true &&
+          sentMessages.some((m) => m[0] === 0xbe && m[1] === 54 && m[2] === 0),
+        detail: `events=${JSON.stringify(events)} sent=${JSON.stringify(sentMessages)}`,
+      };
+    });
+
+    test('Shift plus MIDI Stop emits grid', () => {
+      const { input, midiAccess } = makeMock();
+      const ctrl = new OpzControlMode(midiAccess);
+      ctrl.setInputDevice('all');
+      const events = [];
+      ctrl.on((e) => events.push(e));
+      fire(input, 0x9e, 75, 100);
+      fire(input, 0xfc, 0);
+      ctrl.dispose();
+      return { pass: events[1]?.type === 'grid', detail: JSON.stringify(events) };
     });
 
     test('Loop Toggle while shift held → loopToggle { shift: true }', () => {

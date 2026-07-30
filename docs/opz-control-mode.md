@@ -1,12 +1,14 @@
 # OP-Z Control Mode
 
 Tape uses the OP-Z's **track 15 (Lights)** row as a dedicated hardware control
-surface, mirroring the ergonomics of the OP-1 Field tape section.  Connect the
-OP-Z via USB; it appears as both a MIDI input and output.  Select it as both
-the MIDI input and output in Tape's device pickers.
+surface. Connect the OP-Z via USB; it appears as both a MIDI input and output.
+Select it as both the MIDI input and output in Tape's device pickers.
 
-All messages on this page are on **MIDI channel 15**.  Messages on channels
-1–14 continue to work as before (clock sync, percussion triggers, etc.).
+Control mode supports **Sync** operation only. The OP-Z's normal play and stop
+controls remain the transport source; Tape follows MIDI clock and transport as
+usual. Hold Tape Shift while using the OP-Z Stop control to set Tape's grid
+resolution instead. Messages on channels 1–14 continue to work as before
+(clock sync, percussion triggers, etc.).
 
 ---
 
@@ -28,58 +30,39 @@ The four encoders follow the OP-1 Field tape-mode colour convention:
 
 | Encoder | CC | Primary action | Shift action |
 |---------|----|----------------|--------------|
-| 1 (green)  | CC 1 | Loop out point — 1 beat/tick (Snap on) or 1 px/tick (Snap off) | Loop in point — same |
-| 2 (blue)   | CC 2 | Scrub playhead — 1 beat/tick (Snap on) or 1 px/tick (Snap off) | **Slide clip** — moves selected clip and playhead together by the same amount |
-| 3 (white)  | CC 3 | *(reserved — tape speed)* | *(reserved)* |
+| 1 (green)  | CC 1 | Scrub playhead — 1 beat/tick (Snap on) or 1 px/tick (Snap off) | **Slide clip** — moves selected clip and playhead together by the same amount |
+| 2 (blue)   | CC 2 | Loop out point — 1 beat/tick (Snap on) or 1 px/tick (Snap off) | — |
+| 3 (white)  | CC 3 | Loop in point — 1 beat/tick (Snap on) or 1 px/tick (Snap off) | — |
 | 4 (orange) | CC 4 | **Recording level** | *(reserved — recording pan)* |
 
 ---
 
+## Recording status
+
+Tape uses the OP-Z group 15 audio-mute status to control recording. It receives
+**CC 54** on channel 15 with a value of **0** or **1**; that state determines
+whether Tape is recording. Value **1** enables Tape recording; value **0**
+ends or disarms it. Tape sends the same state back to group 15 whenever its
+record state changes. This replaces a dedicated Tape record button, since the
+OP-Z's Record button is reserved for recording into its step sequencer.
+
 ## Buttons (black keys)
 
-Black keys are grouped by function.  All send Note On/Off on channel 15.
-
-### Tape edit  (octave 3)
-
-| Note | MIDI # | Primary | Shift |
-|------|--------|---------|-------|
-| F#3  | 54 | **Lift** — lift active clip to clipboard | **Lift All** — lift all clips in loop region |
-| G#3  | 56 | **Drop** — paste clipboard clip at playhead | **Merge Drop** — drop and merge with existing material |
-| A#3  | 58 | **Split** — split active clip at playhead | **Join** — join clip with nearest neighbour |
-
-### Transport  (octave 4, lower)
+All ten black keys are used for Tape control. All send Note On/Off on MIDI
+channel 15. White keys are ignored.
 
 | Note | MIDI # | Primary | Shift |
 |------|--------|---------|-------|
-| C#4  | 61 | **Record** — toggle record arm | **Arm** — arm with count-in |
-| D#4  | 63 | **Play** — start playback; pause if playing | **Reverse** — play in reverse |
-| F#4  | 66 | **Stop** — pause if playing; rewind to tape start (or loop in) if paused | **Grid** — set tape grid resolution |
-
-### Loop  (octave 4/5, upper)
-
-| Note | MIDI # | Primary | Shift |
-|------|--------|---------|-------|
-| G#4  | 68 | **Loop In** — set loop in point at playhead | — |
-| A#4  | 70 | **Loop Out** — set loop out point at playhead | — |
+| F#3  | 54 | **Tape 1** — select tape lane 1 | **Mute/Unmute Tape 1** |
+| G#3  | 56 | **Tape 2** — select tape lane 2 | **Mute/Unmute Tape 2** |
+| A#3  | 58 | **Tape 3** — select tape lane 3 | **Mute/Unmute Tape 3** |
+| C#4  | 61 | **Tape 4** — select tape lane 4 | **Mute/Unmute Tape 4** |
+| D#4  | 63 | **Lift** — lift active clip to clipboard | **Lift All** — lift all clips in loop region |
+| F#4  | 66 | **Drop** — paste clipboard clip at playhead | **Merge Drop** — drop and merge with existing material |
+| G#4  | 68 | **Split** — split active clip at playhead | **Join** — join clip with nearest neighbour |
+| A#4  | 70 | **Loop Out** — set loop out point at playhead | **Loop In** — set loop in point at playhead |
 | C#5  | 73 | **Loop Toggle** — loop on/off | **Loop Clip** — loop the current clip |
-
-### Modifier
-
-| Note | MIDI # | Action |
-|------|--------|--------|
-| D#5  | 75 | **Shift** — hold to activate secondary actions |
-
-All non-sharp (white) keys on channel 15 above B3 are reserved for future use and are
-currently ignored.
-
-### Lane select / mute  (octave 3, white keys)
-
-| Note | MIDI # | Primary | Shift |
-|------|--------|---------|-------|
-| F3   | 53 | **Lane 1** — select active lane | **Mute/Unmute Lane 1** |
-| G3   | 55 | **Lane 2** — select active lane | **Mute/Unmute Lane 2** |
-| A3   | 57 | **Lane 3** — select active lane | **Mute/Unmute Lane 3** |
-| B3   | 59 | **Lane 4** — select active lane | **Mute/Unmute Lane 4** |
+| D#5  | 75 | **Shift** — hold to activate secondary actions | — |
 
 ---
 
@@ -88,11 +71,12 @@ currently ignored.
 Hold **note 75 (D#5)** to activate Shift.  While Shift is held:
 
 - Encoders switch to their secondary action (e.g. scrub → slide clip,
-  recording level → recording pan, loop out → loop in).
-- Transport buttons: Record → arm with count-in, Play → reverse, Stop →
-  tape grid resolution.
+  recording level → recording pan).
+- Tape 1–4 → mute or unmute the corresponding tape lane.
 - Edit buttons: Lift → Lift All, Drop → Merge Drop, Split → Join.
+- Loop Out → Loop In.
 - Loop Toggle → Loop current clip.
+- OP-Z Stop → Tape grid resolution.
 
 Release note 75 to exit Shift.  This directly mirrors the OP-1 Field shift
 convention: hold the key, act, release.
@@ -104,35 +88,29 @@ convention: hold the key, act, release.
 ```
  OP-Z keyboard, channel 15
  ─────────────────────────────────────────────────────────────────
-  Tape edit (oct 3)     primary            shift (hold D#5)
-    54  F#3             Lift               Lift All
-    56  G#3             Drop               Merge Drop
-    58  A#3             Split              Join
+  Sync transport: standard OP-Z Play/Stop
+  Shift + Stop:  Tape grid resolution
+  Record state:    group 15 audio mute (CC 54, values 0/1)
 
-  Transport (oct 4 lo)  primary            shift
-    61  C#4             Record             Arm (count-in)
-    63  D#4             Play / Pause       Reverse
-    66  F#4             Pause / Rewind     Grid resolution
-
-  Loop (oct 4/5)        primary            shift
-    68  G#4             Loop In            —
-    70  A#4             Loop Out           —
-    73  C#5             Loop Toggle        Loop Clip
+  Black keys          primary            shift (hold D#5)
+    54  F#3            Tape 1             Mute/unmute Tape 1
+    56  G#3            Tape 2             Mute/unmute Tape 2
+    58  A#3            Tape 3             Mute/unmute Tape 3
+    61  C#4            Tape 4             Mute/unmute Tape 4
+    63  D#4            Lift               Lift All
+    66  F#4            Drop               Merge Drop
+    68  G#4            Split              Join
+    70  A#4            Loop Out           Loop In
+    73  C#5            Loop Toggle        Loop Clip
 
   75  D#5               [SHIFT — hold]
 
-  White keys (oct 3)    primary            shift
-    53  F3              Lane 1 select      Lane 1 mute/unmute
-    55  G3              Lane 2 select      Lane 2 mute/unmute
-    57  A3              Lane 3 select      Lane 3 mute/unmute
-    59  B3              Lane 4 select      Lane 4 mute/unmute
-
-  (other white keys — reserved)
+  White keys            ignored
 
   Encoders              primary            shift
-    CC 1  green         loop out point     loop in point
-    CC 2  blue          scrub              slide clip + playhead
-    CC 3  white         (tape speed — todo)
+    CC 1  green         scrub              slide clip + playhead
+    CC 2  blue          loop out point     —
+    CC 3  white         loop in point      —
     CC 4  orange        recording level
  ─────────────────────────────────────────────────────────────────
 ```
@@ -148,7 +126,7 @@ convention: hold the key, act, release.
 - **Reset threshold** is 30 steps from centre (64).  Adjust `CC_RESET_THRESHOLD`
   in `opzControlMode.ts` if encoders feel sluggish or reset too aggressively.
 - **Snap mode** (toggled by the **X** key in the TAPE tab) determines the
-  step size for encoders 1 and 2: when Snap is on, each tick moves by one
+  step size for encoders 1–3: when Snap is on, each tick moves by one
   beat; when Snap is off, each tick moves by one pixel of the current zoom.
   Snap is independent of Free/Sync mode and is saved with the session.
 - `OpzControlMode` uses `addEventListener('midimessage')` on the shared
@@ -158,3 +136,6 @@ convention: hold the key, act, release.
   encoder-reset feature to work (Tape sends a CC back to recentre the
   encoder).  If no output is selected the app still functions; encoders simply
   won't auto-reset.
+- OP-Z control mode consumes only the ten black-key mappings described above;
+  it does not map white keys or a dedicated record or play button. Shift plus
+  the standard OP-Z Stop control sets Tape's grid resolution.

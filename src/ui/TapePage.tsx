@@ -279,6 +279,9 @@ export function TapePage() {
         const ctrlMode = new OpzControlMode(midiAccess);
         ctrlMode.setInputDevice(defaultInput?.id ?? 'all');
         if (defaultOutput) ctrlMode.setOutputDevice(defaultOutput.id);
+        ctrlMode.setGroup15AudioMuted(
+          transportRef.current === 'armed' || transportRef.current === 'recording',
+        );
         ctrlMode.on((event) => ctrlModeHandlerRef.current?.(event));
         ctrlModeRef.current = ctrlMode;
       }
@@ -597,6 +600,9 @@ export function TapePage() {
   const handleMidiOutputChange = useCallback((id: string) => {
     syncEngineRef.current?.setOutputDevice(id);
     ctrlModeRef.current?.setOutputDevice(id);
+    ctrlModeRef.current?.setGroup15AudioMuted(
+      transportRef.current === 'armed' || transportRef.current === 'recording',
+    );
     setSelectedMidiOutputId(id);
   }, []);
 
@@ -700,6 +706,7 @@ export function TapePage() {
   // OP-Z control mode handler (updated every render)
   // ---------------------------------------------------------------------------
   ctrlModeHandlerRef.current = (event: ControlEvent) => {
+    if (modeRef.current !== 'sync') return;
     const action = controlEventToAction(event);
     if (action) dispatch(action);
   };

@@ -4,6 +4,8 @@
 export type TapeAction =
   // ── Transport ─────────────────────────────────────────────────────────────
   | { type: 'record' }
+  /** OP-Z group-15 audio mute requests arm/record when enabled, or disarm/stop when disabled. */
+  | { type: 'setRecordEnabled'; enabled: boolean }
   | { type: 'play'; countIn?: boolean }
   | { type: 'stop' }
   // ── Engine events ─────────────────────────────────────────────────────────
