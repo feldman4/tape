@@ -26,6 +26,7 @@ export interface SessionRecord {
   laneMuted?: boolean[];
   laneGain?: number[];
   lanePan?: number[];
+  recordingGain?: number;
   mode?: 'free' | 'sync';
   snap?: boolean;
   audioBuffers: { id: AudioBufferId; buffer: ArrayBuffer }[];
@@ -83,6 +84,7 @@ export async function saveSession(name: string, tape: Tape, pool: AudioPool, mod
     laneMuted: tape.lanes.map((l) => l.muted),
     laneGain:  tape.lanes.map((l) => l.gain),
     lanePan:   tape.lanes.map((l) => l.pan),
+    recordingGain: tape.recordingGain,
     mode,
     snap,
     audioBuffers,
@@ -141,6 +143,7 @@ export async function loadSession(name: string): Promise<{ tape: Tape; pool: Aud
     loopOut: record.loopOut,
     loopEnabled: record.loopEnabled,
     bpm: record.bpm ?? 120,
+    recordingGain: record.recordingGain ?? 1.0,
   };
 
   return { tape, pool, mode: record.mode ?? 'sync', snap: record.snap ?? true };

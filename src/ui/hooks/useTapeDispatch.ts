@@ -515,6 +515,14 @@ export function useTapeDispatch(refs: TapeEngineRefs, deps: DispatchDeps) {
           setTape((prev) => { const t = { ...prev, ...patch }; tapeRef.current = t; return t; });
           syncLoopToEngine(shift ? newVal : tape.loopIn, shift ? tape.loopOut : newVal, tape.loopEnabled);
           if (snap) addLogFnRef.current(`loop ${shift ? 'in' : 'out'} → ${(newVal / spb).toFixed(2)} beats  (${(newVal / sr).toFixed(2)}s)`);
+        } else if (index === 3 && !shift) {
+          const gain = Math.max(0, Math.min(2, tape.recordingGain + delta * 0.02));
+          setTape((prev) => {
+            const t = { ...prev, recordingGain: gain };
+            tapeRef.current = t;
+            return t;
+          });
+          engineRef.current?.setRecordingGain(gain);
         }
         break;
       }
@@ -838,6 +846,17 @@ export function useTapeDispatch(refs: TapeEngineRefs, deps: DispatchDeps) {
         break;
       }
 
+      case 'setRecordingGain': {
+        const gain = Math.max(0, Math.min(2, action.gain));
+        setTape((prev) => {
+          const t = { ...prev, recordingGain: gain };
+          tapeRef.current = t;
+          return t;
+        });
+        engineRef.current?.setRecordingGain(gain);
+        break;
+      }
+
       // ── Settings ───────────────────────────────────────────────────────────
 
       case 'toggleMode': {
@@ -880,6 +899,7 @@ export function useTapeDispatch(refs: TapeEngineRefs, deps: DispatchDeps) {
             setTape(result.tape);
             tapeRef.current = result.tape;
             engineRef.current?.loadTape(result.tape.lanes, result.pool);
+            engineRef.current?.setRecordingGain(result.tape.recordingGain);
             setMode(result.mode);
             modeRef.current = result.mode;
             setSnap(result.snap);
@@ -903,6 +923,7 @@ export function useTapeDispatch(refs: TapeEngineRefs, deps: DispatchDeps) {
         setTape(freshTape);
         tapeRef.current = freshTape;
         engineRef.current?.loadTape([], freshPool);
+        engineRef.current?.setRecordingGain(freshTape.recordingGain);
         setClipboard(null);
         setUndoStack([]);
         setRedoStack([]);

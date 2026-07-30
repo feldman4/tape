@@ -21,6 +21,7 @@ type ToProcessorMessage =
   | { type: 'record-stop' }
   /** Flush recorded chunks to main thread and reset buffer, but keep recording. */
   | { type: 'record-rotate' }
+  | { type: 'set-recording-gain'; gain: number }
   | { type: 'set-tape'; clips: WorkletClip[] }
   | { type: 'play'; tapeStart: number; atAudioFrame: number; loopIn: number; loopOut: number; loopEnabled: boolean }
   | { type: 'set-loop'; loopIn: number; loopOut: number; loopEnabled: boolean }
@@ -36,6 +37,7 @@ const PLAYHEAD_POST_INTERVAL_BLOCKS = 16; // throttle ~46ms @128/44.1kHz
 
 class TapeProcessor extends AudioWorkletProcessor {
   private recording = false;
+  private recordingGain = 1;
   private recordedChunks: Float32Array[] = [];
   private recordStartFrame = 0;
 
@@ -79,6 +81,9 @@ class TapeProcessor extends AudioWorkletProcessor {
         // Flush current buffer to main thread, reset, keep recording=true.
         this.flushRecording();
         this.recordStartFrame = currentFrame;
+        break;
+      case 'set-recording-gain':
+        this.recordingGain = Math.max(0, Math.min(2, msg.gain));
         break;
       case 'set-tape':
         this.tapeClips = msg.clips;
@@ -147,7 +152,11 @@ class TapeProcessor extends AudioWorkletProcessor {
     const blockStartFrame = currentFrame;
 
     if (this.recording && input) {
-      this.recordedChunks.push(input.slice());
+      const recorded = input.slice();
+      if (this.recordingGain !== 1) {
+        for (let i = 0; i < recorded.length; i++) recorded[i] *= this.recordingGain;
+      }
+      this.recordedChunks.push(recorded);
     }
 
     if (outL) outL.fill(0);

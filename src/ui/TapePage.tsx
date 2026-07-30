@@ -206,6 +206,7 @@ export function TapePage() {
   const handleDeleteSession = (name: string) => dispatch({ type: 'deleteSession', name });
   const handleLaneGain = (laneIndex: 0|1|2|3, gain: number) => dispatch({ type: 'setLaneGain', lane: laneIndex, gain });
   const handleLanePan  = (laneIndex: 0|1|2|3, pan: number)  => dispatch({ type: 'setLanePan',  lane: laneIndex, pan });
+  const handleRecordingGain = (gain: number) => dispatch({ type: 'setRecordingGain', gain });
   const handleLaneMute    = (laneIndex: 0|1|2|3) => dispatch({ type: 'toggleMuteLane', lane: laneIndex });
   const handleToggleClick = useCallback(() => setClickEnabled((v) => !v), []);
 
@@ -243,6 +244,7 @@ export function TapePage() {
       const engine = new AudioEngine();
       await engine.init();
       engineRef.current = engine;
+      engine.setRecordingGain(tapeRef.current.recordingGain);
       poolDisplayRef.current = poolRef.current;
 
       const devices = await engine.listInputDevices();
@@ -397,6 +399,7 @@ export function TapePage() {
           tapeRef.current = result.tape;
           poolDisplayRef.current = result.pool;
           engineRef.current?.loadTape(result.tape.lanes, result.pool);
+          engineRef.current?.setRecordingGain(result.tape.recordingGain);
           setMode(result.mode);
           modeRef.current = result.mode;
           setSnap(result.snap);
@@ -779,7 +782,7 @@ export function TapePage() {
             tapeStartSecs: c.tapeStart / sr, durationSecs: c.duration / sr, muted: c.muted,
           })),
           tapeLength: tape.tapeLength, playhead: tape.playhead,
-          loopIn: tape.loopIn, loopOut: tape.loopOut, loopEnabled: tape.loopEnabled, bpm: tape.bpm,
+          loopIn: tape.loopIn, loopOut: tape.loopOut, loopEnabled: tape.loopEnabled, bpm: tape.bpm, recordingGain: tape.recordingGain,
         },
         clipboard: clipboard && !Array.isArray(clipboard) ? { id: clipboard.id, duration: clipboard.duration } : (Array.isArray(clipboard) ? { id: 'liftAll', duration: clipboard.length } : null),
         selectedClipId,
@@ -920,6 +923,7 @@ export function TapePage() {
       {activeTab === 'MIXER' && (
         <MixerTab
           tape={tape}
+          handleRecordingGain={handleRecordingGain}
           handleLaneGain={handleLaneGain}
           handleLanePan={handleLanePan}
           handleLaneMute={handleLaneMute}

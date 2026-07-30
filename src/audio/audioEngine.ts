@@ -165,6 +165,11 @@ export class AudioEngine {
     this.node!.port.postMessage({ type: 'record-start' });
   }
 
+  /** Sets the gain applied to microphone input samples captured by the worklet. */
+  setRecordingGain(gain: number): void {
+    this.node!.port.postMessage({ type: 'set-recording-gain', gain });
+  }
+
   stopRecording(): Promise<{ samples: Float32Array; startFrame: number }> {
     return new Promise((resolve) => {
       this.pendingRecordingQueue.push(resolve);

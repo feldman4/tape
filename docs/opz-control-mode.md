@@ -31,7 +31,7 @@ The four encoders follow the OP-1 Field tape-mode colour convention:
 | 1 (green)  | CC 1 | Loop out point — 1 beat/tick (Snap on) or 1 px/tick (Snap off) | Loop in point — same |
 | 2 (blue)   | CC 2 | Scrub playhead — 1 beat/tick (Snap on) or 1 px/tick (Snap off) | **Slide clip** — moves selected clip and playhead together by the same amount |
 | 3 (white)  | CC 3 | *(reserved — tape speed)* | *(reserved)* |
-| 4 (orange) | CC 4 | *(reserved — recording level)* | *(reserved — recording pan)* |
+| 4 (orange) | CC 4 | **Recording level** | *(reserved — recording pan)* |
 
 ---
 
@@ -133,7 +133,7 @@ convention: hold the key, act, release.
     CC 1  green         loop out point     loop in point
     CC 2  blue          scrub              slide clip + playhead
     CC 3  white         (tape speed — todo)
-    CC 4  orange        (record level — todo)
+    CC 4  orange        recording level
  ─────────────────────────────────────────────────────────────────
 ```
 

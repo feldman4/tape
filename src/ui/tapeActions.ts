@@ -38,6 +38,7 @@ export type TapeAction =
   // ── Mixer ─────────────────────────────────────────────────────────────────
   | { type: 'setLaneGain'; lane: 0|1|2|3; gain: number }
   | { type: 'setLanePan';  lane: 0|1|2|3; pan:  number }
+  | { type: 'setRecordingGain'; gain: number }
   // ── Settings ──────────────────────────────────────────────────────────────
   | { type: 'toggleMode' }
   | { type: 'toggleSnap' }

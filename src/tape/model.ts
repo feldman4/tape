@@ -31,6 +31,7 @@ export interface Tape {
   loopOut: number;       // loop end in samples
   loopEnabled: boolean;
   bpm: number;           // project tempo in BPM (integer); default 120
+  recordingGain: number; // input gain applied to new recordings, 0.0–2.0
 }
 
 // 8 beats at 120 BPM / 44100 Hz = default loop out for new sessions (2 bars).
@@ -51,6 +52,7 @@ export function makeDefaultTape(): Tape {
     loopOut: DEFAULT_LOOP_OUT_SAMPLES,
     loopEnabled: true,
     bpm: 120,
+    recordingGain: 1.0,
   };
 }
 

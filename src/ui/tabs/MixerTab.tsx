@@ -3,14 +3,33 @@ import { btnStyle } from '../btnStyle';
 
 interface MixerTabProps {
   tape: Tape;
+  handleRecordingGain: (gain: number) => void;
   handleLaneGain: (laneIndex: 0 | 1 | 2 | 3, gain: number) => void;
   handleLanePan: (laneIndex: 0 | 1 | 2 | 3, pan: number) => void;
   handleLaneMute: (laneIndex: 0 | 1 | 2 | 3) => void;
 }
 
-export function MixerTab({ tape, handleLaneGain, handleLanePan, handleLaneMute }: MixerTabProps) {
+export function MixerTab({ tape, handleRecordingGain, handleLaneGain, handleLanePan, handleLaneMute }: MixerTabProps) {
+  const recordingGainPct = Math.round(tape.recordingGain * 100);
   return (
     <div style={{ display: 'flex', gap: 16 }}>
+      <div style={{
+        background: '#18181b', borderRadius: 6, padding: '12px 14px',
+        display: 'flex', flexDirection: 'column', alignItems: 'center',
+        gap: 10, minWidth: 54,
+      }}>
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2, width: '100%' }}>
+          <span style={{ fontSize: 11, color: '#fb923c' }}>Rec</span>
+          <div style={{ position: 'relative', height: 80, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <input
+              type="range" min={0} max={2} step={0.01} value={tape.recordingGain}
+              onChange={(e) => handleRecordingGain(Number(e.target.value))}
+              style={{ width: 76, transform: 'rotate(-90deg)', transformOrigin: 'center center', position: 'absolute', accentColor: '#f97316' }}
+            />
+          </div>
+          <span style={{ fontSize: 11, color: '#71717a' }}>{recordingGainPct}%</span>
+        </div>
+      </div>
       {([0, 1, 2, 3] as const).map((li) => {
         const lane = tape.lanes[li];
         const panPct = Math.round(lane.pan * 100);
@@ -20,7 +39,7 @@ export function MixerTab({ tape, handleLaneGain, handleLanePan, handleLaneMute }
           <div key={li} style={{
             background: '#18181b', borderRadius: 6, padding: '12px 14px',
             display: 'flex', flexDirection: 'column', alignItems: 'center',
-            gap: 10, minWidth: 54,
+            gap: 10, width: 54, minWidth: 0,
             opacity: lane.muted ? 0.5 : 1,
           }}>
             {/* Gain fader */}
@@ -42,7 +61,7 @@ export function MixerTab({ tape, handleLaneGain, handleLanePan, handleLaneMute }
               <input
                 type="range" min={-0.6} max={0.6} step={0.01} value={lane.pan}
                 onChange={(e) => handleLanePan(li, Number(e.target.value))}
-                style={{ width: '100%' }}
+                style={{ width: 54 }}
               />
               <span style={{ fontSize: 11, color: '#71717a' }}>{panLabel}</span>
             </div>
@@ -50,7 +69,7 @@ export function MixerTab({ tape, handleLaneGain, handleLanePan, handleLaneMute }
             {/* Mute */}
             <button
               onClick={() => handleLaneMute(li)}
-              style={{ ...btnStyle, fontSize: 11, width: '100%',
+              style={{ ...btnStyle, boxSizing: 'border-box', fontSize: 11, width: 54,
                 ...(lane.muted ? { background: '#92400e', color: '#fcd34d', borderColor: '#b45309' } : {}),
               }}>
               {lane.muted ? 'Muted' : 'Mute'}
