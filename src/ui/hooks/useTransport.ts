@@ -4,7 +4,7 @@ import { useCallback } from 'react';
 import type { Dispatch, SetStateAction } from 'react';
 import type { AudioEngine } from '../../audio/audioEngine';
 import type { Clip, Tape } from '../../tape/model';
-import { finalizeFreeRecording, finalizeLoopRecording, finalizeSyncRecording } from '../../tape/recording';
+import { finalizeFreeRecording, finalizeLoopRecording } from '../../tape/recording';
 import { applyOverwrite } from '../../tape/editEngine';
 import { createClickWaveform } from '../../audio/clickWaveform';
 import type { TapeEngineRefs, TransportState } from '../tapeRefs';
@@ -18,7 +18,7 @@ interface TransportDeps {
 
 export function useTransport(refs: TapeEngineRefs, deps: TransportDeps) {
   const {
-    engineRef, syncEngineRef, poolRef, poolDisplayRef,
+    engineRef, poolRef, poolDisplayRef,
     tapeRef, transportRef, modeRef, outputLatencyMsRef,
     tapeStartForRecordingRef, recordStartWallTimeRef,
     loopRotateTimeoutRef, loopRotatingRef, armedRef,
@@ -107,15 +107,9 @@ export function useTransport(refs: TapeEngineRefs, deps: TransportDeps) {
         addLogFnRef.current(`✓ Take (sync+loop): ${(recording.samples.length / sr).toFixed(3)}s raw, ${passes.toFixed(2)}x passes`);
         setLastClipBeats(null);
       } else {
-        const syncEngine = syncEngineRef.current;
-        const samplesPerBeat = syncEngine?.samplesPerBeat() ?? sr;
-        const beatsElapsed = Math.round(recording.samples.length / samplesPerBeat);
-        newClip = finalizeSyncRecording(poolRef.current, recording.samples, tapeStart, beatsElapsed, samplesPerBeat);
-        const rawSamples = recording.samples.length;
-        const targetSamples = Math.max(0, Math.round(beatsElapsed * samplesPerBeat));
-        const corrSamples = targetSamples - rawSamples;
-        addLogFnRef.current(`✓ Take (sync): raw=${(rawSamples / sr).toFixed(3)}s  correction=${(corrSamples / sr * 1000).toFixed(1)}ms  beats=${beatsElapsed}`);
-        setLastClipBeats(beatsElapsed);
+        newClip = finalizeFreeRecording(poolRef.current, recording.samples, tapeStart, []);
+        addLogFnRef.current(`✓ Take (sync): ${(recording.samples.length / sr).toFixed(3)}s`);
+        setLastClipBeats(null);
       }
     }
 

@@ -14,8 +14,8 @@ export function controlEventToAction(event: ControlEvent): TapeAction | null {
     case 'record':     return { type: 'record' };
     case 'play':       return { type: 'play', countIn: event.shift };
     case 'stop':       return { type: 'stop' };
-    case 'lift':       return { type: 'lift' };
-    case 'drop':       return { type: 'drop' };
+    case 'lift':       return event.shift ? { type: 'liftAll' } : { type: 'lift' };
+    case 'drop':       return event.shift ? { type: 'mergeDrop' } : { type: 'drop' };
     case 'split':      return event.shift ? { type: 'join' } : { type: 'split' };
     case 'loopIn':     return { type: 'setLoopIn' };
     case 'loopOut':    return { type: 'setLoopOut' };
@@ -52,9 +52,9 @@ export function keyEventToAction(ev: KeyboardEvent): TapeAction | null {
     case '[':           return { type: 'setLoopIn' };
     case ']':           return { type: 'setLoopOut' };
     case '\\':          return shift ? { type: 'loopFromClip' } : { type: 'toggleLoop' };
-    case 'l': case 'L': return { type: 'lift' };
-    case 'd': case 'D': return { type: 'drop' };
-    case 'z': case 'Z': return { type: 'toggleMode' };
+    case 'l': case 'L': return shift ? { type: 'liftAll' } : { type: 'lift' };
+    case 'd': case 'D': return shift ? { type: 'mergeDrop' } : { type: 'drop' };
+    case 'z': case 'Z': return shift ? { type: 'redo' } : { type: 'undo' };
     case 'x': case 'X': return { type: 'toggleSnap' };
     case 's': case 'S': return shift ? { type: 'join' } : { type: 'split' };
     default:            return null;

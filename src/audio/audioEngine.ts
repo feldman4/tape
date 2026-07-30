@@ -72,11 +72,6 @@ export class AudioEngine {
     return this.ctx?.outputLatency ?? 0;
   }
 
-  /** AudioContext input latency in seconds (time from mic capture to samples available in JS). */
-  get inputLatencySecs(): number {
-    return (this.ctx as (AudioContext & { inputLatency?: number }) | null)?.inputLatency ?? 0;
-  }
-
   /** Lists available audio output devices. Labels are only populated once mic permission has been granted. */
   async listOutputDevices(): Promise<MediaDeviceInfo[]> {
     const devices = await navigator.mediaDevices.enumerateDevices();
@@ -93,7 +88,7 @@ export class AudioEngine {
 
   async init(deviceId?: string): Promise<void> {
     this.stream = await this.acquireStream(deviceId);
-    this.ctx = new AudioContext({ latencyHint: 'interactive' });
+    this.ctx = new AudioContext({ latencyHint: 0 });
     await this.ctx.audioWorklet.addModule(tapeProcessorUrl);
 
     this.node = new AudioWorkletNode(this.ctx, 'tape-processor', {

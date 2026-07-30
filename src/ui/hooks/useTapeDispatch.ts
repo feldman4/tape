@@ -15,7 +15,7 @@ import {
   tapeLengthFromLanes,
 } from '../../tape/editEngine';
 import { deleteSession, listSessions, loadSession, saveSession } from '../../tape/session';
-import { finalizeFreeRecording, finalizeLoopRecording, finalizeSyncRecording } from '../../tape/recording';
+import { finalizeFreeRecording, finalizeLoopRecording } from '../../tape/recording';
 import { createClickWaveform } from '../../audio/clickWaveform';
 import { type TapeEngineRefs, type TransportState, type UndoEntry, type Mode, snapshotTape } from '../tapeRefs';
 import type { TapeAction } from '../tapeActions';
@@ -25,22 +25,21 @@ interface DispatchDeps {
   setTransport:     Dispatch<SetStateAction<TransportState>>;
   setUndoStack:     Dispatch<SetStateAction<UndoEntry[]>>;
   setRedoStack:     Dispatch<SetStateAction<UndoEntry[]>>;
-  setClipboard:     Dispatch<SetStateAction<Clip | null>>;
+  setClipboard:     Dispatch<SetStateAction<Clip | Array<{ clip: Clip; lane: 0|1|2|3 }> | null>>;
   setSessions:      Dispatch<SetStateAction<string[]>>;
   setSessionStatus: Dispatch<SetStateAction<string>>;
   setSessionName:   Dispatch<SetStateAction<string>>;
   setMode:          Dispatch<SetStateAction<Mode>>;
   setSnap:          Dispatch<SetStateAction<boolean>>;
   setLastClipBeats: Dispatch<SetStateAction<number | null>>;
-  clipboard:        Clip | null;
+  clipboard:        Clip | Array<{ clip: Clip; lane: 0|1|2|3 }> | null;
   sessionName:      string;
 }
 
 export function useTapeDispatch(refs: TapeEngineRefs, deps: DispatchDeps) {
   const {
-    engineRef, syncEngineRef, poolRef, poolDisplayRef,
+    engineRef, poolRef, poolDisplayRef,
     tapeRef, transportRef, modeRef, snapRef, outputLatencyMsRef,
-    calibratedInputLatencyMsRef,
     tapeStartForRecordingRef, recordStartWallTimeRef,
     loopRotateTimeoutRef, loopRotatingRef, armedRef,
     cancelCountInRef, addLogFnRef, selectedClipIdRef, samplesPerPixelRef,
@@ -53,7 +52,7 @@ export function useTapeDispatch(refs: TapeEngineRefs, deps: DispatchDeps) {
   } = deps;
 
   // Mirror reactive values into refs so dispatch always sees the latest.
-  const clipboardRef = useRef<Clip | null>(deps.clipboard);
+  const clipboardRef = useRef<Clip | Array<{ clip: Clip; lane: 0|1|2|3 }> | null>(deps.clipboard);
   clipboardRef.current = deps.clipboard;
   const sessionNameRef = useRef(deps.sessionName);
   sessionNameRef.current = deps.sessionName;
@@ -154,23 +153,29 @@ export function useTapeDispatch(refs: TapeEngineRefs, deps: DispatchDeps) {
     } else {
       const tape = tapeRef.current;
       const loopLen = tape.loopOut - tape.loopIn;
-      // Apply audio input latency so the recorded clip lands at the correct tape position.
-      const inputLatSamples = Math.round(calibratedInputLatencyMsRef.current * sr / 1000);
-      const adjTapeStart = Math.max(0, tapeStart - inputLatSamples);
+      // In sync mode, tapeStart is set to the snapped beat position when MIDI Start arrived.
+      // Use this directly — MIDI Start timing is reliable, so we place audio at the beat with no latency adjustment.
+      const adjTapeStart = Math.max(0, tapeStart);
+      
       if (tape.loopEnabled && loopLen > 0) {
-        newClip = finalizeLoopRecording(poolRef.current, recording.samples, adjTapeStart, tape.loopIn, tape.loopOut);
-        const passes = (recording.samples.length - Math.max(0, tape.loopIn - adjTapeStart)) / loopLen;
-        addLogFnRef.current(`✓ Take (sync+loop): ${(recording.samples.length / sr).toFixed(3)}s raw, ${passes.toFixed(2)}x passes  input-lat=${(inputLatSamples / sr * 1000).toFixed(1)}ms`);
+        // Calculate where the recording actually ended
+        const recordingEndSecs = adjTapeStart + (recording.samples.length / sr);
+        
+        // If recording stopped before loopOut, don't extend the clip to loopOut.
+        // Use finalizeFreeRecording instead to preserve audio beyond the recording end.
+        if (recordingEndSecs < tape.loopOut) {
+          newClip = finalizeFreeRecording(poolRef.current, recording.samples, adjTapeStart, existingClips);
+          addLogFnRef.current(`✓ Take (sync+loop-early-stop): ${(recording.samples.length / sr).toFixed(3)}s (stopped at ${recordingEndSecs.toFixed(3)}s, before loop end ${tape.loopOut.toFixed(3)}s)`);
+        } else {
+          newClip = finalizeLoopRecording(poolRef.current, recording.samples, adjTapeStart, tape.loopIn, tape.loopOut);
+          const passes = (recording.samples.length - Math.max(0, tape.loopIn - adjTapeStart)) / loopLen;
+          addLogFnRef.current(`✓ Take (sync+loop): ${(recording.samples.length / sr).toFixed(3)}s raw, ${passes.toFixed(2)}x passes`);
+        }
         setLastClipBeats(null);
       } else {
-        const syncEngine = syncEngineRef.current;
-        const samplesPerBeat = syncEngine?.samplesPerBeat() ?? sr;
-        const beatsElapsed = Math.round(recording.samples.length / samplesPerBeat);
-        newClip = finalizeSyncRecording(poolRef.current, recording.samples, adjTapeStart, beatsElapsed, samplesPerBeat);
-        const raw = recording.samples.length;
-        const target = Math.max(0, Math.round(beatsElapsed * samplesPerBeat));
-        addLogFnRef.current(`✓ Take (sync): raw=${(raw / sr).toFixed(3)}s  beat-correction=${((target - raw) / sr * 1000).toFixed(1)}ms  input-lat=${(inputLatSamples / sr * 1000).toFixed(1)}ms  beats=${beatsElapsed}`);
-        setLastClipBeats(beatsElapsed);
+        newClip = finalizeFreeRecording(poolRef.current, recording.samples, adjTapeStart, existingClips);
+        addLogFnRef.current(`✓ Take (sync): ${(recording.samples.length / sr).toFixed(3)}s`);
+        setLastClipBeats(null);
       }
     }
 
@@ -234,12 +239,12 @@ export function useTapeDispatch(refs: TapeEngineRefs, deps: DispatchDeps) {
         }
         // idle → arm
         armedRef.current = true;
+        transportRef.current = 'armed';
+        setTransport('armed');
         if (modeRef.current === 'free') {
-          transportRef.current = 'armed';
-          setTransport('armed');
           addLogFnRef.current('⏺ Armed (free) — press Play to record, Shift+Play for count-in');
         } else {
-          setTransport('armed');
+          addLogFnRef.current('⏺ Armed (sync) — waiting for MIDI start to record');
         }
         break;
       }
@@ -354,7 +359,14 @@ export function useTapeDispatch(refs: TapeEngineRefs, deps: DispatchDeps) {
         const tr = transportRef.current;
         const startSamples = action.startSamples;
         const tape = tapeRef.current;
-        addLogFnRef.current(`▶ MIDI Start  transport=${tr}  pos=${(startSamples / engine.sampleRate).toFixed(3)}s`);
+        const sr = engine.sampleRate;
+        // The user hears hardware audio via input monitoring (zero latency).
+        // Tape audio takes L_out ms to emerge from the DAC.  So at real time
+        // L_out, the user hears hardware at L_out ms into the performance; the
+        // tape must also be at startSamples + L_out at that moment.
+        const outLatSamples = Math.round(outputLatencyMsRef.current * sr / 1000);
+        const playFrom = (from: number) => from + outLatSamples;
+        addLogFnRef.current(`▶ MIDI Start  transport=${tr}  pos=${(startSamples / sr).toFixed(3)}s  out-lat=${outputLatencyMsRef.current.toFixed(1)}ms`);
 
         // Update playhead to the snapped beat position.
         setTape((prev) => { const t = { ...prev, playhead: startSamples }; tapeRef.current = t; return t; });
@@ -365,7 +377,7 @@ export function useTapeDispatch(refs: TapeEngineRefs, deps: DispatchDeps) {
           void finalizeRecordingTake(engine).then(() => {
             const t = tapeRef.current;
             engine.loadTape(t.lanes, poolRef.current);
-            engine.play(startSamples, { loopIn: t.loopIn, loopOut: t.loopOut, loopEnabled: t.loopEnabled });
+            engine.play(playFrom(startSamples), { loopIn: t.loopIn, loopOut: t.loopOut, loopEnabled: t.loopEnabled });
             transportRef.current = 'playing';
             setTransport('playing');
           });
@@ -381,15 +393,15 @@ export function useTapeDispatch(refs: TapeEngineRefs, deps: DispatchDeps) {
 
         if (armedRef.current) {
           armedRef.current = false;
-          tapeStartForRecordingRef.current = startSamples;
+          tapeStartForRecordingRef.current = startSamples;   // beat position, not compensated
           recordStartWallTimeRef.current = Date.now();
-          engine.play(startSamples, { loopIn: tape.loopIn, loopOut: tape.loopOut, loopEnabled: tape.loopEnabled });
+          engine.play(playFrom(startSamples), { loopIn: tape.loopIn, loopOut: tape.loopOut, loopEnabled: tape.loopEnabled });
           engine.startRecording();
           transportRef.current = 'recording';
           setTransport('recording');
         } else {
           // Not armed: start (or restart) plain playback.
-          engine.play(startSamples, { loopIn: tape.loopIn, loopOut: tape.loopOut, loopEnabled: tape.loopEnabled });
+          engine.play(playFrom(startSamples), { loopIn: tape.loopIn, loopOut: tape.loopOut, loopEnabled: tape.loopEnabled });
           transportRef.current = 'playing';
           setTransport('playing');
         }
@@ -547,11 +559,176 @@ export function useTapeDispatch(refs: TapeEngineRefs, deps: DispatchDeps) {
       case 'drop': {
         const cb = clipboardRef.current;
         if (!cb) break;
+        
         const tape = tapeRef.current;
-        const newClips = dropClip(tape.lanes[tape.activeLane].clips, cb, tape.playhead);
-        const dropped = newClips[newClips.length - 1]!;
+        
+        if (Array.isArray(cb) && cb.length > 0 && 'lane' in cb[0]) {
+          // Drop liftAll clipboard: restore clips to their original lanes at playhead position
+          type LiftAllItem = { clip: Clip; lane: 0|1|2|3 };
+          const items = cb as LiftAllItem[];
+          
+          let newLanes = tape.lanes.map(l => ({ ...l })) as [Lane, Lane, Lane, Lane];
+          let lastClip: Clip | null = null;
+          
+          for (const { clip, lane } of items) {
+            const droppedClip = { ...clip, tapeStart: tape.playhead };
+            newLanes[lane] = { ...newLanes[lane], clips: [...newLanes[lane].clips, droppedClip] };
+            lastClip = droppedClip;
+          }
+          
+          const newTape: Tape = { ...tape, lanes: newLanes, tapeLength: tapeLengthFromLanes(newLanes) };
+          setTape(newTape);
+          tapeRef.current = newTape;
+          engineRef.current?.loadTape(newLanes, poolRef.current);
+          
+          if (lastClip) {
+            setTape((prev) => { const t = { ...prev, playhead: lastClip!.tapeStart + lastClip!.duration }; tapeRef.current = t; return t; });
+          }
+        } else if (Array.isArray(cb)) {
+          // Shouldn't happen, but fallback to old behavior
+          break;
+        } else {
+          // Drop single clip at current playhead
+          const newClips = dropClip(tape.lanes[tape.activeLane].clips, cb, tape.playhead);
+          const dropped = newClips[newClips.length - 1]!;
+          applyEdit(tape, newClips);
+          setTape((prev) => { const t = { ...prev, playhead: dropped.tapeStart + dropped.duration }; tapeRef.current = t; return t; });
+        }
+        break;
+      }
+
+      case 'liftAll': {
+        const tape = tapeRef.current;
+        if (!tape.loopEnabled) break; // No-op if loop is not active
+        
+        pushUndo(tape);
+        const loopStart = Math.min(tape.loopIn, tape.loopOut);
+        const loopEnd = Math.max(tape.loopIn, tape.loopOut);
+        
+        // Collect clipped portions and handle splitting at loop boundaries
+        const liftedClips: Array<{ clip: Clip; lane: 0|1|2|3 }> = [];
+        const newLanes = tape.lanes.map((lane, laneIdx) => {
+          if (lane.muted) return lane;
+          
+          const newClips: Clip[] = [];
+          
+          for (const clip of lane.clips) {
+            const clipStart = clip.tapeStart;
+            const clipEnd = clip.tapeStart + clip.duration;
+            
+            // No overlap with loop - keep clip as-is
+            if (clipEnd <= loopStart || clipStart >= loopEnd) {
+              newClips.push(clip);
+              continue;
+            }
+            
+            // Overlap: split into before, during, after
+            const duringStart = Math.max(clipStart, loopStart);
+            const duringEnd = Math.min(clipEnd, loopEnd);
+            
+            // Before portion (clipStart to loopStart)
+            if (clipStart < loopStart && loopStart < clipEnd) {
+              const beforeClip: Clip = {
+                ...clip,
+                duration: loopStart - clipStart,
+                // sourceStart stays the same
+              };
+              newClips.push(beforeClip);
+            }
+            
+            // During portion (lift this)
+            if (duringStart < duringEnd) {
+              const duringClip: Clip = {
+                ...clip,
+                tapeStart: duringStart,
+                sourceStart: clip.sourceStart + (duringStart - clipStart),
+                duration: duringEnd - duringStart,
+              };
+              liftedClips.push({ clip: duringClip, lane: laneIdx as 0|1|2|3 });
+            }
+            
+            // After portion (clipEnd to afterStart)
+            if (loopEnd < clipEnd && clipStart < loopEnd) {
+              const afterClip: Clip = {
+                ...clip,
+                tapeStart: loopEnd,
+                sourceStart: clip.sourceStart + (loopEnd - clipStart),
+                duration: clipEnd - loopEnd,
+              };
+              newClips.push(afterClip);
+            }
+          }
+          
+          return { ...lane, clips: newClips };
+        }) as [Lane, Lane, Lane, Lane];
+        
+        if (liftedClips.length === 0) break; // Nothing to lift
+        
+        const newTape: Tape = { ...tape, lanes: newLanes, tapeLength: tapeLengthFromLanes(newLanes) };
+        setTape(newTape);
+        tapeRef.current = newTape;
+        engineRef.current?.loadTape(newLanes, poolRef.current);
+        setClipboard(liftedClips);
+        break;
+      }
+
+      case 'mergeDrop': {
+        const cb = clipboardRef.current;
+        if (!Array.isArray(cb) || cb.length === 0) break;
+        
+        type LiftAllItem = { clip: Clip; lane: 0|1|2|3 };
+        if (!('lane' in cb[0])) break; // Only works with liftAll format
+        
+        const items = cb as LiftAllItem[];
+        const tape = tapeRef.current;
+        const loopStart = Math.min(tape.loopIn, tape.loopOut);
+        const loopEnd = Math.max(tape.loopIn, tape.loopOut);
+        const loopDuration = loopEnd - loopStart;
+        
+        // Create merged buffer by mixing all lifted clips
+        const mergedSamples = new Float32Array(loopDuration);
+        let hasAudio = false;
+        
+        for (const { clip, lane } of items) {
+          const buffer = poolRef.current.get(clip.audioBufferId);
+          if (!buffer) continue;
+          hasAudio = true;
+          
+          // Map clip position within loop region to merged buffer position
+          const clipStartInLoop = Math.max(0, clip.tapeStart - loopStart);
+          const clipEndInLoop = Math.min(loopDuration, clip.tapeStart + clip.duration - loopStart);
+          const startInClip = Math.max(0, loopStart - clip.tapeStart) + clip.sourceStart;
+          
+          for (let i = clipStartInLoop; i < clipEndInLoop; i++) {
+            const sourceIdx = startInClip + (i - clipStartInLoop);
+            if (sourceIdx >= 0 && sourceIdx < buffer.length) {
+              // Apply clip gain and tape lane gain
+              const laneGain = tape.lanes[lane].gain;
+              mergedSamples[i] += buffer[sourceIdx] * clip.gain * laneGain;
+            }
+          }
+        }
+        
+        if (!hasAudio) break;
+        
+        // Add merged buffer to pool and create new clip
+        const mergedBufferId = poolRef.current.add(mergedSamples);
+        poolDisplayRef.current = poolRef.current;
+        
+        const mergedClip: Clip = {
+          id: `clip-${Date.now()}-merged`,
+          audioBufferId: mergedBufferId,
+          tapeStart: tape.playhead,
+          sourceStart: 0,
+          duration: loopDuration,
+          gain: 1.0,
+          muted: false,
+        };
+        
+        // Drop merged clip on active lane at playhead
+        const newClips = dropClip(tape.lanes[tape.activeLane].clips, mergedClip, tape.playhead);
         applyEdit(tape, newClips);
-        setTape((prev) => { const t = { ...prev, playhead: dropped.tapeStart + dropped.duration }; tapeRef.current = t; return t; });
+        setTape((prev) => { const t = { ...prev, playhead: tape.playhead + mergedClip.duration }; tapeRef.current = t; return t; });
         break;
       }
 

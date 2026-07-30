@@ -88,8 +88,8 @@ closed out.
   playhead, active lane, per-lane mute/gain/pan, and the current Free/Sync
   mode and Snap toggle.
 - [src/tape/recording.ts](src/tape/recording.ts) — finalizes a raw take into
-  a `Clip`: `finalizeFreeRecording` (direct placement) and
-  `finalizeSyncRecording` (resamples to an exact beat-grid length).
+  a `Clip`: `finalizeFreeRecording` places directly, `finalizeLoopRecording`
+  handles overdubs within loop boundaries.
 
 ### UI
 - [src/ui/TapePage.tsx](src/ui/TapePage.tsx) - main UI with four tabs:

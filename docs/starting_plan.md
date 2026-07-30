@@ -249,7 +249,9 @@ Simulates vintage tape characteristics:
 | Operation    | Description                        |
 | ------------ | ---------------------------------- |
 | Lift         | Remove clip and place on clipboard |
+| Lift All     | Lift loop region from all active lanes into clipboard |
 | Drop         | Insert clipboard clip              |
+| Merge Drop   | Drop and merge multiple clips (from Lift All) into single take, applying mixer settings |
 | Split        | Divide clip                        |
 | Join         | Merge adjacent clips               |
 | Move         | Shift clip                         |
@@ -429,7 +431,9 @@ Gestures map to Actions.
 | Move take (free)  | Continuous positioning in sample space.                        |
 | Move take (beat snap) | Position quantized to beats or bars.                       |
 | Lift              | Remove selected clip from tape and place on clipboard.         |
+| Lift All          | Lift entire loop region from all active (non-muted) lanes into clipboard. |
 | Drop              | Insert clipboard at playhead. Repeated drops duplicate clip.   |
+| Merge Drop        | Drop Lift All clipboard and merge into single take, applying mixer settings (gain, pan, mute state). |
 | Split             | Split selected clip at playhead.                               |
 | Join              | Join adjacent clips.                                           |
 | Undo              | Multi-level undo for edit operations.                          |
@@ -438,8 +442,7 @@ Gestures map to Actions.
 
 | Interaction      | Notes                                                   |
 | ---------------- | ------------------------------------------------------- |
-| Lift all lanes   | Copy corresponding material from all four lanes.        |
-| Lift loop region | Lift material inside the current loop region.           |
+| Lift all (Lift All) | When loop is active: lift entire loop region from all active (non-muted) lanes into clipboard. When loop is inactive: no-op. |
 | Set loop in      | Set loop start marker.                                  |
 | Set loop out     | Set loop end marker.                                    |
 | Toggle loop      | Enable or disable looping.                              |

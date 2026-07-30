@@ -36,15 +36,15 @@ export const LANE_LABEL_WIDTH = 0;   // no gutter
 export const CLIP_TOP_MARGIN = TOP_BAND_HEIGHT;
 export const CLIP_HEIGHT = 20; // nominal; actual = clipBlockHeight(canvasHeight)
 
-export function laneRowHeight(canvasHeight: number): number {
-  return Math.floor((canvasHeight - TOP_BAND_HEIGHT) / LANE_COUNT);
+export function laneRowHeight(_canvasHeight: number): number {
+  return 30;  // Taller tracks with minimal spacing
 }
 export function laneRowTop(laneIndex: number, canvasHeight: number): number {
   return TOP_BAND_HEIGHT + laneIndex * laneRowHeight(canvasHeight);
 }
-/** Clip is drawn at half the lane row height, vertically centred. */
+/** Clip is drawn at 66% of the lane row height (30% taller than before), vertically centred. */
 function clipBlockHeight(lrh: number): number {
-  return Math.max(4, Math.floor(lrh / 2));
+  return Math.max(4, Math.floor(lrh / 1.5));
 }
 
 /**
@@ -59,6 +59,10 @@ export function drawTimeline(
   selectedClipId: string | null,
   snapMode = true,
 ): void {
+  // Reset context state and scale for 2x resolution
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.scale(2, 2);
+
   const { canvasWidth, canvasHeight } = layout;
   const lrh = laneRowHeight(canvasHeight);
   const ch  = clipBlockHeight(lrh);
@@ -67,12 +71,12 @@ export function drawTimeline(
   ctx.fillStyle = '#000000';
   ctx.fillRect(0, 0, canvasWidth, canvasHeight);
 
-  // Loop region tint (below top band)
+  // Loop region tint (in top band only)
   if (tape.loopEnabled && tape.loopOut > tape.loopIn) {
     const lx = tapeToPixel(tape.loopIn,  layout);
     const lw = tapeToPixel(tape.loopOut, layout) - lx;
-    ctx.fillStyle = 'rgba(250,204,21,0.06)';
-    ctx.fillRect(lx, TOP_BAND_HEIGHT, lw, canvasHeight - TOP_BAND_HEIGHT);
+    ctx.fillStyle = 'rgba(250,204,21,0.3)';
+    ctx.fillRect(lx, 0, lw, TOP_BAND_HEIGHT);
   }
 
   // Lane tracks — no separators, no highlight boxes
@@ -92,32 +96,32 @@ export function drawTimeline(
 
       // Color logic:
       //   Muted (clip or lane)   → gray, no blue
-      //   Selected (active lane, under playhead) → dark orange
-      //   Active lane, other     → blue
-      //   Non-active lane        → desaturated blue
+      //   Selected (active lane, under playhead) → dark orange (desaturated if muted)
+      //   All other non-muted    → blue
       let fillColor: string;
-      if (isMuted) {
+      if (isSelected) {
+        fillColor = isMuted ? '#4a3a2a' : '#7c3000';   // orange (desaturated if muted)
+      } else if (isMuted) {
         fillColor = '#2a2a2a';
-      } else if (isSelected) {
-        fillColor = '#7c3000';   // dark orange
-      } else if (isActive) {
-        fillColor = '#0f3d6e';   // blue
       } else {
-        fillColor = '#162435';   // grayed-out blue
+        fillColor = '#0f3d6e';   // blue
       }
 
       ctx.fillStyle = fillColor;
       ctx.fillRect(clipX, clipY, clipW, ch);
 
+      // Thin vertical-only black edges
+      ctx.strokeStyle = '#000000';
+      ctx.lineWidth = 0.5;
+      ctx.beginPath();
+      ctx.moveTo(clipX + 0.5, clipY);
+      ctx.lineTo(clipX + 0.5, clipY + ch);
+      ctx.moveTo(clipX + clipW - 0.5, clipY);
+      ctx.lineTo(clipX + clipW - 0.5, clipY + ch);
+      ctx.stroke();
+
       if (clipW >= 4) {
         drawClipWaveform(ctx, clip, pool, clipX, clipY, clipW, ch, isMuted, isActive, isSelected);
-      }
-
-      if (isMuted && clipW > 30) {
-        ctx.fillStyle = '#555';
-        ctx.font = '9px sans-serif';
-        ctx.textAlign = 'left';
-        ctx.fillText('M', clipX + 4, clipY + 11);
       }
     }
   }
@@ -125,15 +129,28 @@ export function drawTimeline(
   // Top band — beat ticks (sync mode only) + loop markers
   drawTopBand(ctx, tape, layout, canvasWidth, snapMode);
 
-  // Playhead (always at canvas centre, full height)
+  // Playhead: gray line full height with red segment in current lane
   const phX = Math.round(canvasWidth / 2) + 0.5;
-  ctx.strokeStyle = '#f87171';
-  ctx.lineWidth = 2;
+  ctx.globalAlpha = 1;
+  
+  // Gray line across full height
+  ctx.strokeStyle = '#a0a0a0';
+  ctx.lineWidth = 1;
   ctx.beginPath();
   ctx.moveTo(phX, 0);
   ctx.lineTo(phX, canvasHeight);
   ctx.stroke();
+  
+  // Red line in current tape lane (drawn on top, fully opaque)
+  const tapeY = laneRowTop(tape.activeLane, canvasHeight);
+  ctx.strokeStyle = '#ff5555';
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(phX, tapeY);
+  ctx.lineTo(phX, tapeY + lrh);
+  ctx.stroke();
   ctx.lineWidth = 1;
+  ctx.globalAlpha = 1;
 }
 
 /**
@@ -208,19 +225,20 @@ function drawClipWaveform(
   if (!samples || clip.duration === 0) return;
 
   const mid = clipY + clipH / 2;
-  const amp = (clipH / 2) * 0.85;
+  const amp = (clipH / 2) * 2.0;
   const pixelCount = Math.ceil(clipW);
   const samplesPerPx = clip.duration / pixelCount;
 
   // Waveform is lighter than the clip background
   ctx.strokeStyle = muted
-    ? '#444'
+    ? '#666'
     : selected
-    ? '#d46000'   // warm amber for selected (orange take)
+    ? '#ff7722'   // brighter orange for selected
     : active
-    ? '#2878c8'   // lighter blue for active lane
-    : '#2a4060';  // muted blue for other lanes
+    ? '#4499ff'   // brighter blue for active lane
+    : '#3a6080';  // brighter blue for other lanes
 
+  ctx.lineWidth = 1.2;
   ctx.beginPath();
   for (let px = 0; px < pixelCount; px++) {
     const s0 = clip.sourceStart + Math.floor(px * samplesPerPx);

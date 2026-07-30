@@ -50,6 +50,7 @@ export interface TapeEngineRefs {
   calibratedInputLatencyMsRef:   MutableRefObject<number>;
   tapeStartForRecordingRef: MutableRefObject<number>;
   recordStartWallTimeRef:   MutableRefObject<number>;
+  midiStartContextTimeRef:  MutableRefObject<number>;
   loopRotateTimeoutRef:     MutableRefObject<ReturnType<typeof setTimeout> | null>;
   loopRotatingRef:          MutableRefObject<boolean>;
   armedRef:                 MutableRefObject<boolean>;

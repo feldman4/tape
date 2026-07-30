@@ -52,10 +52,15 @@ export function measureLatency(
   recordStartFrame: number,
   clickAtFrame: number,
   sampleRate: number,
+  outputLatencyMs: number = 0,
 ): LatencyResult {
   const offsetIndex = detectClickOffset(recorded);
   const detectedFrame = recordStartFrame + offsetIndex;
-  const latencyFrames = detectedFrame - clickAtFrame;
+  // The click was scheduled at clickAtFrame, but due to output latency, it didn't
+  // actually play until clickAtFrame + outputLatencyFrames. So we subtract output
+  // latency from the measured latency to get the true input latency.
+  const outputLatencyFrames = (outputLatencyMs / 1000) * sampleRate;
+  const latencyFrames = detectedFrame - clickAtFrame - outputLatencyFrames;
   const confidence = normalizedScore(recorded, offsetIndex);
   return { latencyMs: (latencyFrames / sampleRate) * 1000, confidence };
 }

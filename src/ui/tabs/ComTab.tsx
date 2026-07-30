@@ -16,8 +16,12 @@ interface ComTabProps {
   midiOutputs: { id: string; name: string | null }[];
   selectedMidiOutputId: string | null;
   handleMidiOutputChange: (id: string) => void;
+  inputLatencyMs: number;
+  setInputLatencyMs: (ms: number) => void;
   outputLatencyMs: number;
   setOutputLatencyMs: (ms: number) => void;
+  midiLatencyMs: number;
+  setMidiLatencyMs: (ms: number) => void;
 }
 
 export function ComTab({
@@ -36,8 +40,12 @@ export function ComTab({
   midiOutputs,
   selectedMidiOutputId,
   handleMidiOutputChange,
+  inputLatencyMs,
+  setInputLatencyMs,
   outputLatencyMs,
   setOutputLatencyMs,
+  midiLatencyMs,
+  setMidiLatencyMs,
 }: ComTabProps) {
   if (!ready) {
     return <button onClick={handleInit} style={btnStyle}>Enable Audio + MIDI</button>;
@@ -72,17 +80,44 @@ export function ComTab({
       </div>
       <div style={{ display: 'flex', gap: 16, alignItems: 'center', marginBottom: 12, flexWrap: 'wrap' }}>
         <label style={{ fontSize: 13, color: '#a1a1aa', display: 'flex', gap: 6, alignItems: 'center' }}>
+          Input latency
+          <input
+            type="number"
+            max={500}
+            step={1}
+            value={Math.round(inputLatencyMs)}
+            onChange={(e) => setInputLatencyMs(Number(e.target.value))}
+            style={{ width: 72, padding: '2px 6px', background: '#27272a', border: '1px solid #3f3f46', color: '#e4e4e7', borderRadius: 4, fontSize: 13 }}
+          />
+          <span style={{ color: '#52525b' }}>ms — mic capture to samples available</span>
+        </label>
+      </div>
+      <div style={{ display: 'flex', gap: 16, alignItems: 'center', marginBottom: 12, flexWrap: 'wrap' }}>
+        <label style={{ fontSize: 13, color: '#a1a1aa', display: 'flex', gap: 6, alignItems: 'center' }}>
           Output latency
           <input
             type="number"
-            min={0}
             max={500}
             step={1}
             value={outputLatencyMs}
-            onChange={(e) => setOutputLatencyMs(Math.max(0, Number(e.target.value)))}
+            onChange={(e) => setOutputLatencyMs(Number(e.target.value))}
             style={{ width: 72, padding: '2px 6px', background: '#27272a', border: '1px solid #3f3f46', color: '#e4e4e7', borderRadius: 4, fontSize: 13 }}
           />
-          <span style={{ color: '#52525b' }}>ms — shifts Free mode clips back to compensate for speaker delay</span>
+          <span style={{ color: '#52525b' }}>ms — shifts clips recorded in free mode back. Also compensates playback of tape</span>
+        </label>
+      </div>
+      <div style={{ display: 'flex', gap: 16, alignItems: 'center', marginBottom: 12, flexWrap: 'wrap' }}>
+        <label style={{ fontSize: 13, color: '#a1a1aa', display: 'flex', gap: 6, alignItems: 'center' }}>
+          MIDI latency
+          <input
+            type="number"
+            max={500}
+            step={0.1}
+            value={midiLatencyMs.toFixed(1)}
+            onChange={(e) => setMidiLatencyMs(Number(e.target.value))}
+            style={{ width: 72, padding: '2px 6px', background: '#27272a', border: '1px solid #3f3f46', color: '#e4e4e7', borderRadius: 4, fontSize: 13 }}
+          />
+          <span style={{ color: '#52525b' }}>ms — MIDI device to tape playback alignment</span>
         </label>
       </div>
     </>

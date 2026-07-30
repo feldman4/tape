@@ -30,7 +30,43 @@
 // need no hardware); it covers the two tiers that do.
 
 import { chromium } from 'playwright';
+import * as readline from 'node:readline/promises';
 import { PROFILE_DIR, BASE_URL } from './hardware-test-config.mjs';
+
+async function confirmSetup() {
+  console.log(`
+┌─────────────────────────────────────────────────────────────┐
+│              Tape — OP-Z hardware test checklist             │
+├─────────────────────────────────────────────────────────────┤
+│  Physical setup                                             │
+│    [ ] OP-Z powered on and connected via USB                │
+│    [ ] USB cable carries both audio and MIDI                │
+│        (some cables are charge-only — use a data cable)     │
+│                                                             │
+│  OP-Z configuration                                         │
+│    [ ] Channel-1 percussion track has an audible voice      │
+│    [ ] Metronome is enabled (needed for step 1.5)           │
+│    [ ] For step 1.5: sequencer has NO active notes          │
+│        (only the metronome click should sound into the mic) │
+│    [ ] Project tempo is set to the desired BPM              │
+│                                                             │
+│  Host software                                              │
+│    [ ] \`npm run dev\` is running at ${BASE_URL.padEnd(27)}│
+│    [ ] \`npm run test:hardware:setup\` was run at least once │
+│        on this machine (grants mic + MIDI permissions)      │
+└─────────────────────────────────────────────────────────────┘
+`);
+  const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+  try {
+    const answer = await rl.question('All boxes checked? Press Enter to continue, or type "n" to abort: ');
+    if (answer.trim().toLowerCase() === 'n') {
+      console.log('Aborted.');
+      process.exit(0);
+    }
+  } finally {
+    rl.close();
+  }
+}
 
 const results = [];
 
@@ -47,7 +83,14 @@ async function getState(page) {
   });
 }
 
+/** Switch to a named tab (TAPE | MIXER | PROJ | COM | TEST). */
+async function tab(page, name) {
+  await page.getByRole('button', { name, exact: true }).first().click();
+}
+
 async function main() {
+  await confirmSetup();
+
   const context = await chromium.launchPersistentContext(PROFILE_DIR, {
     headless: process.env.TAPE_TEST_HEADLESS === '1',
     viewport: null,
@@ -57,8 +100,7 @@ async function main() {
   try {
     await page.goto(BASE_URL);
 
-    // --- Enable Audio + MIDI ---
-    await page.getByRole('button', { name: 'Enable Audio + MIDI' }).click();
+    // Wait for the app to initialise automatically (no button click needed).
     await page
       .waitForFunction(() => window.__tapeTest?.getState()?.ready === true, { timeout: 10_000 })
       .catch(() => {
@@ -84,6 +126,7 @@ async function main() {
     }
 
     // --- 1. OP-Z note-to-sound latency ---
+    await tab(page, 'TEST');
     await page.getByRole('button', { name: 'Run OP-Z Latency Test' }).click();
     await page.waitForFunction(() => window.__tapeTest?.getState()?.noteLatency !== null, { timeout: 5_000 });
     state = await getState(page);
@@ -124,32 +167,48 @@ async function main() {
     }
 
     // --- 2. Free-mode recording ---
+    await tab(page, 'TAPE');
     await page.getByRole('radio', { name: 'Free' }).check();
-    await page.getByRole('button', { name: 'Record' }).click();
+    await page.getByRole('button', { name: /record/i }).click();
     await page.waitForTimeout(300);
-    await page.getByRole('button', { name: 'Send Test Note (OP-Z ch1)' }).click();
+    await tab(page, 'TEST');
+    await page.getByRole('button', { name: /send test note/i }).click();
     await page.waitForTimeout(1000);
-    await page.getByRole('button', { name: 'Stop', exact: true }).click();
+    await tab(page, 'TAPE');
+    await page.getByRole('button', { name: /stop/i }).click();
     await page.waitForFunction(() => window.__tapeTest?.getState()?.transport === 'idle', { timeout: 5_000 });
     state = await getState(page);
-    record('Free-mode recording produced a clip', !!state.clip && state.clip.duration > 0, JSON.stringify(state.clip));
+    const freeHasClip = state.tape?.lanes?.some((l) => l.clips?.length > 0);
+    record('Free-mode recording produced a clip', freeHasClip, JSON.stringify(state.tape?.lanes?.map((l) => l.clips?.length)));
 
     // --- 3. Sync-mode recording, driven entirely by the OP-Z's own transport ---
+    await tab(page, 'TAPE');
     await page.getByRole('radio', { name: 'Sync' }).check();
     await page.getByRole('button', { name: /arm/i }).click();
+    await tab(page, 'TEST');
     await page.getByRole('button', { name: 'Send MIDI Start' }).click();
+    // Diagnostic: does the OP-Z echo MIDI Start (0xFA) back? syncRunning is only
+    // true when STATUS_START is received from the OP-Z MIDI output.
+    const midiStartEchoed = await page
+      .waitForFunction(() => window.__tapeTest?.getState()?.sync?.running === true, { timeout: 3_000 })
+      .then(() => true)
+      .catch(() => false);
+    record('OP-Z echoes MIDI Start back', midiStartEchoed,
+      midiStartEchoed ? 'sync.running became true' : 'sync.running stayed false — OP-Z only sends Clock, not Start');
     await page
       .waitForFunction(() => window.__tapeTest?.getState()?.transport === 'recording', { timeout: 5_000 })
       .catch(() => {
         throw new Error('OP-Z Start did not arrive back over MIDI in time — check the MIDI input selection/cabling.');
       });
     await page.waitForTimeout(4000); // let a few beats elapse
+    await tab(page, 'TAPE');
     await page.getByRole('button', { name: /stop/i }).click();
+    await tab(page, 'TEST');
     await page.getByRole('button', { name: 'Send MIDI Stop' }).click(); // stop the OP-Z's transport too
     await page.waitForFunction(() => window.__tapeTest?.getState()?.transport === 'idle', { timeout: 5_000 });
     state = await getState(page);
-    const syncOk = !!state.clip && state.clip.duration > 0 && typeof state.lastClipBeats === 'number' && state.lastClipBeats > 0;
-    record('Sync-mode recording produced a beat-accurate clip', syncOk, JSON.stringify({ clip: state.clip, lastClipBeats: state.lastClipBeats }));
+    const syncHasClip = state.tape?.lanes?.some((l) => l.clips?.length > 0) && typeof state.lastClipBeats === 'number' && state.lastClipBeats > 0;
+    record('Sync-mode recording produced a beat-accurate clip', syncHasClip, JSON.stringify({ clipCounts: state.tape?.lanes?.map((l) => l.clips?.length), lastClipBeats: state.lastClipBeats }));
   } finally {
     await context.close();
   }

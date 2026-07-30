@@ -1,7 +1,8 @@
 // Finalization logic: turns a raw RecordedTake into an immutable Clip in the
-// Audio Pool. Free mode places audio directly (no stretching); Sync mode
-// resamples the captured audio so its duration exactly matches the beats
-// elapsed according to the external MIDI clock.
+// Audio Pool. Free mode places audio directly and can mix with existing clips
+// (physical-tape overdub semantics). Sync mode also places directly without
+// resampling — beat grid alignment is handled by precise recording placement
+// via input/output latency calibration.
 //
 // Overdub (Free mode only):
 //   When existingClips is supplied the finalized buffer is the SUM of the new
@@ -101,34 +102,4 @@ export function finalizeLoopRecording(
 
   const audioBufferId = pool.add(result);
   return makeClip(nextId(), audioBufferId, tapeStart, 0, clipLen);
-}
-
-export function finalizeSyncRecording(
-  pool: AudioPool,
-  samples: Float32Array,
-  tapeStart: number,
-  beatsElapsed: number,
-  samplesPerBeat: number,
-): Clip {
-  const targetLength = Math.max(0, Math.round(beatsElapsed * samplesPerBeat));
-  const resampled = resampleLinear(samples, targetLength);
-  const audioBufferId = pool.add(resampled);
-  return makeClip(nextId(), audioBufferId, tapeStart, 0, resampled.length);
-}
-
-/** Simple ratio-based linear resampling (duration correction only, no pitch preservation). */
-export function resampleLinear(input: Float32Array, targetLength: number): Float32Array {
-  if (targetLength <= 0 || input.length === 0) return new Float32Array(0);
-  if (input.length === 1) return new Float32Array(targetLength).fill(input[0]);
-
-  const output = new Float32Array(targetLength);
-  const ratio = (input.length - 1) / Math.max(1, targetLength - 1);
-  for (let i = 0; i < targetLength; i++) {
-    const srcPos = i * ratio;
-    const i0 = Math.floor(srcPos);
-    const i1 = Math.min(i0 + 1, input.length - 1);
-    const frac = srcPos - i0;
-    output[i] = input[i0] * (1 - frac) + input[i1] * frac;
-  }
-  return output;
 }

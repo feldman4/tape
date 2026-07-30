@@ -24,7 +24,9 @@ export type TapeAction =
   | { type: 'split' }
   | { type: 'join' }
   | { type: 'lift' }
+  | { type: 'liftAll' }
   | { type: 'drop' }
+  | { type: 'mergeDrop' }
   | { type: 'undo' }
   | { type: 'redo' }
   | { type: 'commitDrag'; clipId: string; from: number; to: number }

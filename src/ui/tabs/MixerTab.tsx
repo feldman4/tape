@@ -20,13 +20,9 @@ export function MixerTab({ tape, handleLaneGain, handleLanePan, handleLaneMute }
           <div key={li} style={{
             background: '#18181b', borderRadius: 6, padding: '12px 14px',
             display: 'flex', flexDirection: 'column', alignItems: 'center',
-            gap: 10, minWidth: 90,
+            gap: 10, minWidth: 54,
             opacity: lane.muted ? 0.5 : 1,
           }}>
-            <div style={{ color: tape.activeLane === li ? '#818cf8' : '#a1a1aa', fontSize: 13, fontWeight: tape.activeLane === li ? 600 : 400 }}>
-              Lane {li + 1}
-            </div>
-
             {/* Gain fader */}
             <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2, width: '100%' }}>
               <span style={{ fontSize: 11, color: '#52525b' }}>Vol</span>
@@ -44,7 +40,7 @@ export function MixerTab({ tape, handleLaneGain, handleLanePan, handleLaneMute }
             <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2, width: '100%' }}>
               <span style={{ fontSize: 11, color: '#52525b' }}>Pan</span>
               <input
-                type="range" min={-1} max={1} step={0.01} value={lane.pan}
+                type="range" min={-0.6} max={0.6} step={0.01} value={lane.pan}
                 onChange={(e) => handleLanePan(li, Number(e.target.value))}
                 style={{ width: '100%' }}
               />
