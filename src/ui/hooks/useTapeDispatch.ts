@@ -4,6 +4,7 @@ import { useCallback, useRef } from 'react';
 import type { Dispatch, SetStateAction } from 'react';
 import type { AudioEngine } from '../../audio/audioEngine';
 import { AudioPool } from '../../audio/audioPool';
+import { CANVAS_WIDTH } from '../canvasConstants';
 import { type Clip, type Lane, type Tape, makeDefaultTape } from '../../tape/model';
 import {
   applyOverwrite,
@@ -42,7 +43,7 @@ export function useTapeDispatch(refs: TapeEngineRefs, deps: DispatchDeps) {
     tapeRef, transportRef, modeRef, snapRef, outputLatencyMsRef,
     tapeStartForRecordingRef, recordStartWallTimeRef,
     loopRotateTimeoutRef, loopRotatingRef, armedRef,
-    cancelCountInRef, addLogFnRef, selectedClipIdRef, samplesPerPixelRef,
+    cancelCountInRef, addLogFnRef, selectedClipIdRef, viewWidthSamplesRef,
   } = refs;
 
   const {
@@ -488,7 +489,7 @@ export function useTapeDispatch(refs: TapeEngineRefs, deps: DispatchDeps) {
         const sr = engineRef.current?.sampleRate ?? 44100;
         const spb = (sr * 60) / tape.bpm;
         const snap = snapRef.current;
-        const spp = samplesPerPixelRef.current;
+        const spp = viewWidthSamplesRef.current / CANVAS_WIDTH;  // samples per pixel from view width
 
         if (index === 1 && !shift) {
           if (transportRef.current === 'recording' || transportRef.current === 'armed') break;

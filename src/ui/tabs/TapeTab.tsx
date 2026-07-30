@@ -137,7 +137,7 @@ interface TapeTabProps {
   redoStack: UndoEntry[];
   lastClipBeats: number | null;
   canvasRef: React.RefObject<HTMLCanvasElement | null>;
-  samplesPerPixelRef: React.RefObject<number>;
+  viewWidthSamplesRef: React.RefObject<number>;
   handleRecord: () => void;
   handleStop: () => void;
   handlePlay: (withCountIn?: boolean) => void;
@@ -163,7 +163,7 @@ export function TapeTab({
   tape, transport, sr, hasClips,
   syncRunning, syncBeatPosition,
   selectedClipId, undoStack, redoStack, lastClipBeats,
-  canvasRef, samplesPerPixelRef,
+  canvasRef, viewWidthSamplesRef,
   handleRecord, handleStop, handlePlay,
   handleCanvasMouseDown, handleCanvasMouseMove, handleCanvasMouseUp,
   handleUndo, handleRedo,
@@ -225,7 +225,7 @@ export function TapeTab({
 
           {/* Minimap */}
           <div style={{ marginTop: 16 }}>
-            <Minimap tape={tape} sr={sr} samplesPerPixel={samplesPerPixelRef.current} />
+            <Minimap tape={tape} sr={sr} samplesPerPixel={viewWidthSamplesRef.current / CANVAS_WIDTH} />
           </div>
 
           {/* Clip info */}

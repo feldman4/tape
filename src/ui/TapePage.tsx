@@ -18,7 +18,7 @@ import {
   TIME_AXIS_HEIGHT,
   type TimelineLayout,
 } from './renderers/TimelineRenderer';
-import { CANVAS_WIDTH, CANVAS_HEIGHT, DEFAULT_SAMPLES_PER_PIXEL } from './canvasConstants';
+import { CANVAS_WIDTH, CANVAS_HEIGHT, DEFAULT_VIEW_WIDTH_SAMPLES, MIN_VIEW_WIDTH_SAMPLES, VIEW_MARGIN } from './canvasConstants';
 import { btnStyle } from './btnStyle';
 import type { Mode, TransportState, UndoEntry, DragState, TapeEngineRefs } from './tapeRefs';
 import { useActivityLog } from './hooks/useActivityLog';
@@ -39,11 +39,29 @@ const DEFAULT_INPUT_LATENCY_MS = 23;
 const DEFAULT_OUTPUT_LATENCY_MS = 65;
 const DEFAULT_MIDI_LATENCY_MS = 0;
 
-// View width (zoom) constants
-const DEFAULT_VIEW_WIDTH_SAMPLES = CANVAS_WIDTH * DEFAULT_SAMPLES_PER_PIXEL;
-const MIN_VIEW_WIDTH_SAMPLES = CANVAS_WIDTH * 100; // At least 100 samples per pixel
-const VIEW_MARGIN = 0.05; // 5% margin around loop
-const ZOOM_SMOOTHING = 0.15; // Lerp factor (0-1)
+// Pure helpers for render loop
+function calculateRecordingPlayhead(tape: Tape, tapeStart: number, elapsedSamples: number): number {
+  const { loopEnabled, loopIn, loopOut } = tape;
+  if (!loopEnabled || loopOut <= loopIn) return tapeStart + elapsedSamples;
+  const loopWidth = loopOut - loopIn;
+  return loopIn + ((tapeStart + elapsedSamples - loopIn) % loopWidth);
+}
+
+function findSelectedClip(clips: Clip[], playhead: number): string | null {
+  const matches = clips.filter((c) => playhead >= c.tapeStart && playhead < c.tapeStart + c.duration);
+  return matches.length === 0 ? null : matches.reduce((a, b) => b.tapeStart > a.tapeStart ? b : a).id;
+}
+
+function getDisplayTape(
+  tape: Tape,
+  isRecording: boolean,
+  recordingElapsedSamples: number,
+  tapeStartForRecording: number,
+): Tape {
+  if (!isRecording) return tape;
+  const playhead = calculateRecordingPlayhead(tape, tapeStartForRecording, recordingElapsedSamples);
+  return { ...tape, playhead };
+}
 
 export function TapePage() {
   // ---------------------------------------------------------------------------
@@ -141,8 +159,7 @@ export function TapePage() {
 
   const dragRef = useRef<DragState | null>(null);
   const selectedClipIdRef = useRef<string | null>(null);
-  const samplesPerPixelRef = useRef(DEFAULT_SAMPLES_PER_PIXEL);
-  const viewWidthSamplesRef = useRef(DEFAULT_VIEW_WIDTH_SAMPLES); // Current view width for smoothing
+  const viewWidthSamplesRef = useRef(DEFAULT_VIEW_WIDTH_SAMPLES);
   const unsubscribeSyncEngineRef = useRef<(() => void) | null>(null);
   const lastMidiStartTimeRef = useRef(0);
   const lastScheduledBeatRef = useRef(-1);
@@ -161,7 +178,7 @@ export function TapePage() {
     outputLatencyMsRef, calibratedInputLatencyMsRef,
     tapeStartForRecordingRef, recordStartWallTimeRef, midiStartContextTimeRef,
     loopRotateTimeoutRef, loopRotatingRef, armedRef, clocksSinceStartRef,
-    cancelCountInRef, addLogFnRef, samplesPerPixelRef, selectedClipIdRef,
+    cancelCountInRef, addLogFnRef, viewWidthSamplesRef, selectedClipIdRef,
   };
 
   // ---------------------------------------------------------------------------
@@ -195,6 +212,25 @@ export function TapePage() {
   const handleLanePan  = (laneIndex: 0|1|2|3, pan: number)  => dispatch({ type: 'setLanePan',  lane: laneIndex, pan });
   const handleLaneMute    = (laneIndex: 0|1|2|3) => dispatch({ type: 'toggleMuteLane', lane: laneIndex });
   const handleToggleClick = useCallback(() => setClickEnabled((v) => !v), []);
+
+  // ---------------------------------------------------------------------------
+  // Update view width when loop changes
+  // ---------------------------------------------------------------------------
+  useEffect(() => {
+    const tape = tapeRef.current;
+    if (tape.loopEnabled) {
+      const loopWidth = Math.abs(tape.loopOut - tape.loopIn);
+      if (loopWidth > 0) {
+        // Target width: 2x loop width with margin (so loop fills ~50% of screen)
+        const targetViewWidth = 2 * loopWidth * (1 + VIEW_MARGIN);
+        // Clamp to minimum only; allow unlimited zoom-out
+        const clampedViewWidth = Math.max(MIN_VIEW_WIDTH_SAMPLES, targetViewWidth);
+        viewWidthSamplesRef.current = clampedViewWidth;
+      }
+    } else {
+      viewWidthSamplesRef.current = DEFAULT_VIEW_WIDTH_SAMPLES;
+    }
+  }, [tape.loopEnabled, tape.loopIn, tape.loopOut]);
 
   // ---------------------------------------------------------------------------
   // Init
@@ -431,62 +467,36 @@ export function TapePage() {
     const render = () => {
       const canvas = canvasRef.current;
       const ctx = canvas?.getContext('2d');
-      if (ctx && canvas) {
-        let displayTape = tapeRef.current;
-        if (transportRef.current === 'recording') {
-          const sr = engineRef.current?.sampleRate ?? 44100;
-          const elapsed = Math.round((Date.now() - recordStartWallTimeRef.current) / 1000 * sr);
-          const { loopEnabled, loopIn, loopOut } = displayTape;
-          const looping = loopEnabled && loopOut > loopIn;
-          const linearPos = tapeStartForRecordingRef.current + elapsed;
-          const displayPlayhead = looping && linearPos >= loopIn
-            ? loopIn + (linearPos - loopIn) % (loopOut - loopIn)
-            : linearPos;
-          displayTape = { ...displayTape, playhead: displayPlayhead };
-        }
-        
-        // Calculate target view width based on loop state
-        let targetViewWidth = DEFAULT_VIEW_WIDTH_SAMPLES;
-        if (displayTape.loopEnabled && displayTape.loopOut > displayTape.loopIn) {
-          const loopStart = Math.min(displayTape.loopIn, displayTape.loopOut);
-          const loopEnd = Math.max(displayTape.loopIn, displayTape.loopOut);
-          const playhead = displayTape.playhead;
-          const radius = Math.max(
-            Math.abs(playhead - loopStart),
-            Math.abs(playhead - loopEnd)
-          );
-          targetViewWidth = Math.max(
-            MIN_VIEW_WIDTH_SAMPLES,
-            Math.min(
-              DEFAULT_VIEW_WIDTH_SAMPLES,
-              2 * radius * (1 + VIEW_MARGIN)
-            )
-          );
-        }
-        
-        // Smooth view width transition
-        viewWidthSamplesRef.current = viewWidthSamplesRef.current + 
-          (targetViewWidth - viewWidthSamplesRef.current) * ZOOM_SMOOTHING;
-        
-        // Convert view width to samples per pixel
-        samplesPerPixelRef.current = viewWidthSamplesRef.current / CANVAS_WIDTH;
-        
-        const layout: TimelineLayout = {
-          canvasWidth: CANVAS_WIDTH,
-          canvasHeight: CANVAS_HEIGHT,
-          playhead: displayTape.playhead,
-          samplesPerPixel: samplesPerPixelRef.current,
-        };
-        const activeClips = displayTape.lanes[displayTape.activeLane].clips;
-        const matches = activeClips.filter(
-          (c) => displayTape.playhead >= c.tapeStart && displayTape.playhead < c.tapeStart + c.duration
-        );
-        const currentSelectedId = matches.length === 0 ? null
-          : matches.reduce((a, b) => b.tapeStart > a.tapeStart ? b : a).id;
-        drawTimeline(ctx, displayTape, poolDisplayRef.current, layout, currentSelectedId, snapRef.current);
-      }
+      if (!ctx || !canvas) return;
+
+      const sr = engineRef.current?.sampleRate ?? 44100;
+      const elapsed = transportRef.current === 'recording'
+        ? Math.round((Date.now() - recordStartWallTimeRef.current) / 1000 * sr)
+        : 0;
+
+      const displayTape = getDisplayTape(
+        tapeRef.current,
+        transportRef.current === 'recording',
+        elapsed,
+        tapeStartForRecordingRef.current,
+      );
+
+      const layout: TimelineLayout = {
+        canvasWidth: CANVAS_WIDTH,
+        canvasHeight: CANVAS_HEIGHT,
+        playhead: displayTape.playhead,
+        viewWidthSamples: viewWidthSamplesRef.current,
+      };
+
+      const selectedClipId = findSelectedClip(
+        displayTape.lanes[displayTape.activeLane].clips,
+        displayTape.playhead,
+      );
+
+      drawTimeline(ctx, displayTape, poolDisplayRef.current, layout, selectedClipId, snapRef.current);
       raf = requestAnimationFrame(render);
     };
+
     raf = requestAnimationFrame(render);
     return () => cancelAnimationFrame(raf);
   }, []);
@@ -498,7 +508,7 @@ export function TapePage() {
     canvasWidth: CANVAS_WIDTH,
     canvasHeight: CANVAS_HEIGHT,
     playhead: tapeRef.current.playhead,
-    samplesPerPixel: samplesPerPixelRef.current,
+    viewWidthSamples: viewWidthSamplesRef.current,
   }), []);
 
   const handleCanvasMouseDown = useCallback((e: React.MouseEvent<HTMLCanvasElement>) => {
@@ -547,7 +557,7 @@ export function TapePage() {
     if (!canvas) return;
     const rect = canvas.getBoundingClientRect();
     const px = (e.clientX - rect.left) / 2;  // Divide by 2 for 2x resolution
-    let deltaSamples = Math.round((px - drag.startPx) * samplesPerPixelRef.current);
+    let deltaSamples = Math.round((px - drag.startPx) * (viewWidthSamplesRef.current / CANVAS_WIDTH));
     // 9x scrubbing speed when not in snap mode
     if (!snapRef.current) {
       deltaSamples *= 9;
@@ -846,11 +856,10 @@ export function TapePage() {
   const hasClips = tape.lanes.some((l) => l.clips.length > 0);
   const sr = engineRef.current?.sampleRate ?? 44100;
 
-  const selMatches = tape.lanes[tape.activeLane].clips.filter(
-    (c) => tape.playhead >= c.tapeStart && tape.playhead < c.tapeStart + c.duration
+  const selectedClipId = findSelectedClip(
+    tape.lanes[tape.activeLane].clips,
+    tape.playhead,
   );
-  const selectedClipId = selMatches.length === 0 ? null
-    : selMatches.reduce((a, b) => b.tapeStart > a.tapeStart ? b : a).id;
   selectedClipIdRef.current = selectedClipId;
 
   return (
@@ -900,7 +909,7 @@ export function TapePage() {
           redoStack={redoStack}
           lastClipBeats={lastClipBeats}
           canvasRef={canvasRef}
-          samplesPerPixelRef={samplesPerPixelRef}
+          viewWidthSamplesRef={viewWidthSamplesRef}
           handleRecord={() => void handleRecord()}
           handleStop={() => void handleStop()}
           handlePlay={(withCountIn) => void handlePlay(withCountIn)}
@@ -948,10 +957,18 @@ export function TapePage() {
         <TestTab
           ready={ready}
           handleInit={() => void handleInit()}
+          canEdit={true}
           selectedMidiOutputId={selectedMidiOutputId}
-          samplesPerPixelRef={samplesPerPixelRef}
+          latency={null}
+          noteLatency={null}
+          viewWidthSamplesRef={viewWidthSamplesRef}
           activityLogRef={activityLogRef}
           forceLogUpdate={forceLogUpdate}
+          handleLatencyTest={() => {}}
+          handleOpZLatencyTest={() => {}}
+          handleSendTestNote={() => {}}
+          handleSendMidiStart={() => {}}
+          handleSendMidiStop={() => {}}
           handleMidiStartToNoteTest={handleMidiStartToNoteTest}
           midiStartToNoteOffset={midiStartToNoteOffset}
           testingMidiStartToNote={testingMidiStartToNote}

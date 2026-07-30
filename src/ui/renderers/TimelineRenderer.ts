@@ -11,21 +11,21 @@ export interface TimelineLayout {
   canvasHeight: number;
   /** Tape sample at the horizontal center of the canvas (the playhead position). */
   playhead: number;
-  /** Zoom: how many tape samples map to one pixel. */
-  samplesPerPixel: number;
+  /** View width in tape samples (entire visible duration). */
+  viewWidthSamples: number;
 }
 
 /** Converts a tape sample position to a canvas x pixel.
  *  The playhead is always at canvasWidth/2; tape scrolls past it. */
 export function tapeToPixel(tapeSample: number, layout: TimelineLayout): number {
-  const { playhead, samplesPerPixel, canvasWidth } = layout;
-  return canvasWidth / 2 + (tapeSample - playhead) / samplesPerPixel;
+  const { playhead, viewWidthSamples, canvasWidth } = layout;
+  return canvasWidth / 2 + (tapeSample - playhead) * canvasWidth / viewWidthSamples;
 }
 
 /** Converts a canvas x pixel to a tape sample position. */
 export function pixelToTape(px: number, layout: TimelineLayout): number {
-  const { playhead, samplesPerPixel, canvasWidth } = layout;
-  return playhead + (px - canvasWidth / 2) * samplesPerPixel;
+  const { playhead, viewWidthSamples, canvasWidth } = layout;
+  return playhead + (px - canvasWidth / 2) * viewWidthSamples / canvasWidth;
 }
 
 export const TOP_BAND_HEIGHT = 14;   // px — beat-tick + loop-marker strip at top
@@ -165,15 +165,15 @@ function drawTopBand(
   snapMode: boolean,
 ): void {
   const H = TOP_BAND_HEIGHT;
-  const { playhead, samplesPerPixel } = layout;
+  const { playhead, viewWidthSamples } = layout;
 
   // Beat ticks — snap mode only
   if (snapMode) {
     const SAMPLE_RATE = 44100;
     const samplesPerBeat = (SAMPLE_RATE * 60) / tape.bpm;
-    const beatWidthPx    = samplesPerBeat / samplesPerPixel;
+    const beatWidthPx    = samplesPerBeat * canvasWidth / viewWidthSamples;
     if (beatWidthPx >= 4) {
-      const halfView  = (canvasWidth * samplesPerPixel) / 2;
+      const halfView  = viewWidthSamples / 2;
       const viewStart = playhead - halfView;
       const viewEnd   = playhead + halfView;
       const firstBeat = Math.max(0, Math.ceil(viewStart / samplesPerBeat));

@@ -1,5 +1,8 @@
 import type { MutableRefObject } from 'react';
+import type { LatencyResult } from '../../audio/latencyTest';
+import type { NoteLatencyResult } from '../../audio/onsetDetect';
 import { btnStyle } from '../btnStyle';
+import { CANVAS_WIDTH } from '../canvasConstants';
 
 export type InputLatCalResult =
   | { offsetMs: number; beatsDetected: number; totalBeats: number; confidence: 'high' | 'medium' | 'low' }
@@ -8,10 +11,18 @@ export type InputLatCalResult =
 interface TestTabProps {
   ready: boolean;
   handleInit: () => void;
+  canEdit: boolean;
   selectedMidiOutputId: string | null;
-  samplesPerPixelRef: MutableRefObject<number>;
+  latency: LatencyResult | null;
+  noteLatency: NoteLatencyResult | null;
+  viewWidthSamplesRef: MutableRefObject<number>;
   activityLogRef: MutableRefObject<string[]>;
   forceLogUpdate: (fn: (v: number) => number) => void;
+  handleLatencyTest: () => void;
+  handleOpZLatencyTest: () => void;
+  handleSendTestNote: () => void;
+  handleSendMidiStart: () => void;
+  handleSendMidiStop: () => void;
   handleMidiStartToNoteTest: () => void;
   midiStartToNoteOffset: { offsetMs: number } | { error: string } | null;
   testingMidiStartToNote: boolean;
@@ -28,9 +39,11 @@ interface TestTabProps {
 }
 
 export function TestTab({
-  ready, handleInit, selectedMidiOutputId,
-  samplesPerPixelRef, activityLogRef, forceLogUpdate,
-  handleMidiStartToNoteTest,
+  ready, handleInit, canEdit, selectedMidiOutputId,
+  latency, noteLatency,
+  viewWidthSamplesRef, activityLogRef, forceLogUpdate,
+  handleLatencyTest, handleOpZLatencyTest,
+  handleSendTestNote, handleSendMidiStart, handleSendMidiStop, handleMidiStartToNoteTest,
   midiStartToNoteOffset, testingMidiStartToNote,
   midiLatencyMs, setMidiLatencyMs,
   inputLatencyMs, inputLatCal, calibratingInputLat, onCalibrateInputLat,
@@ -43,6 +56,11 @@ export function TestTab({
   return (
     <>
       <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 12 }}>
+        <button style={btnStyle} onClick={() => void handleLatencyTest()} disabled={!canEdit}>Run Loopback Latency Test</button>
+        <button style={btnStyle} onClick={() => void handleOpZLatencyTest()} disabled={!canEdit || !selectedMidiOutputId}>Run OP-Z Latency Test</button>
+        <button style={btnStyle} onClick={handleSendTestNote} disabled={!selectedMidiOutputId}>Send Test Note</button>
+        <button style={btnStyle} onClick={handleSendMidiStart} disabled={!selectedMidiOutputId}>Send MIDI Start</button>
+        <button style={btnStyle} onClick={handleSendMidiStop} disabled={!selectedMidiOutputId}>Send MIDI Stop</button>
         <button style={btnStyle} onClick={handleMidiStartToNoteTest} disabled={testingMidiStartToNote || !selectedMidiOutputId}>
           {testingMidiStartToNote ? 'Waiting for MIDI...' : 'Test MIDI Start→Note'}
         </button>
@@ -125,8 +143,17 @@ export function TestTab({
           <span style={{ fontSize: 12, color: '#71717a' }}>used to start playback early so audio reaches ears on the beat</span>
         </div>
       </div>
-      {midiStartToNoteOffset && (
+      {(latency || noteLatency || midiStartToNoteOffset) && (
         <div style={{ fontSize: 13, marginBottom: 8 }}>
+          {latency && (
+            <div>
+              Loopback latency: {latency.latencyMs.toFixed(1)} ms (confidence {latency.confidence.toFixed(2)})
+              {latency.confidence < 0.6 && <span style={{ color: '#f59e0b' }}> — low confidence</span>}
+            </div>
+          )}
+          {noteLatency && (
+            <div>OP-Z note→sound: {noteLatency.latencyMs !== null ? `${noteLatency.latencyMs.toFixed(1)} ms` : 'not detected'}</div>
+          )}
           {midiStartToNoteOffset && 'error' in midiStartToNoteOffset && (
             <div style={{ color: '#f87171' }}>MIDI Start→Note: ⚠ {midiStartToNoteOffset.error}</div>
           )}
@@ -136,7 +163,7 @@ export function TestTab({
         </div>
       )}
       <div style={{ fontSize: 12, color: '#71717a', marginBottom: 8 }}>
-        Zoom: {(samplesPerPixelRef.current / 44100).toFixed(3)} s/px
+        Zoom: {((viewWidthSamplesRef.current / CANVAS_WIDTH) / 44100).toFixed(3)} s/px
       </div>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
         <span style={{ fontSize: 13, color: '#a1a1aa' }}>Activity log ({activityLogRef.current.length})</span>

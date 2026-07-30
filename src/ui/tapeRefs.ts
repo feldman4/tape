@@ -57,6 +57,6 @@ export interface TapeEngineRefs {
   clocksSinceStartRef:      MutableRefObject<number>;
   cancelCountInRef:         MutableRefObject<(() => void) | null>;
   addLogFnRef:              MutableRefObject<(msg: string) => void>;
-  samplesPerPixelRef:       MutableRefObject<number>;
+  viewWidthSamplesRef:      MutableRefObject<number>;
   selectedClipIdRef:        MutableRefObject<string | null>;
 }
