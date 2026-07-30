@@ -55,6 +55,7 @@ export function keyEventToAction(ev: KeyboardEvent): TapeAction | null {
     case 'l': case 'L': return shift ? { type: 'liftAll' } : { type: 'lift' };
     case 'd': case 'D': return shift ? { type: 'mergeDrop' } : { type: 'drop' };
     case 'z': case 'Z': return shift ? { type: 'redo' } : { type: 'undo' };
+    case 'o': case 'O': return { type: 'toggleMode' };
     case 'x': case 'X': return { type: 'toggleSnap' };
     case 's': case 'S': return shift ? { type: 'join' } : { type: 'split' };
     default:            return null;

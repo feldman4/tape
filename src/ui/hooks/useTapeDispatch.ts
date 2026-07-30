@@ -494,8 +494,8 @@ export function useTapeDispatch(refs: TapeEngineRefs, deps: DispatchDeps) {
         if (index === 1 && !shift) {
           if (transportRef.current === 'recording' || transportRef.current === 'armed') break;
           const newPlayhead = snap
-            ? Math.max(0, Math.round((Math.round(tape.playhead / spb) + delta) * spb))
-            : Math.max(0, Math.round(tape.playhead + delta * spp));
+            ? Math.max(0, Math.round((Math.round(tape.playhead / spb) - delta) * spb))
+            : Math.max(0, Math.round(tape.playhead - delta * spp));
           setTape((prev) => { const t = { ...prev, playhead: newPlayhead }; tapeRef.current = t; return t; });
         } else if (index === 1 && shift) {
           const sid = selectedClipIdRef.current;

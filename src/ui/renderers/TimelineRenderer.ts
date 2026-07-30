@@ -73,8 +73,8 @@ export function drawTimeline(
 
   // Loop region tint (in top band only)
   if (tape.loopEnabled && tape.loopOut > tape.loopIn) {
-    const lx = tapeToPixel(tape.loopIn,  layout);
-    const lw = tapeToPixel(tape.loopOut, layout) - lx;
+    const lx = Math.round(tapeToPixel(tape.loopIn,  layout));
+    const lw = Math.round(tapeToPixel(tape.loopOut, layout)) - lx;
     ctx.fillStyle = 'rgba(250,204,21,0.3)';
     ctx.fillRect(lx, 0, lw, TOP_BAND_HEIGHT);
   }
@@ -180,7 +180,7 @@ function drawTopBand(
       const lastBeat  = Math.floor(viewEnd   / samplesPerBeat);
       ctx.lineWidth = 1;
       for (let i = firstBeat; i <= lastBeat; i++) {
-        const x     = tapeToPixel(i * samplesPerBeat, layout);
+        const x     = Math.round(tapeToPixel(i * samplesPerBeat, layout));
         const isBar = i % 4 === 0;
         const tickH = isBar ? H : Math.round(H * 0.45);
         ctx.strokeStyle = isBar
@@ -197,15 +197,15 @@ function drawTopBand(
 
   // Loop in / out markers — yellow when enabled, faint gray when disabled
   if (tape.loopOut > tape.loopIn) {
-    const inX  = tapeToPixel(tape.loopIn,  layout);
-    const outX = tapeToPixel(tape.loopOut, layout);
-    ctx.fillStyle = tape.loopEnabled ? '#facc15' : '#4a4a4a';
+    const inX  = Math.round(tapeToPixel(tape.loopIn,  layout));
+    const outX = Math.round(tapeToPixel(tape.loopOut, layout));
+    ctx.fillStyle = tape.loopEnabled ? '#facc15' : '#756b31';
     // In: vertical bar + small foot pointing right
     ctx.fillRect(inX,      0, 2, H);
     ctx.fillRect(inX,      H - 2, 5, 2);
-    // Out: vertical bar + small foot pointing left
-    ctx.fillRect(outX - 2, 0, 2, H);
-    ctx.fillRect(outX - 5, H - 2, 5, 2);
+    // Out: vertical bar centered on its tape coordinate + foot pointing left
+    ctx.fillRect(outX - 1, 0, 2, H);
+    ctx.fillRect(outX - 4, H - 2, 5, 2);
   }
 }
 

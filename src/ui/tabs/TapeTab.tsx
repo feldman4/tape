@@ -1,7 +1,7 @@
 import type React from 'react';
 import { useEffect, useRef } from 'react';
 import type { Tape } from '../../tape/model';
-import type { TransportState, UndoEntry } from '../tapeRefs';
+import type { Mode, TransportState, UndoEntry } from '../tapeRefs';
 import { btnStyle } from '../btnStyle';
 import { CANVAS_WIDTH, CANVAS_HEIGHT } from '../canvasConstants';
 
@@ -21,13 +21,16 @@ function Minimap({ tape, sr, samplesPerPixel }: { tape: Tape; sr: number; sample
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.scale(2, 2);
 
-    // Calculate total song length (end of last clip)
+    // Calculate total song length (end of last clip), extending it to the
+    // timeline's visible right edge when the playhead travels past the takes.
     let maxEndSamples = tape.tapeLength;
     for (const lane of tape.lanes) {
       for (const clip of lane.clips) {
         maxEndSamples = Math.max(maxEndSamples, clip.tapeStart + clip.duration);
       }
     }
+    const windowSamples = CANVAS_WIDTH * samplesPerPixel;
+    maxEndSamples = Math.max(maxEndSamples, tape.playhead + windowSamples / 2, 1);
 
     // Background
     ctx.fillStyle = '#000000';
@@ -75,7 +78,6 @@ function Minimap({ tape, sr, samplesPerPixel }: { tape: Tape; sr: number; sample
     }
 
     // Draw current display window (no fill, just thick border)
-    const windowSamples = CANVAS_WIDTH * samplesPerPixel;
     const windowStart = Math.max(0, tape.playhead - windowSamples / 2);
     const windowEnd = Math.min(maxEndSamples, windowStart + windowSamples);
     const windowStartPx = (windowStart / maxEndSamples) * MINIMAP_WIDTH;
@@ -128,6 +130,7 @@ interface TapeTabProps {
   handleInit: () => void;
   tape: Tape;
   transport: TransportState;
+  mode: Mode;
   sr: number;
   hasClips: boolean;
   syncRunning: boolean;
@@ -160,7 +163,7 @@ interface TapeTabProps {
 
 export function TapeTab({
   ready, handleInit,
-  tape, transport, sr, hasClips,
+  tape, transport, mode, sr, hasClips,
   syncRunning, syncBeatPosition,
   selectedClipId, undoStack, redoStack, lastClipBeats,
   canvasRef, viewWidthSamplesRef,
@@ -238,7 +241,7 @@ export function TapeTab({
                 return c ? ` · ${(c.tapeStart / sr).toFixed(2)}s–${((c.tapeStart + c.duration) / sr).toFixed(2)}s` : null;
               })()}
               {lastClipBeats !== null && ` · ${lastClipBeats.toFixed(3)} beats`}
-              {' · '}{transport} | {(tape.playhead / sr).toFixed(2)}s · {tape.bpm} BPM · MIDI: {syncRunning ? `▶ ${syncBeatPosition.toFixed(1)}` : 'stopped'}
+              {' · '}{mode} · {transport} | {(tape.playhead / sr).toFixed(2)}s · {tape.bpm} BPM · MIDI: {syncRunning ? `▶ ${syncBeatPosition.toFixed(1)}` : 'stopped'}
             </div>
           )}
         </>
