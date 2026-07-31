@@ -14,14 +14,14 @@ resolution instead. Messages on channels 1–14 continue to work as before
 
 ## Encoders
 
-The four OP-Z rotary encoders send CC 1–4 on channel 15.  Because the OP-Z
-always emits **absolute** CC values (0–127), Tape converts them to a
-**relative** stream internally: only the *change* from the last position is
-acted on.
+The OP-Z rotary encoders send CC 1–4 on channel 15. CC 1–3 are converted from
+their absolute values (0–127) into a **relative** stream internally: only the
+*change* from the last position is acted on. CC 4 is a record-state control
+with dedicated endpoint behavior.
 
 To prevent the encoder from silently running out of range and going "dead",
-Tape watches the absolute value and sends a **reset** CC back to the OP-Z
-whenever one encoder drifts more than 30 steps from centre (64).  This
+Tape watches CC 1–3 and sends a **reset** CC back to the OP-Z whenever one
+encoder drifts more than 30 steps from centre (64). This
 recentres the encoder so it always has headroom in both directions.  You will
 not feel anything mechanical — from your perspective the encoder is simply
 continuous.
@@ -31,20 +31,22 @@ The four encoders follow the OP-1 Field tape-mode colour convention:
 | Encoder | CC | Primary action | Shift action |
 |---------|----|----------------|--------------|
 | 1 (green)  | CC 1 | Scrub playhead — 1 beat/tick (Snap on) or 1 px/tick (Snap off) | **Slide clip** — moves selected clip and playhead together by the same amount |
-| 2 (blue)   | CC 2 | Loop out point — 1 beat/tick (Snap on) or 1 px/tick (Snap off) | — |
-| 3 (white)  | CC 3 | Loop in point — 1 beat/tick (Snap on) or 1 px/tick (Snap off) | — |
-| 4 (orange) | CC 4 | **Recording level** | *(reserved — recording pan)* |
+| 2 (blue)   | CC 2 | Shift loop region — 1 beat/tick (Snap on) or 1 px/tick (Snap off) | — |
+| 3 (white)  | CC 3 | Loop out point — 1 beat/tick (Snap on) or 1 px/tick (Snap off) | — |
+| 4 (orange) | CC 4 | **Recording state** | — |
 
 ---
 
 ## Recording status
 
-Tape uses the OP-Z group 15 audio-mute status to control recording. It receives
-**CC 54** on channel 15 with a value of **0** or **1**; that state determines
-whether Tape is recording. Value **1** enables Tape recording; value **0**
-ends or disarms it. Tape sends the same state back to group 15 whenever its
-record state changes. This replaces a dedicated Tape record button, since the
-OP-Z's Record button is reserved for recording into its step sequencer.
+Tape uses **CC 4** on channel 15 to control recording. CC 4 is not centered:
+its lowest value, **0**, represents off, and its highest value, **127**,
+represents on. While recording is off, any non-zero CC 4 value enables it.
+While recording is on, any CC 4 value below 127 disables it. Whenever Tape
+enables or disables recording, whether from CC 4 or another control, it sends
+CC 4 value 127 or 0 back to update the OP-Z track-15 LED. This replaces a
+dedicated Tape record button, since the OP-Z's Record button is reserved for
+recording into its step sequencer.
 
 ## Buttons (black keys)
 
@@ -70,8 +72,7 @@ channel 15. White keys are ignored.
 
 Hold **note 75 (D#5)** to activate Shift.  While Shift is held:
 
-- Encoders switch to their secondary action (e.g. scrub → slide clip,
-  recording level → recording pan).
+- Encoder 1 switches from scrub to slide clip.
 - Tape 1–4 → mute or unmute the corresponding tape lane.
 - Edit buttons: Lift → Lift All, Drop → Merge Drop, Split → Join.
 - Loop Out → Loop In.
@@ -90,7 +91,7 @@ convention: hold the key, act, release.
  ─────────────────────────────────────────────────────────────────
   Sync transport: standard OP-Z Play/Stop
   Shift + Stop:  Tape grid resolution
-  Record state:    group 15 audio mute (CC 54, values 0/1)
+  Record state:    CC 4 (0 = off, 127 = on)
 
   Black keys          primary            shift (hold D#5)
     54  F#3            Tape 1             Mute/unmute Tape 1
@@ -109,9 +110,9 @@ convention: hold the key, act, release.
 
   Encoders              primary            shift
     CC 1  green         scrub              slide clip + playhead
-    CC 2  blue          loop out point     —
-    CC 3  white         loop in point      —
-    CC 4  orange        recording level
+    CC 2  blue          shift loop region  —
+    CC 3  white         loop out point     —
+    CC 4  orange        recording state
  ─────────────────────────────────────────────────────────────────
 ```
 
@@ -121,10 +122,11 @@ convention: hold the key, act, release.
 
 - **Absolute→relative conversion** happens in `src/sync/opzControlMode.ts`.
   The `OpzControlMode` class emits `encoderDelta` events (signed integer
-  deltas) rather than raw absolute CC values.  Consumers never see the raw
-  absolute stream.
-- **Reset threshold** is 30 steps from centre (64).  Adjust `CC_RESET_THRESHOLD`
-  in `opzControlMode.ts` if encoders feel sluggish or reset too aggressively.
+  deltas) for CC 1–3 rather than their raw absolute values. CC 4 is a
+  non-centered record-state control, not an encoder delta.
+- **Reset threshold** is 30 steps from centre (64) for CC 1–3. Adjust
+  `CC_RESET_THRESHOLD` in `opzControlMode.ts` if those encoders feel sluggish
+  or reset too aggressively.
 - **Snap mode** (toggled by the **X** key in the TAPE tab) determines the
   step size for encoders 1–3: when Snap is on, each tick moves by one
   beat; when Snap is off, each tick moves by one pixel of the current zoom.

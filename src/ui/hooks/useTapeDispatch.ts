@@ -99,7 +99,7 @@ export function useTapeDispatch(refs: TapeEngineRefs, deps: DispatchDeps) {
       const wasRecordEnabled = previous === 'armed' || previous === 'recording';
       const isRecordEnabled = next === 'armed' || next === 'recording';
       if (wasRecordEnabled !== isRecordEnabled) {
-        ctrlModeRef.current?.setGroup15AudioMuted(isRecordEnabled);
+        ctrlModeRef.current?.setRecordEnabled(isRecordEnabled);
       }
     }
   }, [ctrlModeRef, modeRef, setTransport, transportRef]);
@@ -174,13 +174,13 @@ export function useTapeDispatch(refs: TapeEngineRefs, deps: DispatchDeps) {
       
       if (tape.loopEnabled && loopLen > 0) {
         // Calculate where the recording actually ended
-        const recordingEndSecs = adjTapeStart + (recording.samples.length / sr);
+        const recordingEndSamples = adjTapeStart + recording.samples.length;
         
         // If recording stopped before loopOut, don't extend the clip to loopOut.
         // Use finalizeFreeRecording instead to preserve audio beyond the recording end.
-        if (recordingEndSecs < tape.loopOut) {
+        if (recordingEndSamples < tape.loopOut) {
           newClip = finalizeFreeRecording(poolRef.current, recording.samples, adjTapeStart, existingClips);
-          addLogFnRef.current(`✓ Take (sync+loop-early-stop): ${(recording.samples.length / sr).toFixed(3)}s (stopped at ${recordingEndSecs.toFixed(3)}s, before loop end ${tape.loopOut.toFixed(3)}s)`);
+          addLogFnRef.current(`✓ Take (sync+loop-early-stop): ${(recording.samples.length / sr).toFixed(3)}s (stopped at ${(recordingEndSamples / sr).toFixed(3)}s, before loop end ${(tape.loopOut / sr).toFixed(3)}s)`);
         } else {
           newClip = finalizeLoopRecording(poolRef.current, recording.samples, adjTapeStart, tape.loopIn, tape.loopOut);
           const passes = (recording.samples.length - Math.max(0, tape.loopIn - adjTapeStart)) / loopLen;
@@ -515,17 +515,25 @@ export function useTapeDispatch(refs: TapeEngineRefs, deps: DispatchDeps) {
           const newTapeStart = Math.max(0, clip.tapeStart + ds);
           const newPlayhead = Math.max(0, tape.playhead + (newTapeStart - clip.tapeStart));
           applyEdit(tape, moveClip(tape.lanes[tape.activeLane].clips, sid, newTapeStart), { playhead: newPlayhead });
-        } else if (index === 1 || index === 2) {
+        } else if (index === 2) {
           if (shift) break;
-          const isLoopIn = index === 2;
-          const cur = isLoopIn ? tape.loopIn : tape.loopOut;
-          const newVal = snap
-            ? Math.max(0, Math.round((Math.round(cur / spb) + delta) * spb))
-            : Math.max(0, Math.round(cur + delta * spp));
-          const patch = isLoopIn ? { loopIn: newVal } : { loopOut: newVal };
-          setTape((prev) => { const t = { ...prev, ...patch }; tapeRef.current = t; return t; });
-          syncLoopToEngine(isLoopIn ? newVal : tape.loopIn, isLoopIn ? tape.loopOut : newVal, tape.loopEnabled);
-          if (snap) addLogFnRef.current(`loop ${isLoopIn ? 'in' : 'out'} → ${(newVal / spb).toFixed(2)} beats  (${(newVal / sr).toFixed(2)}s)`);
+          const newLoopOut = snap
+            ? Math.max(0, Math.round((Math.round(tape.loopOut / spb) + delta) * spb))
+            : Math.max(0, Math.round(tape.loopOut + delta * spp));
+          setTape((prev) => { const t = { ...prev, loopOut: newLoopOut }; tapeRef.current = t; return t; });
+          syncLoopToEngine(tape.loopIn, newLoopOut, tape.loopEnabled);
+          if (snap) addLogFnRef.current(`loop out → ${(newLoopOut / spb).toFixed(2)} beats  (${(newLoopOut / sr).toFixed(2)}s)`);
+        } else if (index === 1) {
+          if (shift) break;
+          const shiftSamples = snap
+            ? Math.round(delta * spb)
+            : Math.round(delta * spp);
+          const boundedShift = Math.max(-tape.loopIn, shiftSamples);
+          const loopIn = tape.loopIn + boundedShift;
+          const loopOut = tape.loopOut + boundedShift;
+          setTape((prev) => { const t = { ...prev, loopIn, loopOut }; tapeRef.current = t; return t; });
+          syncLoopToEngine(loopIn, loopOut, tape.loopEnabled);
+          if (snap) addLogFnRef.current(`loop shifted → ${(loopIn / spb).toFixed(2)} beats`);
         } else if (index === 3 && !shift) {
           const gain = Math.max(0, Math.min(2, tape.recordingGain + delta * 0.02));
           setTape((prev) => {

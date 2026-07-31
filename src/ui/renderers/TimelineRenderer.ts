@@ -56,7 +56,6 @@ export function drawTimeline(
   tape: Tape,
   pool: AudioPool,
   layout: TimelineLayout,
-  selectedClipId: string | null,
   snapMode = true,
 ): void {
   // Reset context state and scale for 2x resolution
@@ -90,7 +89,9 @@ export function drawTimeline(
       const clipW = tapeToPixel(clip.tapeStart + clip.duration, layout) - clipX;
       if (clipX + clipW < 0 || clipX > canvasWidth) continue;
 
-      const isSelected = clip.id === selectedClipId;
+      const isSelected = li === tape.activeLane &&
+        clip.tapeStart <= layout.playhead &&
+        layout.playhead < clip.tapeStart + clip.duration;
       const isMuted    = clip.muted || tape.lanes[li]!.muted;
       const isActive   = li === tape.activeLane;
 

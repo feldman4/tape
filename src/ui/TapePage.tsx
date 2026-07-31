@@ -279,7 +279,7 @@ export function TapePage() {
         const ctrlMode = new OpzControlMode(midiAccess);
         ctrlMode.setInputDevice(defaultInput?.id ?? 'all');
         if (defaultOutput) ctrlMode.setOutputDevice(defaultOutput.id);
-        ctrlMode.setGroup15AudioMuted(
+        ctrlMode.setRecordEnabled(
           transportRef.current === 'armed' || transportRef.current === 'recording',
         );
         ctrlMode.on((event) => ctrlModeHandlerRef.current?.(event));
@@ -486,8 +486,7 @@ export function TapePage() {
           playhead,
           viewWidthSamples: viewWidthSamplesRef.current,
         };
-        const selectedId = clipAtPlayhead(displayTape.lanes[displayTape.activeLane].clips, playhead);
-        drawTimeline(ctx, displayTape, poolDisplayRef.current, layout, selectedId, snapRef.current);
+        drawTimeline(ctx, displayTape, poolDisplayRef.current, layout, snapRef.current);
       }
       raf = requestAnimationFrame(render);
     };
@@ -600,7 +599,7 @@ export function TapePage() {
   const handleMidiOutputChange = useCallback((id: string) => {
     syncEngineRef.current?.setOutputDevice(id);
     ctrlModeRef.current?.setOutputDevice(id);
-    ctrlModeRef.current?.setGroup15AudioMuted(
+    ctrlModeRef.current?.setRecordEnabled(
       transportRef.current === 'armed' || transportRef.current === 'recording',
     );
     setSelectedMidiOutputId(id);
@@ -721,7 +720,7 @@ export function TapePage() {
     let lastMouseX = 0;
     let accumDx = 0;
     const PX_PER_TICK = 8;
-    const ENCODER_KEYS: Record<string, 0 | 1 | 2 | 3> = { q: 1, w: 0, e: 2, f: 3 };
+    const ENCODER_KEYS: Record<string, 0 | 1 | 2 | 3> = { q: 0, w: 1, e: 2, f: 3 };
 
     const isEditable = (t: EventTarget | null) =>
       t instanceof HTMLInputElement || t instanceof HTMLTextAreaElement || t instanceof HTMLSelectElement;

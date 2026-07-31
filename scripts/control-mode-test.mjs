@@ -316,19 +316,37 @@ async function runBrowserTests(page) {
       };
     });
 
-    test('CC 54 emits recordState and setGroup15AudioMuted sends its inverse message', () => {
+    test('CC 4 enables from off on any non-zero value and mirrors the max endpoint', () => {
       const { input, midiAccess, sentMessages } = makeMock();
       const ctrl = new OpzControlMode(midiAccess);
       ctrl.setInputDevice('all');
       ctrl.setOutputDevice('mock-out');
       const events = [];
       ctrl.on((e) => events.push(e));
-      fire(input, 0xbe, 54, 1);
-      ctrl.setGroup15AudioMuted(false);
+      fire(input, 0xbe, 4, 1);
+      ctrl.setRecordEnabled(true);
       ctrl.dispose();
       return {
         pass: events[0]?.type === 'recordState' && events[0]?.enabled === true &&
-          sentMessages.some((m) => m[0] === 0xbe && m[1] === 54 && m[2] === 0),
+          sentMessages.some((m) => m[0] === 0xbe && m[1] === 4 && m[2] === 127),
+        detail: `events=${JSON.stringify(events)} sent=${JSON.stringify(sentMessages)}`,
+      };
+    });
+
+    test('CC 4 disables from on on any value below the max endpoint', () => {
+      const { input, midiAccess, sentMessages } = makeMock();
+      const ctrl = new OpzControlMode(midiAccess);
+      ctrl.setInputDevice('all');
+      ctrl.setOutputDevice('mock-out');
+      const events = [];
+      ctrl.on((e) => events.push(e));
+      ctrl.setRecordEnabled(true);
+      fire(input, 0xbe, 4, 126);
+      ctrl.setRecordEnabled(false);
+      ctrl.dispose();
+      return {
+        pass: events[0]?.type === 'recordState' && events[0]?.enabled === false &&
+          sentMessages.some((m) => m[0] === 0xbe && m[1] === 4 && m[2] === 0),
         detail: `events=${JSON.stringify(events)} sent=${JSON.stringify(sentMessages)}`,
       };
     });
@@ -393,17 +411,18 @@ async function runBrowserTests(page) {
       };
     });
 
-    test('CC 3 and CC 4 map to encoder index 2 and 3 respectively', () => {
+    test('CC 3 maps to encoder index 2 while CC 4 is not an encoder delta', () => {
       const { input, midiAccess } = makeMock();
       const ctrl = new OpzControlMode(midiAccess);
       ctrl.setInputDevice('all');
       const events = [];
       ctrl.on((e) => events.push(e));
       fire(input, 0xbe, 3, 66); // delta +2
-      fire(input, 0xbe, 4, 60); // delta -4
+      fire(input, 0xbe, 4, 60); // enables record state from off
       ctrl.dispose();
       return {
-        pass: events[0]?.index === 2 && events[1]?.index === 3,
+        pass: events[0]?.type === 'encoderDelta' && events[0]?.index === 2 &&
+          events[1]?.type === 'recordState' && events[1]?.enabled === true,
         detail: JSON.stringify(events),
       };
     });

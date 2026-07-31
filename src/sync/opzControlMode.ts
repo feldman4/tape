@@ -4,8 +4,8 @@
 // (0-indexed: 14) is its "track 15" (lights) row, which we commandeer as a
 // tape-controller surface to mirror OP-1 Field tape-mode ergonomics.
 //
-// ENCODERS (CC 1–4)
-//   The OP-Z always emits absolute CC values (0–127).  To use them as
+// RELATIVE ENCODERS (CC 1–3)
+//   The OP-Z always emits absolute CC values (0–127). To use CC 1–3 as
 //   continuous relative encoders (e.g. for scrubbing) we:
 //     1. Track the last-seen absolute value per encoder.
 //     2. Emit the *delta* (current − previous) as an 'encoderDelta' event.
@@ -14,6 +14,10 @@
 //        encoder to 64, and update our tracking accordingly.
 //   This keeps the encoder near centre so it always has headroom in both
 //   directions, without the user having to physically re-centre it.
+//
+// RECORD STATE (CC 4)
+//   CC 4 is not centred or reset. Zero represents record off and 127 record
+//   on. From either endpoint, moving away requests the opposite record state.
 //
 // BLACK KEYS  (sharps/flats)
 //   54  F#3  →  Tape 1
@@ -31,8 +35,8 @@
 //
 // SHIFT MODIFIER
 //   While Shift (75) is held, 'encoderDelta' events carry shift=true. The
-//   consumer maps encoder 1 to scrub/slide, encoders 2 and 3 to loop out/in,
-//   and encoder 4 to recording level.
+//   consumer maps encoder 1 to scrub/slide, encoder 2 to shifting the loop
+//   region, and encoder 3 to loop out. CC 4 controls recording state.
 //
 // INTEGRATION
 //   OpzControlMode shares the same MIDIAccess as SyncEngine.  It uses
@@ -48,9 +52,9 @@ const STATUS_CC       = 0xb0 | CONTROL_CHANNEL; // 0xBE
 
 // ── Encoder constants ──────────────────────────────────────────────────────
 
-/** CC numbers for OP-Z encoders 1–4 on channel 15. */
-const ENCODER_CC = [1, 2, 3, 4] as const;
-type EncoderIndex = 0 | 1 | 2 | 3;
+/** CC numbers for the relative OP-Z encoders on channel 15. */
+const ENCODER_CC = [1, 2, 3] as const;
+type EncoderIndex = 0 | 1 | 2;
 
 /** Absolute CC value we treat as neutral / centre. */
 const CC_CENTER = 64;
@@ -61,28 +65,9 @@ const CC_CENTER = 64;
  */
 const CC_RESET_THRESHOLD = 30;
 
-// ── Note assignments ────────────────────────────────────────────────────────
-//
-// Black-key groups (channel 15):
-//
-//   Octave 3 — tape edit
-//     F#3  54  Lift
-//     G#3  56  Drop
-//     A#3  58  Split
-//
-//   Octave 4 — transport
-//     C#4  61  Record  (shift: arm / count-in)
-//     D#4  63  Play    (shift: play in reverse)
-//     F#4  66  Stop    (shift: tape grid resolution)
-//
-//   Octave 4/5 — loop
-//     G#4  68  Set loop in
-//     A#4  70  Set loop out
-//     C#5  73  Loop toggle   (shift: loop current clip)
-//
-//   D#5  75  Shift modifier (hold)
-
-const CC_GROUP_AUDIO_MUTE = 54;
+const CC_RECORD_STATE = 4;
+const CC_MIN = 0;
+const CC_MAX = 127;
 const NOTE_TAPE = [54, 56, 58, 61] as const; // F#3, G#3, A#3, C#4
 const NOTE_LIFT = 63; // D#4
 const NOTE_DROP = 66; // F#4
@@ -96,7 +81,7 @@ const NOTE_SHIFT = 75; // D#5
 // ── Public event types ──────────────────────────────────────────────────────
 
 export type ControlEvent =
-  /** Group 15 audio mute (CC 54) controls whether Tape should record. */
+  /** CC 4 requests a change to Tape's Sync recording state. */
   | { type: 'recordState'; enabled: boolean }
   // ── Tape edit ────────────────────────────────────────────────────────────
   /** Lift active clip to clipboard (F#3 / 54).  Shift: lift all in loop. */
@@ -133,8 +118,9 @@ export class OpzControlMode {
   private selectedOutputId: string | null = null;
   private listeners = new Set<(event: ControlEvent) => void>();
 
-  // Last-seen absolute CC value per encoder, initialised to centre.
-  private ccValues: [number, number, number, number] = [CC_CENTER, CC_CENTER, CC_CENTER, CC_CENTER];
+  // Last-seen absolute CC value per relative encoder, initialised to centre.
+  private ccValues: [number, number, number] = [CC_CENTER, CC_CENTER, CC_CENTER];
+  private recordEnabled = false;
 
   private shiftHeld = false;
 
@@ -203,9 +189,10 @@ export class OpzControlMode {
     return this.shiftHeld;
   }
 
-  /** Mirrors Tape's record state to the OP-Z group-15 audio mute control. */
-  setGroup15AudioMuted(muted: boolean): void {
-    this.getOutput()?.send([STATUS_CC, CC_GROUP_AUDIO_MUTE, muted ? 1 : 0]);
+  /** Mirrors Tape's record state to CC 4 so the OP-Z track-15 LED stays current. */
+  setRecordEnabled(enabled: boolean): void {
+    this.recordEnabled = enabled;
+    this.getOutput()?.send([STATUS_CC, CC_RECORD_STATE, enabled ? CC_MAX : CC_MIN]);
   }
 
   // ── Private MIDI handling ────────────────────────────────────────────────
@@ -245,8 +232,12 @@ export class OpzControlMode {
   }
 
   private handleCC(cc: number, value: number): void {
-    if (cc === CC_GROUP_AUDIO_MUTE) {
-      this.emit({ type: 'recordState', enabled: value !== 0 });
+    if (cc === CC_RECORD_STATE) {
+      const enabled = this.recordEnabled ? value === CC_MAX : value !== CC_MIN;
+      if (enabled !== this.recordEnabled) {
+        this.recordEnabled = enabled;
+        this.emit({ type: 'recordState', enabled });
+      }
       return;
     }
 
