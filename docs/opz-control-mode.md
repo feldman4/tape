@@ -70,6 +70,7 @@ channel 15. White keys are ignored.
 
 ## Shift modifier
 
+
 Hold **note 75 (D#5)** to activate Shift.  While Shift is held:
 
 - Encoder 1 switches from scrub to slide clip.
