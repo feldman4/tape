@@ -125,6 +125,26 @@ export class AudioEngine {
     this.source.connect(this.node);
   }
 
+  /** Releases browser audio resources so a new engine can safely replace this instance. */
+  async dispose(): Promise<void> {
+    this.node?.port.close();
+    this.node?.disconnect();
+    this.source?.disconnect();
+    for (const track of this.stream?.getTracks() ?? []) track.stop();
+
+    const context = this.ctx;
+    this.node = null;
+    this.source = null;
+    this.stream = null;
+    this.ctx = null;
+    this.currentDeviceId = null;
+    this.currentOutputDeviceId = '';
+    this.playheadListeners.clear();
+    this.pendingRecordingQueue = [];
+
+    if (context && context.state !== 'closed') await context.close();
+  }
+
   private async acquireStream(deviceId?: string): Promise<MediaStream> {
     const stream = await navigator.mediaDevices.getUserMedia({
       audio: {

@@ -10,13 +10,14 @@ import { makeDefaultTape, type Clip, type Lane, type Tape } from '../tape/model'
 import { finalizeFreeRecording } from '../tape/recording';
 import { applyOverwrite, tapeLengthFromLanes, splitClip } from '../tape/editEngine';
 import { saveSession, listSessions, loadSession } from '../tape/session';
-import { drawTimeline, type TimelineLayout } from './renderers/TimelineRenderer';
-import { CANVAS_WIDTH, CANVAS_HEIGHT, defaultViewWidthSamples, MIN_VIEW_WIDTH_SAMPLES, VIEW_MARGIN } from './canvasConstants';
+import { defaultViewWidthSamples, MIN_VIEW_WIDTH_SAMPLES, VIEW_MARGIN } from './canvasConstants';
 import { btnStyle } from './btnStyle';
 import type { Clipboard, Mode, TransportState, UndoEntry, TapeEngineRefs } from './tapeRefs';
 import { useActivityLog } from './hooks/useActivityLog';
 import { useTapeDispatch } from './hooks/useTapeDispatch';
-import { controlEventToAction, keyEventToAction } from './inputAdapters';
+import { detectPlatformCapabilities } from './platformCapabilities';
+import { useTimelineRender } from './hooks/useTimelineRender';
+import { useTapeInput } from './hooks/useTapeInput';
 import { ComTab } from './tabs/ComTab';
 import { TapeTab } from './tabs/TapeTab';
 import { MixerTab } from './tabs/MixerTab';
@@ -30,16 +31,6 @@ const MIN_BPM_STABLE_CLOCKS = 48; // ~2 beats at 120 BPM
 // ---------------------------------------------------------------------------
 // Pure helpers (no React deps — safe to call from rAF and render body)
 // ---------------------------------------------------------------------------
-
-/** Computes the visual playhead during recording, accounting for loop wrap. */
-function recordingDisplayPlayhead(tape: Tape, tapeStart: number, elapsedSamples: number): number {
-  const linearPos = tapeStart + elapsedSamples;
-  const { loopEnabled, loopIn, loopOut } = tape;
-  if (loopEnabled && loopOut > loopIn && linearPos >= loopIn) {
-    return loopIn + (linearPos - loopIn) % (loopOut - loopIn);
-  }
-  return linearPos;
-}
 
 /** Returns the id of the topmost clip covering the playhead, or null. */
 function clipAtPlayhead(clips: Clip[], playhead: number): string | null {
@@ -150,8 +141,10 @@ export function TapePage() {
   const selectedClipIdRef = useRef<string | null>(null);
   const viewWidthSamplesRef = useRef(defaultViewWidthSamples(tape.bpm));
   const unsubscribeSyncEngineRef = useRef<(() => void) | null>(null);
+  const unsubscribePlayheadRef = useRef<(() => void) | null>(null);
   const lastMidiStartTimeRef = useRef(0);
   const lastScheduledBeatRef = useRef(-1);
+  const platformCapabilities = useRef(detectPlatformCapabilities()).current;
 
   // ---------------------------------------------------------------------------
   // Activity log
@@ -230,9 +223,16 @@ export function TapePage() {
 
   const handleInit = useCallback(async (opts?: { silent?: boolean }) => {
     try {
-      // Clean up old syncEngine listener before registering a new one
       unsubscribeSyncEngineRef.current?.();
       unsubscribeSyncEngineRef.current = null;
+      unsubscribePlayheadRef.current?.();
+      unsubscribePlayheadRef.current = null;
+      ctrlModeRef.current?.dispose();
+      ctrlModeRef.current = null;
+      syncEngineRef.current?.dispose();
+      syncEngineRef.current = null;
+      await engineRef.current?.dispose();
+      engineRef.current = null;
 
       const engine = new AudioEngine();
       await engine.init();
@@ -248,35 +248,46 @@ export function TapePage() {
       }
       setSelectedAudioDeviceId(defaultDevice?.deviceId ?? engine.inputDeviceId ?? null);
 
-      const outputDevices = await engine.listOutputDevices();
+      const outputDevices = platformCapabilities.audioOutputSelection
+        ? await engine.listOutputDevices()
+        : [];
       setAudioOutputDevices(outputDevices);
       setSelectedAudioOutputId(engine.outputDeviceId);
 
-      const syncEngine = new SyncEngine(engine.audioContext);
-      await syncEngine.init();
-      syncEngineRef.current = syncEngine;
+      let syncEngine: SyncEngine | null = null;
+      let defaultInput: { id: string; name: string | null } | undefined;
+      let defaultOutput: { id: string; name: string | null } | undefined;
+      if (platformCapabilities.webMidi) {
+        syncEngine = new SyncEngine(engine.audioContext);
+        await syncEngine.init();
+        syncEngineRef.current = syncEngine;
 
-      const inputs = syncEngine.listInputs();
-      setMidiInputs(inputs);
-      const defaultInput = preferOpZ(inputs, (i) => i.name);
-      if (defaultInput) { syncEngine.setInputDevice(defaultInput.id); setSelectedMidiInputId(defaultInput.id); }
+        const inputs = syncEngine.listInputs();
+        setMidiInputs(inputs);
+        defaultInput = preferOpZ(inputs, (i) => i.name);
+        if (defaultInput) { syncEngine.setInputDevice(defaultInput.id); setSelectedMidiInputId(defaultInput.id); }
 
-      const outputs = syncEngine.listOutputs();
-      setMidiOutputs(outputs);
-      const defaultOutput = preferOpZ(outputs, (o) => o.name);
-      if (defaultOutput) { syncEngine.setOutputDevice(defaultOutput.id); setSelectedMidiOutputId(defaultOutput.id); }
+        const outputs = syncEngine.listOutputs();
+        setMidiOutputs(outputs);
+        defaultOutput = preferOpZ(outputs, (o) => o.name);
+        if (defaultOutput) { syncEngine.setOutputDevice(defaultOutput.id); setSelectedMidiOutputId(defaultOutput.id); }
 
-      const midiAccess = syncEngine.getMIDIAccess();
-      if (midiAccess) {
-        ctrlModeRef.current?.dispose();
-        const ctrlMode = new OpzControlMode(midiAccess);
-        ctrlMode.setInputDevice(defaultInput?.id ?? 'all');
-        if (defaultOutput) ctrlMode.setOutputDevice(defaultOutput.id);
-        ctrlMode.setRecordEnabled(
-          transportRef.current === 'armed' || transportRef.current === 'recording',
-        );
-        ctrlMode.on((event) => ctrlModeHandlerRef.current?.(event));
-        ctrlModeRef.current = ctrlMode;
+        const midiAccess = syncEngine.getMIDIAccess();
+        if (midiAccess) {
+          const ctrlMode = new OpzControlMode(midiAccess);
+          ctrlMode.setInputDevice(defaultInput?.id ?? 'all');
+          if (defaultOutput) ctrlMode.setOutputDevice(defaultOutput.id);
+          ctrlMode.setRecordEnabled(
+            transportRef.current === 'armed' || transportRef.current === 'recording',
+          );
+          ctrlMode.on((event) => ctrlModeHandlerRef.current?.(event));
+          ctrlModeRef.current = ctrlMode;
+        }
+      } else {
+        setMidiInputs([]);
+        setMidiOutputs([]);
+        setSelectedMidiInputId('all');
+        setSelectedMidiOutputId(null);
       }
 
       // Pre-build a reusable click buffer for the metronome (constant; created once per init).
@@ -297,7 +308,7 @@ export function TapePage() {
       };
 
       // Register syncEngine listener and store unsubscribe function for cleanup
-      const unsubscribeSyncEngine = syncEngine.on((event: SyncEvent) => {
+      const unsubscribeSyncEngine = syncEngine?.on((event: SyncEvent) => {
         if (event.type === 'start') {
           // Deduplicate: ignore MIDI Start events that arrive within 10ms of the last one
           const now = Date.now();
@@ -366,11 +377,11 @@ export function TapePage() {
             }
           }
         }
-      });
+      }) ?? null;
       unsubscribeSyncEngineRef.current = unsubscribeSyncEngine;
 
       let wasPlayingWorklet = false;
-      engine.onPlayhead(({ tapePosition, playing }) => {
+      unsubscribePlayheadRef.current = engine.onPlayhead(({ tapePosition, playing }) => {
         const engineSr = engine.sampleRate;
         if (playing && !wasPlayingWorklet) {
           addLogFnRef.current(`\u25b6 worklet: started  tape=${(tapePosition / engineSr).toFixed(3)}s`);
@@ -423,6 +434,10 @@ export function TapePage() {
     return () => {
       // Cleanup on unmount
       unsubscribeSyncEngineRef.current?.();
+      unsubscribePlayheadRef.current?.();
+      ctrlModeRef.current?.dispose();
+      syncEngineRef.current?.dispose();
+      void engineRef.current?.dispose();
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -454,38 +469,10 @@ export function TapePage() {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, []);
 
-  // ---------------------------------------------------------------------------
-  // Render loop
-  // ---------------------------------------------------------------------------
-  useEffect(() => {
-    let raf = 0;
-    const render = () => {
-      const canvas = canvasRef.current;
-      const ctx = canvas?.getContext('2d');
-      if (ctx && canvas) {
-        const tape = tapeRef.current;
-        const sr = engineRef.current?.sampleRate ?? 44100;
-        const playhead = transportRef.current === 'recording'
-          ? recordingDisplayPlayhead(
-              tape,
-              tapeStartForRecordingRef.current,
-              Math.round((Date.now() - recordStartWallTimeRef.current) / 1000 * sr)
-            )
-          : tape.playhead;
-        const displayTape = playhead !== tape.playhead ? { ...tape, playhead } : tape;
-        const layout: TimelineLayout = {
-          canvasWidth: CANVAS_WIDTH,
-          canvasHeight: CANVAS_HEIGHT,
-          playhead,
-          viewWidthSamples: viewWidthSamplesRef.current,
-        };
-        drawTimeline(ctx, displayTape, poolDisplayRef.current, layout, snapRef.current);
-      }
-      raf = requestAnimationFrame(render);
-    };
-    raf = requestAnimationFrame(render);
-    return () => cancelAnimationFrame(raf);
-  }, []);
+  useTimelineRender({
+    canvasRef, engineRef, poolRef: poolDisplayRef, tapeRef, transportRef, snapRef,
+    tapeStartForRecordingRef, recordStartWallTimeRef, viewWidthSamplesRef,
+  });
 
   // ---------------------------------------------------------------------------
   // Device change handlers
@@ -612,76 +599,9 @@ export function TapePage() {
 
     unsubscribed = sync.on(handleSyncEvent);
   }, []);
-  // OP-Z control mode handler (updated every render)
-  // ---------------------------------------------------------------------------
-  ctrlModeHandlerRef.current = (event: ControlEvent) => {
-    if (modeRef.current !== 'sync') return;
-    const action = controlEventToAction(event);
-    if (action) dispatch(action);
-  };
-
-  // ---------------------------------------------------------------------------
-  // Keyboard shortcuts (TAPE tab only)
-  // ---------------------------------------------------------------------------
-  useEffect(() => {
-    if (activeTab !== 'TAPE') return;
-
-    let encoderKey: string | null = null;
-    let lastMouseX = 0;
-    let accumDx = 0;
-    const PX_PER_TICK = 14;
-    const ENCODER_KEYS: Record<string, 0 | 1 | 2 | 3> = { q: 0, w: 1, e: 2, f: 3 };
-
-    const isEditable = (t: EventTarget | null) =>
-      t instanceof HTMLInputElement || t instanceof HTMLTextAreaElement || t instanceof HTMLSelectElement;
-
-    const onKeyDown = (ev: KeyboardEvent) => {
-      if (isEditable(ev.target)) return;
-      if (ev.repeat) return;
-      if (ev.metaKey || ev.ctrlKey) return;
-
-      const key = ev.key.toLowerCase();
-      if (key in ENCODER_KEYS) { encoderKey = key; accumDx = 0; ev.preventDefault(); return; }
-
-      if (key === 'm') { setClickEnabled((v) => !v); ev.preventDefault(); return; }
-
-      // Prevent default space/escape behavior to avoid button focusing/clicks
-      if (ev.key === ' ' || ev.key === 'Escape') {
-        ev.preventDefault();
-        // In Sync mode, don't dispatch the play/stop action
-        if (modeRef.current === 'sync') return;
-      }
-
-      const action = keyEventToAction(ev);
-      if (action) { dispatch(action); }
-    };
-
-    const onKeyUp = (ev: KeyboardEvent) => {
-      if (ev.key.toLowerCase() === encoderKey) { encoderKey = null; accumDx = 0; }
-    };
-
-    const onMouseMove = (ev: MouseEvent) => {
-      const dx = ev.clientX - lastMouseX;
-      lastMouseX = ev.clientX;
-      if (!encoderKey) return;
-      accumDx += dx;
-      const ticks = Math.trunc(accumDx / PX_PER_TICK);
-      if (ticks !== 0) {
-        accumDx -= ticks * PX_PER_TICK;
-        const index = ENCODER_KEYS[encoderKey]!;
-        dispatch({ type: 'encoderNudge', index, delta: ticks, shift: ev.shiftKey });
-      }
-    };
-
-    window.addEventListener('keydown', onKeyDown);
-    window.addEventListener('keyup', onKeyUp);
-    window.addEventListener('mousemove', onMouseMove);
-    return () => {
-      window.removeEventListener('keydown', onKeyDown);
-      window.removeEventListener('keyup', onKeyUp);
-      window.removeEventListener('mousemove', onMouseMove);
-    };
-  }, [activeTab]);
+  useTapeInput({
+    active: activeTab === 'TAPE', dispatch, modeRef, ctrlModeHandlerRef, setClickEnabled,
+  });
 
   // ---------------------------------------------------------------------------
   // window.__tapeTest hook

@@ -30,9 +30,13 @@ time.
 
 | Area | Current responsibility |
 | --- | --- |
-| `src/ui/TapePage.tsx` | Application composition, device initialization, React state, MIDI event coordination, canvas interaction, keyboard bindings, tests hooks, and tab wiring. |
+| `src/ui/TapePage.tsx` | Application composition, device initialization, React state, MIDI event coordination, test hooks, and tab wiring. |
 | `src/ui/hooks/useTapeDispatch.ts` | Central reducer-like executor for `TapeAction` commands. It coordinates state mutations, transport, edit operations, persistence, and engine calls. |
+| `src/ui/hooks/useTimelineRender.ts` | Imperative canvas render loop, isolated from tab presentation and input handling. |
+| `src/ui/hooks/useTapeInput.ts` | Desktop keyboard and OP-Z control-event bridge into semantic actions. |
 | `src/ui/inputAdapters.ts` | Pure translation from keyboard and OP-Z controller events into device-neutral `TapeAction` values. |
+| `src/ui/tapeIntents.ts` | Pure mapping from the planned iPad reel sectors into existing semantic encoder actions. |
+| `src/ui/platformCapabilities.ts` | Browser capability detection for Web MIDI, output routing, and touch/pointer support. |
 | `src/tape/model.ts` | Four-lane Tape, Lane, and Clip data definitions. Clip placement is expressed in samples. |
 | `src/tape/editEngine.ts` | Pure clip-metadata edits such as split, move, join, lift, and drop. |
 | `src/tape/recording.ts` | Finalizes raw takes into clips. |
@@ -60,9 +64,9 @@ Keyboard / OP-Z MIDI
   -> useTapeDispatch
   -> React Tape state + AudioEngine / SyncEngine effects
 
-Canvas mouse events
-  -> TapePage handlers
-  -> partly direct state updates, partly TapeAction
+The timeline is currently presentational. Future pointer, touch, and reel
+adapters should translate their input into `TapeAction` values or named
+interaction intents before changing tape state.
 ```
 
 Sessions save Tape metadata, referenced sample buffers, mode, and Snap into
@@ -92,6 +96,8 @@ the external source destabilizing the grid.
 - Device-specific keyboard and OP-Z messages already converge through
   `inputAdapters.ts` for most commands.
 - Session serialization is outside the UI rendering components.
+- Browser capability checks and explicit audio/MIDI disposal provide a base for
+  platform-specific lifecycle handling without making the worklet UI-aware.
 
 ## Separation-of-Concerns Critique
 
@@ -102,24 +108,24 @@ harder than necessary.
 
 ### `TapePage` Is a High-Coupling Composition Root
 
-`TapePage.tsx` creates and coordinates the audio engine, sync engine, OP-Z
-controller, device discovery, latency calibration, MIDI listeners, React
-transport state, rendering loop, keyboard listeners, mouse interaction, test
-hook, and tab presentation. This makes it difficult to reuse the same product
-logic with a different presentation shell. A tablet-specific interaction model
-would either grow this component further or replicate orchestration logic.
+`TapePage.tsx` still creates and coordinates the audio engine, sync engine,
+OP-Z controller, device discovery, latency calibration, MIDI listeners, React
+transport state, test hook, and tab presentation. Rendering and desktop input
+are now isolated in focused hooks, but engine initialization and transport
+coordination remain concentrated in the page. A tablet-specific interaction
+model must not add more browser/hardware wiring there.
 
-**Recommended direction:** extract an application controller/service that owns
-engine lifecycle and action effects, exposes a subscribable view model, and is
-driven by explicit capability adapters. React components should bind controls
-and render state, rather than own browser/hardware wiring.
+**Recommended direction:** retain `TapePage` as the React composition root,
+then extract focused hooks/controllers for engine lifecycle, device handling,
+and transport coordination. React components should bind controls and render
+state, while browser/hardware wiring has explicit ownership and teardown.
 
-### Canvas Interaction Bypasses the Action Boundary
+### Timeline Interaction Needs an Explicit Contract
 
-Keyboard and OP-Z input produce `TapeAction` values, but canvas drag handlers
-perform some direct `setTape` mutations before later dispatching a commit. The
-business rules for seeking, moving, snap calculation, selection, and undo are
-therefore divided between the view and dispatcher.
+Keyboard and OP-Z input produce `TapeAction` values, while the current timeline
+has no pointer interaction contract. Implementing touch editing directly in a
+tab would again divide seeking, movement, snap calculation, and undo between
+the view and dispatcher.
 
 **Why it matters for iPad:** pointer/touch gestures need their own state machine
 (press, drag, cancellation, pinch, multi-touch), so duplicated editing rules
@@ -131,12 +137,13 @@ Pointer Events or touch-gesture contract.
 and `setViewport`. Feed mouse, keyboard, OP-Z, and touch adapters into those
 intents. Make the domain/controller calculate snap and allowed transitions.
 
-### Presentation Geometry Leaks Into Domain Behavior
+### Viewport Policy Is Still Coupled to Interaction
 
-With Snap off, OP-Z and keyboard encoder behavior depends on a timeline pixel
-increment. The canvas has fixed dimensions, and the drag behavior includes a
-mouse-specific speed multiplier. Those display units form part of user behavior
-instead of being an explicitly configurable musical/time-space policy.
+With Snap off, OP-Z and keyboard encoder behavior depends on the current
+viewport width divided by the canvas width. This is a useful time-space mapping,
+but it remains implicit in the dispatcher and uses a fixed 620px canvas. The
+planned reel adapter intentionally delegates its movement policy to the same
+semantic action path; it must not introduce a second one.
 
 **Why it matters for iPad:** screen density, orientation, viewport size, and
 touch precision differ substantially from a laptop. A fixed 620px canvas and
@@ -165,9 +172,9 @@ variant of the desktop build.
 
 Several real-time callback values are mirrored between React state and mutable
 refs to avoid stale closures. This is pragmatic in React, but it makes lifecycle
-ownership and teardown difficult to reason about. The render loop uses
-`Date.now()` to display a recording playhead even though the audio path is
-sample-clock based.
+ownership difficult to reason about. `AudioEngine` and `SyncEngine` now expose
+explicit disposal, while the render loop still uses `Date.now()` to display a
+recording playhead even though the audio path is sample-clock based.
 
 **Why it matters for iPad:** mobile browser throttling, audio-session
 interruptions, device changes, and orientation changes create more lifecycle
@@ -194,8 +201,8 @@ recorder.
 
 1. Establish capability detection and tested lifecycle behavior for MIDIWEB on
    iPad, including audio/MIDI reconnect and interruptions.
-2. Replace mouse-only canvas input with Pointer Events plus a touch gesture
-   adapter; define single-finger selection/drag and multi-touch viewport rules.
+2. Add Pointer Events and a touch/reel interaction adapter; define
+  single-finger selection/drag and multi-touch viewport rules.
 3. Make timeline layout responsive and move pixel-dependent behavior out of
    domain actions.
 4. Continue moving orchestration from `TapePage` into a testable controller and

@@ -82,6 +82,15 @@ export class SyncEngine {
     this.setInputDevice('all');
   }
 
+  dispose(): void {
+    for (const input of this.midiAccess?.inputs.values() ?? []) input.onmidimessage = null;
+    this.listeners.clear();
+    this.midiAccess = null;
+    this.selectedInputId = null;
+    this.selectedOutputId = null;
+    this.running = false;
+  }
+
   /** Lists available MIDI input devices. */
   listInputs(): { id: string; name: string | null }[] {
     if (!this.midiAccess) return [];
