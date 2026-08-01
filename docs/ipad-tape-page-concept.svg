@@ -1,0 +1,96 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="2048" height="1365" viewBox="0 0 2048 1365" role="img" aria-labelledby="title description">
+  <title id="title">Tape iPad page with touch reel overlay</title>
+  <desc id="description">A landscape Tape interface with persistent timeline and minimap, tall edge touch zones, corner controls, footer settings, and a translucent circular reel overlay appearing over the central tape surface.</desc>
+  <defs>
+    <linearGradient id="shell" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#20252d"/><stop offset="1" stop-color="#090b0e"/>
+    </linearGradient>
+    <linearGradient id="clip" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#185282"/><stop offset="1" stop-color="#0b2d52"/>
+    </linearGradient>
+    <filter id="shadow" x="-15%" y="-15%" width="130%" height="130%"><feDropShadow dx="0" dy="12" stdDeviation="20" flood-color="#000" flood-opacity=".65"/></filter>
+    <style>
+      .title { font-family: Helvetica, Arial, sans-serif; font-size: 31px; font-weight: 700; fill: #ecf0f6; letter-spacing: 0px; }
+      .label { font-family: Helvetica, Arial, sans-serif; font-size: 22px; font-weight: 600; fill: #e5e9f0; letter-spacing: 0px; }
+      .small { font-family: Helvetica, Arial, sans-serif; font-size: 17px; fill: #a4adba; letter-spacing: 0px; }
+      .micro { font-family: Helvetica, Arial, sans-serif; font-size: 14px; fill: #7e8998; letter-spacing: 0px; }
+      .zone { fill: #080a0e; stroke: #3d4653; stroke-width: 2; }
+      .active { fill: #283c86; stroke: #7188ff; stroke-width: 2; }
+      .warm { fill: #592625; stroke: #e36358; stroke-width: 2; }
+    </style>
+  </defs>
+  <rect width="2048" height="1365" fill="#030405"/>
+  <rect x="32" y="30" width="1984" height="1305" rx="42" fill="url(#shell)" stroke="#38404d" stroke-width="3" filter="url(#shadow)"/>
+  <rect x="58" y="56" width="1932" height="1253" rx="25" fill="#080a0e" stroke="#161b22" stroke-width="2"/>
+
+  <!-- Top-corner transport touch zones -->
+  <path d="M75 80H279V176H75Z" class="zone"/>
+  <path d="M1769 80H1973V176H1769Z" class="zone"/>
+  <text x="177" y="135" text-anchor="middle" class="label">REC</text>
+  <text x="1871" y="135" text-anchor="middle" class="label">LOOP</text>
+
+  <!-- Tall left touch edge -->
+  <rect x="75" y="196" width="204" height="888" rx="18" class="zone"/>
+  <path d="M75 418H279M75 640H279M75 862H279" stroke="#3d4653" stroke-width="2"/>
+  <rect x="76" y="641" width="202" height="220" fill="#293c87" opacity=".9"/>
+  <text x="177" y="294" text-anchor="middle" class="label">TAPE 1</text>
+  <text x="177" y="516" text-anchor="middle" class="label">TAPE 2</text>
+  <text x="177" y="738" text-anchor="middle" class="label">TAPE 3</text>
+  <text x="177" y="960" text-anchor="middle" class="label">TAPE 4</text>
+
+  <!-- Tall right touch edge -->
+  <rect x="1769" y="196" width="204" height="888" rx="18" class="zone"/>
+  <path d="M1769 418H1973M1769 640H1973M1769 862H1973" stroke="#3d4653" stroke-width="2"/>
+  <rect x="1770" y="197" width="202" height="220" fill="#562523" opacity=".92"/>
+  <text x="1871" y="294" text-anchor="middle" class="label">LIFT</text>
+  <text x="1871" y="516" text-anchor="middle" class="label">DROP</text>
+  <text x="1871" y="738" text-anchor="middle" class="label">SPLIT</text>
+  <text x="1871" y="960" text-anchor="middle" class="label">UNDO</text>
+
+  <!-- Persistent tape timeline -->
+  <rect x="312" y="184" width="1424" height="480" fill="#040609"/>
+  <rect x="338" y="234" width="1188" height="34" rx="4" fill="#3c3406"/><path d="M338 268H1526" stroke="#edc900" stroke-width="5"/><path d="M338 234V268M1526 234V268" stroke="#edc900" stroke-width="5"/>
+  <g stroke="#5a6571" stroke-width="2" opacity=".75"><path d="M448 234V268M558 234V268M668 234V268M778 234V268M888 234V268M998 234V268M1108 234V268M1218 234V268M1328 234V268M1438 234V268"/></g>
+  <g fill="#111820"><rect x="338" y="287" width="1372" height="69" rx="4"/><rect x="338" y="373" width="1372" height="69" rx="4"/><rect x="338" y="459" width="1372" height="69" rx="4"/><rect x="338" y="545" width="1372" height="69" rx="4"/></g>
+  <rect x="338" y="287" width="618" height="69" rx="4" fill="url(#clip)"/><rect x="1028" y="287" width="444" height="69" rx="4" fill="url(#clip)"/>
+  <rect x="455" y="373" width="764" height="69" rx="4" fill="#16436e"/><rect x="338" y="459" width="1310" height="69" rx="4" fill="#722d05"/><rect x="1380" y="545" width="330" height="69" rx="4" fill="#16436e"/>
+  <g fill="none" stroke="#73a9d5" stroke-width="3" opacity=".66"><path d="M360 321l21-8 20 11 23-18 28 21 22-12 24 8 29-17 25 20 30-14 23 13 25-18 25 14 20-8 18 10"/><path d="M1054 321l20-9 18 12 23-17 29 19 24-13 21 8 29-16 24 20 19-13 25 12"/><path d="M484 407l34-7 21 9 34-16 30 13 25-8 44 8 36-16 30 18 35-9 31 5 37-16 31 18 39-13 30 10 36-17 28 13"/></g>
+  <g fill="none" stroke="#ff842d" stroke-width="3" opacity=".75"><path d="M362 494l28-8 34 11 30-17 31 19 34-12 31 8 39-12 38 14 34-20 31 15 36-9 38 10 34-14 36 13 37-8 42 9 34-17 36 13 32-8 42 9 34-13 37 12"/></g>
+  <path d="M1024 184V664" stroke="#c6cfda" stroke-width="3" opacity=".85"/><path d="M1024 462V534" stroke="#ff5e53" stroke-width="7"/>
+
+  <!-- Transport strip -->
+  <g>
+    <rect x="338" y="682" width="126" height="34" rx="8" class="zone"/>
+    <rect x="360" y="693" width="12" height="12" fill="#e5e9f0"/>
+    <text x="410" y="706" text-anchor="middle" class="small">STOP</text>
+    <rect x="476" y="682" width="126" height="34" rx="8" class="zone"/>
+    <path d="M500 690l13 9-13 9z" fill="#e5e9f0"/>
+    <text x="552" y="706" text-anchor="middle" class="small">PLAY</text>
+    <rect x="614" y="682" width="126" height="34" rx="8" class="zone"/>
+    <text x="677" y="706" text-anchor="middle" class="small">CLICK</text>
+  </g>
+
+  <!-- Persistent minimap -->
+  <rect x="312" y="726" width="1424" height="176" fill="#040609"/>
+  <rect x="336" y="748" width="1230" height="20" fill="#16416c"/><rect x="337" y="778" width="960" height="20" fill="#123354"/><rect x="337" y="808" width="1370" height="20" fill="#6d2c06"/><rect x="1308" y="838" width="400" height="20" fill="#123354"/>
+  <rect x="578" y="743" width="890" height="125" fill="none" stroke="#d7dde6" stroke-width="3"/><path d="M1024 732V884" stroke="#c5ced8" stroke-width="3"/>
+  <path d="M338 734H1566" stroke="#eac800" stroke-width="4"/><path d="M338 734V748M1566 734V748" stroke="#eac800" stroke-width="4"/>
+
+  <!-- Reel is an on-touch overlay, showing its activated state -->
+  <circle cx="1024" cy="540" r="345" fill="none" stroke="#9aa7b7" stroke-opacity=".7" stroke-width="2"/>
+  <circle cx="1024" cy="540" r="82" fill="none" stroke="#7b8797" stroke-opacity=".55" stroke-width="2"/>
+  <path d="M679 540H1369" stroke="#a2aebb" stroke-opacity=".65" stroke-width="2"/>
+
+  <!-- Corner touch zones -->
+  <path d="M75 1084H279V1285H75Z" class="zone"/><path d="M1769 1084H1973V1285H1769Z" class="zone"/>
+  <text x="177" y="1192" text-anchor="middle" class="label">SHIFT</text>
+  <text x="1871" y="1192" text-anchor="middle" class="label">SHIFT</text>
+
+  <!-- Footer contains settings and tab touch targets -->
+  <rect x="294" y="1225" width="1460" height="60" rx="16" fill="#12171e" stroke="#343d49" stroke-width="2"/>
+  <rect x="312" y="1235" width="132" height="40" rx="9" class="active"/><text x="378" y="1261" text-anchor="middle" class="label">FREE</text>
+  <rect x="455" y="1235" width="132" height="40" rx="9" class="active"/><text x="521" y="1261" text-anchor="middle" class="label">SNAP</text>
+  <path d="M652 1234V1276" stroke="#3b4451" stroke-width="2"/>
+  <g><rect x="790" y="1235" width="126" height="40" rx="9" class="active"/><rect x="928" y="1235" width="126" height="40" rx="9" class="zone"/><rect x="1066" y="1235" width="126" height="40" rx="9" class="zone"/><rect x="1204" y="1235" width="126" height="40" rx="9" class="zone"/><rect x="1342" y="1235" width="126" height="40" rx="9" class="zone"/>
+    <text x="853" y="1261" text-anchor="middle" class="label">TAPE</text><text x="991" y="1261" text-anchor="middle" class="label">MIXER</text><text x="1129" y="1261" text-anchor="middle" class="label">PROJ</text><text x="1267" y="1261" text-anchor="middle" class="label">COM</text><text x="1405" y="1261" text-anchor="middle" class="label">TEST</text></g>
+</svg>
