@@ -1,4 +1,4 @@
-// Immutable audio buffer storage (Stage 0: in-memory only, no persistence).
+// Immutable audio buffer storage (in-memory only, no persistence).
 // Recording creates new buffers here; editing never mutates them.
 
 export type AudioBufferId = string;

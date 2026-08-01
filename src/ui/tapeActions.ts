@@ -6,7 +6,7 @@ export type TapeAction =
   | { type: 'record' }
   /** OP-Z group-15 audio mute requests arm/record when enabled, or disarm/stop when disabled. */
   | { type: 'setRecordEnabled'; enabled: boolean }
-  | { type: 'play'; countIn?: boolean }
+  | { type: 'play' }
   | { type: 'stop' }
   // ── Engine events ─────────────────────────────────────────────────────────
   /** MIDI clock start: always drives transport.  startSamples = nearest beat to playhead. */
@@ -18,7 +18,6 @@ export type TapeAction =
   // ── Navigation ────────────────────────────────────────────────────────────
   | { type: 'selectLane'; lane: 0|1|2|3 }
   | { type: 'toggleMuteLane'; lane: 0|1|2|3 }
-  | { type: 'seekPlayhead'; samples: number }
   // ── Encoder ───────────────────────────────────────────────────────────────
   /** Device-agnostic encoder nudge (OP-Z hardware or keyboard+mouse simulation). */
   | { type: 'encoderNudge'; index: 0|1|2|3; delta: number; shift: boolean }
@@ -31,7 +30,6 @@ export type TapeAction =
   | { type: 'mergeDrop' }
   | { type: 'undo' }
   | { type: 'redo' }
-  | { type: 'commitDrag'; clipId: string; from: number; to: number }
   // ── Loop ──────────────────────────────────────────────────────────────────
   | { type: 'setLoopIn' }
   | { type: 'setLoopOut' }

@@ -142,8 +142,11 @@ export class SyncEngine {
   }
 
   /** Sends MIDI Start, telling an external sequencer (e.g. the OP-Z) to begin playback and emit Clock. */
-  sendStart(): void {
-    this.getOutput()?.send([STATUS_START]);
+  sendStart(): boolean {
+    const output = this.getOutput();
+    if (!output) return false;
+    output.send([STATUS_START]);
+    return true;
   }
 
   /** Sends MIDI Stop. */

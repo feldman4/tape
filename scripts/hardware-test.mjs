@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Automated Stage 0 hardware validation (docs/stage0-progress.md item 11 /
+// Automated hardware validation (long-running drift check /
 // docs/testing_proposal.md "Interface" + "End-to-end" levels), driven
 // entirely by the OP-Z: no human interaction required once
 // scripts/hardware-profile-setup.mjs has been run once to grant mic + MIDI

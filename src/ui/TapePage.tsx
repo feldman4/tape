@@ -6,21 +6,14 @@ import { detectOnset } from '../audio/onsetDetect';
 import { SyncEngine, type SyncEvent } from '../sync/syncEngine';
 import { createClickWaveform } from '../audio/clickWaveform';
 import { OpzControlMode, type ControlEvent } from '../sync/opzControlMode';
-import { makeDefaultTape, LANE_COUNT, type Clip, type Lane, type Tape } from '../tape/model';
+import { makeDefaultTape, type Clip, type Lane, type Tape } from '../tape/model';
 import { finalizeFreeRecording } from '../tape/recording';
-import { tapeLengthFromLanes, splitClip, moveClip } from '../tape/editEngine';
+import { applyOverwrite, tapeLengthFromLanes, splitClip } from '../tape/editEngine';
 import { saveSession, listSessions, loadSession } from '../tape/session';
-import {
-  drawTimeline,
-  laneRowHeight,
-  pixelToTape,
-  tapeToPixel,
-  TIME_AXIS_HEIGHT,
-  type TimelineLayout,
-} from './renderers/TimelineRenderer';
+import { drawTimeline, type TimelineLayout } from './renderers/TimelineRenderer';
 import { CANVAS_WIDTH, CANVAS_HEIGHT, defaultViewWidthSamples, MIN_VIEW_WIDTH_SAMPLES, VIEW_MARGIN } from './canvasConstants';
 import { btnStyle } from './btnStyle';
-import type { Mode, TransportState, UndoEntry, DragState, TapeEngineRefs } from './tapeRefs';
+import type { Clipboard, Mode, TransportState, UndoEntry, TapeEngineRefs } from './tapeRefs';
 import { useActivityLog } from './hooks/useActivityLog';
 import { useTapeDispatch } from './hooks/useTapeDispatch';
 import { controlEventToAction, keyEventToAction } from './inputAdapters';
@@ -97,7 +90,7 @@ export function TapePage() {
   const snapRef = useRef(true);
   useEffect(() => { snapRef.current = snap; }, [snap]);
 
-  const [clipboard, setClipboard] = useState<Clip | Array<{ clip: Clip; lane: 0|1|2|3 }> | null>(null);
+  const [clipboard, setClipboard] = useState<Clipboard>(null);
   const [undoStack, setUndoStack] = useState<UndoEntry[]>([]);
   const [redoStack, setRedoStack] = useState<UndoEntry[]>([]);
 
@@ -150,10 +143,10 @@ export function TapePage() {
   const loopRotateTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const loopRotatingRef = useRef(false);
   const armedRef = useRef(false);
+  const ignoreNextMidiStartRef = useRef(false);
   const clocksSinceStartRef = useRef(0);
   const cancelCountInRef = useRef<(() => void) | null>(null);
 
-  const dragRef = useRef<DragState | null>(null);
   const selectedClipIdRef = useRef<string | null>(null);
   const viewWidthSamplesRef = useRef(defaultViewWidthSamples(tape.bpm));
   const unsubscribeSyncEngineRef = useRef<(() => void) | null>(null);
@@ -173,7 +166,7 @@ export function TapePage() {
     poolRef, poolDisplayRef, tapeRef, transportRef, modeRef, snapRef,
     outputLatencyMsRef, calibratedInputLatencyMsRef,
     tapeStartForRecordingRef, recordStartWallTimeRef, midiStartContextTimeRef,
-    loopRotateTimeoutRef, loopRotatingRef, armedRef, clocksSinceStartRef,
+    loopRotateTimeoutRef, loopRotatingRef, armedRef, ignoreNextMidiStartRef, clocksSinceStartRef,
     cancelCountInRef, addLogFnRef, viewWidthSamplesRef, selectedClipIdRef,
   };
 
@@ -188,7 +181,7 @@ export function TapePage() {
 
   // Thin wrappers preserve existing tab-component prop signatures.
   const handleRecord   = () => dispatch({ type: 'record' });
-  const handlePlay     = (countIn?: boolean) => dispatch({ type: 'play', countIn });
+  const handlePlay     = () => dispatch({ type: 'play' });
   const handleStop     = () => dispatch({ type: 'stop' });
   const handleSplit    = () => dispatch({ type: 'split' });
   const handleJoin     = () => dispatch({ type: 'join' });
@@ -495,89 +488,6 @@ export function TapePage() {
   }, []);
 
   // ---------------------------------------------------------------------------
-  // Canvas interaction
-  // ---------------------------------------------------------------------------
-  const getLayout = useCallback((): TimelineLayout => ({
-    canvasWidth: CANVAS_WIDTH,
-    canvasHeight: CANVAS_HEIGHT,
-    playhead: tapeRef.current.playhead,
-    viewWidthSamples: viewWidthSamplesRef.current,
-  }), []);
-
-  const handleCanvasMouseDown = useCallback((e: React.MouseEvent<HTMLCanvasElement>) => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    const rect = canvas.getBoundingClientRect();
-    const px = (e.clientX - rect.left) / 2;  // Divide by 2 for 2x resolution
-    const py = (e.clientY - rect.top) / 2;   // Divide by 2 for 2x resolution
-    const layout = getLayout();
-    const tapePos = pixelToTape(px, layout);
-    const currentTape = tapeRef.current;
-
-    const clickedLane = py < TIME_AXIS_HEIGHT ? -1
-      : Math.min(LANE_COUNT - 1, Math.floor((py - TIME_AXIS_HEIGHT) / laneRowHeight(CANVAS_HEIGHT)));
-
-    const hitClip = clickedLane >= 0
-      ? currentTape.lanes[clickedLane]!.clips.find((c) => {
-          const cx = tapeToPixel(c.tapeStart, layout);
-          const cw = tapeToPixel(c.tapeStart + c.duration, layout) - cx;
-          return px >= cx && px <= cx + cw;
-        })
-      : undefined;
-
-    if (clickedLane >= 0 && clickedLane !== currentTape.activeLane) {
-      dispatch({ type: 'selectLane', lane: clickedLane as 0|1|2|3 });
-    }
-
-    if (hitClip) {
-      dragRef.current = { clipId: hitClip.id, startPx: px, origTapeStart: hitClip.tapeStart };
-    } else {
-      let seekPos = Math.max(0, Math.round(tapePos));
-      if (snapRef.current) {
-        const bpm = tapeRef.current.bpm || 120;
-        const sr = engineRef.current?.sampleRate ?? 44100;
-        const samplesPerBeat = (sr * 60) / bpm;
-        seekPos = Math.max(0, Math.round(Math.round(tapePos / samplesPerBeat) * samplesPerBeat));
-      }
-      dispatch({ type: 'seekPlayhead', samples: seekPos });
-    }
-  }, [getLayout, dispatch]);
-
-  const handleCanvasMouseMove = useCallback((e: React.MouseEvent<HTMLCanvasElement>) => {
-    const drag = dragRef.current;
-    if (!drag) return;
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    const rect = canvas.getBoundingClientRect();
-    const px = (e.clientX - rect.left) / 2;  // Divide by 2 for 2x resolution
-    let deltaSamples = Math.round((px - drag.startPx) * (viewWidthSamplesRef.current / CANVAS_WIDTH));
-    // 9x scrubbing speed when not in snap mode
-    if (!snapRef.current) {
-      deltaSamples *= 9;
-    }
-    const newTapeStart = Math.max(0, drag.origTapeStart + deltaSamples);
-    setTape((prev) => {
-      const activeLane = prev.activeLane;
-      const newClips = moveClip(prev.lanes[activeLane].clips, drag.clipId, newTapeStart);
-      const newLanes = prev.lanes.map((l, i) => i === activeLane ? { clips: newClips } : l) as [Lane,Lane,Lane,Lane];
-      const t = { ...prev, lanes: newLanes, tapeLength: tapeLengthFromLanes(newLanes) };
-      tapeRef.current = t;
-      return t;
-    });
-  }, []);
-
-  const handleCanvasMouseUp = useCallback(() => {
-    const drag = dragRef.current;
-    if (!drag) return;
-    dragRef.current = null;
-    const currentTape = tapeRef.current;
-    const movedClip = currentTape.lanes[currentTape.activeLane].clips.find((c) => c.id === drag.clipId);
-    if (movedClip && movedClip.tapeStart !== drag.origTapeStart) {
-      dispatch({ type: 'commitDrag', clipId: drag.clipId, from: drag.origTapeStart, to: movedClip.tapeStart });
-    }
-  }, [dispatch]);
-
-  // ---------------------------------------------------------------------------
   // Device change handlers
   // ---------------------------------------------------------------------------
   const handleAudioDeviceChange = useCallback(async (deviceId: string) => {
@@ -719,7 +629,7 @@ export function TapePage() {
     let encoderKey: string | null = null;
     let lastMouseX = 0;
     let accumDx = 0;
-    const PX_PER_TICK = 8;
+    const PX_PER_TICK = 14;
     const ENCODER_KEYS: Record<string, 0 | 1 | 2 | 3> = { q: 0, w: 1, e: 2, f: 3 };
 
     const isEditable = (t: EventTarget | null) =>
@@ -790,7 +700,9 @@ export function TapePage() {
           tapeLength: tape.tapeLength, playhead: tape.playhead,
           loopIn: tape.loopIn, loopOut: tape.loopOut, loopEnabled: tape.loopEnabled, bpm: tape.bpm, recordingGain: tape.recordingGain,
         },
-        clipboard: clipboard && !Array.isArray(clipboard) ? { id: clipboard.id, duration: clipboard.duration } : (Array.isArray(clipboard) ? { id: 'liftAll', duration: clipboard.length } : null),
+        clipboard: clipboard ? ('items' in clipboard
+          ? { id: 'liftAll', duration: clipboard.items.length }
+          : { id: clipboard.id, duration: clipboard.duration }) : null,
         selectedClipId,
         undoDepth: undoStack.length, redoDepth: redoStack.length, lastClipBeats,
         latency: null,
@@ -810,7 +722,7 @@ export function TapePage() {
         poolDisplayRef.current = poolRef.current;
         setTape((prev) => {
           const al = prev.activeLane;
-          const newClips = [...prev.lanes[al].clips, newClip];
+          const newClips = applyOverwrite(prev.lanes[al].clips, newClip);
           const newLanes = prev.lanes.map((l, i) => i === al ? { clips: newClips } : l) as [Lane,Lane,Lane,Lane];
           const t = { ...prev, lanes: newLanes, tapeLength: tapeLengthFromLanes(newLanes) };
           tapeRef.current = t;
@@ -907,10 +819,7 @@ export function TapePage() {
           viewWidthSamplesRef={viewWidthSamplesRef}
           handleRecord={() => void handleRecord()}
           handleStop={() => void handleStop()}
-          handlePlay={(withCountIn) => void handlePlay(withCountIn)}
-          handleCanvasMouseDown={handleCanvasMouseDown}
-          handleCanvasMouseMove={handleCanvasMouseMove}
-          handleCanvasMouseUp={handleCanvasMouseUp}
+          handlePlay={() => void handlePlay()}
           handleSplit={handleSplit}
           handleJoin={handleJoin}
           handleLift={handleLift}

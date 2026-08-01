@@ -45,7 +45,7 @@ export function keyEventToAction(ev: KeyboardEvent): TapeAction | null {
     case '3': case '#': return shift ? { type: 'toggleMuteLane', lane: 2 } : { type: 'selectLane', lane: 2 };
     case '4': case '$': return shift ? { type: 'toggleMuteLane', lane: 3 } : { type: 'selectLane', lane: 3 };
     case 'r': case 'R': return { type: 'record' };
-    case ' ':           return { type: 'play', countIn: shift };
+    case ' ':           return { type: 'play' };
     case 'Escape':      return { type: 'stop' };
     case '[':           return { type: 'setLoopIn' };
     case ']':           return { type: 'setLoopOut' };

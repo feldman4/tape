@@ -1,5 +1,5 @@
 // Tape/Clip data model — four-lane tape recorder.
-// See docs/starting_plan.md section 5 for the full model description.
+// See docs/architecture_summary_2026-08-02.md for the current model summary.
 
 import type { AudioBufferId } from '../audio/audioPool';
 

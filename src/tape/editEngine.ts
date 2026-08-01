@@ -61,10 +61,24 @@ export function deleteClip(clips: Clip[], clipId: string): Clip[] {
 // ---------------------------------------------------------------------------
 // moveClip
 // ---------------------------------------------------------------------------
-/** Moves a clip to a new tapeStart. Clamps to 0. */
+/**
+ * Moves a clip to a new tapeStart without allowing it to pass its neighbours.
+ * Clips in a lane remain ordered and non-overlapping.
+ */
 export function moveClip(clips: Clip[], clipId: string, newTapeStart: number): Clip[] {
+  const orderedClips = [...clips].sort((left, right) => left.tapeStart - right.tapeStart);
+  const index = orderedClips.findIndex((clip) => clip.id === clipId);
+  if (index === -1) return clips;
+
+  const clip = orderedClips[index]!;
+  const previous = orderedClips[index - 1];
+  const next = orderedClips[index + 1];
+  const minimumStart = previous ? previous.tapeStart + previous.duration : 0;
+  const maximumStart = next ? Math.max(minimumStart, next.tapeStart - clip.duration) : Infinity;
+  const boundedStart = Math.min(maximumStart, Math.max(minimumStart, newTapeStart));
+
   return clips.map((c) =>
-    c.id === clipId ? { ...c, tapeStart: Math.max(0, newTapeStart) } : c,
+    c.id === clipId ? { ...c, tapeStart: boundedStart } : c,
   );
 }
 
@@ -145,8 +159,9 @@ export function liftClip(clips: Clip[], clipId: string): { clips: Clip[]; lifted
 // dropClip
 // ---------------------------------------------------------------------------
 /**
- * Inserts a clip (typically from the clipboard) at `newTapeStart`.
- * Always assigns a fresh id so the dropped copy is a new clip.
+ * Inserts a clip (typically from the clipboard) at `newTapeStart`, overwriting
+ * material in its range. Always assigns a fresh id so the dropped copy is a
+ * new clip.
  */
 export function dropClip(clips: Clip[], source: Clip, newTapeStart: number): Clip[] {
   const dropped: Clip = {
@@ -154,7 +169,7 @@ export function dropClip(clips: Clip[], source: Clip, newTapeStart: number): Cli
     id: newClipId(),
     tapeStart: Math.max(0, newTapeStart),
   };
-  return [...clips, dropped];
+  return applyOverwrite(clips, dropped);
 }
 
 // ---------------------------------------------------------------------------

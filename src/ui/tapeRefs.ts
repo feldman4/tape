@@ -4,22 +4,22 @@ import type { AudioEngine } from '../audio/audioEngine';
 import type { AudioPool } from '../audio/audioPool';
 import type { SyncEngine } from '../sync/syncEngine';
 import type { OpzControlMode, ControlEvent } from '../sync/opzControlMode';
-import type { Tape, Lane } from '../tape/model';
+import type { Clip, Tape, Lane } from '../tape/model';
 
 export type Mode = 'free' | 'sync';
 export type TransportState = 'idle' | 'armed' | 'counting-in' | 'recording' | 'playing';
+export interface LiftAllClipboard {
+  items: Array<{ clip: Clip; lane: 0|1|2|3 }>;
+  loopStart: number;
+  loopLength: number;
+}
+export type Clipboard = Clip | LiftAllClipboard | null;
 
 export interface UndoEntry {
   lanes: [Lane, Lane, Lane, Lane];
   loopIn: number;
   loopOut: number;
   loopEnabled: boolean;
-}
-
-export interface DragState {
-  clipId: string;
-  startPx: number;
-  origTapeStart: number;
 }
 
 export function snapshotTape(tape: Tape): UndoEntry {
@@ -54,6 +54,7 @@ export interface TapeEngineRefs {
   loopRotateTimeoutRef:     MutableRefObject<ReturnType<typeof setTimeout> | null>;
   loopRotatingRef:          MutableRefObject<boolean>;
   armedRef:                 MutableRefObject<boolean>;
+  ignoreNextMidiStartRef:   MutableRefObject<boolean>;
   clocksSinceStartRef:      MutableRefObject<number>;
   cancelCountInRef:         MutableRefObject<(() => void) | null>;
   addLogFnRef:              MutableRefObject<(msg: string) => void>;

@@ -18,7 +18,7 @@ import {
 import { deleteSession, listSessions, loadSession, saveSession } from '../../tape/session';
 import { finalizeFreeRecording, finalizeLoopRecording } from '../../tape/recording';
 import { createClickWaveform } from '../../audio/clickWaveform';
-import { type TapeEngineRefs, type TransportState, type UndoEntry, type Mode, snapshotTape } from '../tapeRefs';
+import { type Clipboard, type TapeEngineRefs, type TransportState, type UndoEntry, type Mode, snapshotTape } from '../tapeRefs';
 import type { TapeAction } from '../tapeActions';
 
 interface DispatchDeps {
@@ -26,23 +26,23 @@ interface DispatchDeps {
   setTransport:     Dispatch<SetStateAction<TransportState>>;
   setUndoStack:     Dispatch<SetStateAction<UndoEntry[]>>;
   setRedoStack:     Dispatch<SetStateAction<UndoEntry[]>>;
-  setClipboard:     Dispatch<SetStateAction<Clip | Array<{ clip: Clip; lane: 0|1|2|3 }> | null>>;
+  setClipboard:     Dispatch<SetStateAction<Clipboard>>;
   setSessions:      Dispatch<SetStateAction<string[]>>;
   setSessionStatus: Dispatch<SetStateAction<string>>;
   setSessionName:   Dispatch<SetStateAction<string>>;
   setMode:          Dispatch<SetStateAction<Mode>>;
   setSnap:          Dispatch<SetStateAction<boolean>>;
   setLastClipBeats: Dispatch<SetStateAction<number | null>>;
-  clipboard:        Clip | Array<{ clip: Clip; lane: 0|1|2|3 }> | null;
+  clipboard:        Clipboard;
   sessionName:      string;
 }
 
 export function useTapeDispatch(refs: TapeEngineRefs, deps: DispatchDeps) {
   const {
-    engineRef, poolRef, poolDisplayRef,
+    engineRef, syncEngineRef, poolRef, poolDisplayRef,
     tapeRef, transportRef, modeRef, snapRef, outputLatencyMsRef, ctrlModeRef,
     tapeStartForRecordingRef, recordStartWallTimeRef,
-    loopRotateTimeoutRef, loopRotatingRef, armedRef,
+    loopRotateTimeoutRef, loopRotatingRef, armedRef, ignoreNextMidiStartRef,
     cancelCountInRef, addLogFnRef, selectedClipIdRef, viewWidthSamplesRef,
   } = refs;
 
@@ -53,7 +53,7 @@ export function useTapeDispatch(refs: TapeEngineRefs, deps: DispatchDeps) {
   } = deps;
 
   // Mirror reactive values into refs so dispatch always sees the latest.
-  const clipboardRef = useRef<Clip | Array<{ clip: Clip; lane: 0|1|2|3 }> | null>(deps.clipboard);
+  const clipboardRef = useRef<Clipboard>(deps.clipboard);
   clipboardRef.current = deps.clipboard;
   const sessionNameRef = useRef(deps.sessionName);
   sessionNameRef.current = deps.sessionName;
@@ -261,7 +261,7 @@ export function useTapeDispatch(refs: TapeEngineRefs, deps: DispatchDeps) {
         armedRef.current = true;
         setTransportState('armed');
         if (modeRef.current === 'free') {
-          addLogFnRef.current('⏺ Armed (free) — press Play to record, Shift+Play for count-in');
+          addLogFnRef.current('⏺ Armed (free) — press Play for count-in recording');
         } else {
           addLogFnRef.current('⏺ Armed (sync) — waiting for MIDI start to record');
         }
@@ -269,6 +269,7 @@ export function useTapeDispatch(refs: TapeEngineRefs, deps: DispatchDeps) {
       }
 
       case 'stop': {
+        if (modeRef.current === 'sync') break;
         const engine = engineRef.current;
         if (!engine) break;
         const tr = transportRef.current;
@@ -295,11 +296,10 @@ export function useTapeDispatch(refs: TapeEngineRefs, deps: DispatchDeps) {
       }
 
       case 'play': {
+        if (modeRef.current === 'sync') break;
         const engine = engineRef.current;
         if (!engine) break;
         const tr = transportRef.current;
-        const withCountIn = action.countIn ?? false;
-
         if (tr === 'recording') {
           void finalizeRecordingTake(engine).then(() => {
             engine.stopPlayback();
@@ -310,7 +310,7 @@ export function useTapeDispatch(refs: TapeEngineRefs, deps: DispatchDeps) {
           break;
         }
         if (tr === 'playing') { engine.stopPlayback(); setTransportState('idle'); addLogFnRef.current('⏸ Pause'); break; }
-        if (tr === 'armed' && modeRef.current === 'free') {
+        if (tr === 'armed') {
           const startPlayAndRecord = () => {
             const tape = tapeRef.current;
             armedRef.current = false;
@@ -319,14 +319,19 @@ export function useTapeDispatch(refs: TapeEngineRefs, deps: DispatchDeps) {
             engine.loadTape(tape.lanes, poolRef.current);
             engine.play(tape.playhead, { loopIn: tape.loopIn, loopOut: tape.loopOut, loopEnabled: tape.loopEnabled });
             engine.startRecording();
-            if (tape.loopEnabled && tape.loopOut > tape.loopIn) {
+            if (modeRef.current === 'free' && tape.loopEnabled && tape.loopOut > tape.loopIn) {
               startLoopRotation(tape.playhead, Date.now() + Math.max(0, (tape.loopOut - tape.playhead) / engine.sampleRate * 1000));
             }
             setTransportState('recording');
+            ignoreNextMidiStartRef.current = true;
+            if (syncEngineRef.current?.sendStart()) {
+              setTimeout(() => { ignoreNextMidiStartRef.current = false; }, 500);
+            } else {
+              ignoreNextMidiStartRef.current = false;
+            }
             addLogFnRef.current(`⏺ Recording started at ${(tape.playhead / engine.sampleRate).toFixed(3)}s`);
           };
-          if (!withCountIn) { startPlayAndRecord(); break; }
-          // Count-in: 4 metronome clicks then record.
+          // Count-in: Tape supplies four clicks, then recording and MIDI Start begin together.
           const ctx = engine.audioContext;
           const bpm = tapeRef.current.bpm || 120;
           const beatDur = 60 / bpm;
@@ -356,7 +361,6 @@ export function useTapeDispatch(refs: TapeEngineRefs, deps: DispatchDeps) {
           setTimeout(() => { if (!cancelled) { cancelCountInRef.current = null; startPlayAndRecord(); } }, countInMs);
           break;
         }
-        if (tr === 'armed') break; // sync-armed: wait for MIDI clock
         // idle → plain playback
         const tape = tapeRef.current;
         addLogFnRef.current(`▶ Play  playhead=${(tape.playhead / engine.sampleRate).toFixed(3)}s`);
@@ -371,6 +375,11 @@ export function useTapeDispatch(refs: TapeEngineRefs, deps: DispatchDeps) {
       case 'midiClockStart': {
         const engine = engineRef.current;
         if (!engine) break;
+        if (ignoreNextMidiStartRef.current) {
+          ignoreNextMidiStartRef.current = false;
+          addLogFnRef.current('▶ MIDI Start acknowledged at recording onset');
+          break;
+        }
         const tr = transportRef.current;
         const startSamples = action.startSamples;
         const tape = tapeRef.current;
@@ -485,11 +494,6 @@ export function useTapeDispatch(refs: TapeEngineRefs, deps: DispatchDeps) {
         break;
       }
 
-      case 'seekPlayhead': {
-        setTape((prev) => { const t = { ...prev, playhead: action.samples }; tapeRef.current = t; return t; });
-        break;
-      }
-
       // ── Encoder ────────────────────────────────────────────────────────────
 
       case 'encoderNudge': {
@@ -590,18 +594,21 @@ export function useTapeDispatch(refs: TapeEngineRefs, deps: DispatchDeps) {
         
         const tape = tapeRef.current;
         
-        if (Array.isArray(cb) && cb.length > 0 && 'lane' in cb[0]) {
+        if ('items' in cb) {
           // Drop liftAll clipboard: restore clips to their original lanes at playhead position
-          type LiftAllItem = { clip: Clip; lane: 0|1|2|3 };
-          const items = cb as LiftAllItem[];
+          const { items, loopStart, loopLength } = cb;
           
           let newLanes = tape.lanes.map(l => ({ ...l })) as [Lane, Lane, Lane, Lane];
-          let lastClip: Clip | null = null;
           
           for (const { clip, lane } of items) {
-            const droppedClip = { ...clip, tapeStart: tape.playhead };
-            newLanes[lane] = { ...newLanes[lane], clips: [...newLanes[lane].clips, droppedClip] };
-            lastClip = droppedClip;
+            const droppedClip = {
+              ...clip,
+              tapeStart: Math.max(0, tape.playhead + clip.tapeStart - loopStart),
+            };
+            newLanes[lane] = {
+              ...newLanes[lane],
+              clips: applyOverwrite(newLanes[lane].clips, droppedClip),
+            };
           }
           
           const newTape: Tape = { ...tape, lanes: newLanes, tapeLength: tapeLengthFromLanes(newLanes) };
@@ -609,18 +616,16 @@ export function useTapeDispatch(refs: TapeEngineRefs, deps: DispatchDeps) {
           tapeRef.current = newTape;
           engineRef.current?.loadTape(newLanes, poolRef.current);
           
-          if (lastClip) {
-            setTape((prev) => { const t = { ...prev, playhead: lastClip!.tapeStart + lastClip!.duration }; tapeRef.current = t; return t; });
-          }
-        } else if (Array.isArray(cb)) {
-          // Shouldn't happen, but fallback to old behavior
-          break;
+          setTape((prev) => {
+            const t = { ...prev, playhead: tape.playhead + loopLength };
+            tapeRef.current = t;
+            return t;
+          });
         } else {
           // Drop single clip at current playhead
           const newClips = dropClip(tape.lanes[tape.activeLane].clips, cb, tape.playhead);
-          const dropped = newClips[newClips.length - 1]!;
           applyEdit(tape, newClips);
-          setTape((prev) => { const t = { ...prev, playhead: dropped.tapeStart + dropped.duration }; tapeRef.current = t; return t; });
+          setTape((prev) => { const t = { ...prev, playhead: tape.playhead + cb.duration }; tapeRef.current = t; return t; });
         }
         break;
       }
@@ -696,22 +701,16 @@ export function useTapeDispatch(refs: TapeEngineRefs, deps: DispatchDeps) {
         setTape(newTape);
         tapeRef.current = newTape;
         engineRef.current?.loadTape(newLanes, poolRef.current);
-        setClipboard(liftedClips);
+        setClipboard({ items: liftedClips, loopStart, loopLength: loopEnd - loopStart });
         break;
       }
 
       case 'mergeDrop': {
         const cb = clipboardRef.current;
-        if (!Array.isArray(cb) || cb.length === 0) break;
+        if (!cb || !('items' in cb) || cb.items.length === 0) break;
         
-        type LiftAllItem = { clip: Clip; lane: 0|1|2|3 };
-        if (!('lane' in cb[0])) break; // Only works with liftAll format
-        
-        const items = cb as LiftAllItem[];
+        const { items, loopStart, loopLength: loopDuration } = cb;
         const tape = tapeRef.current;
-        const loopStart = Math.min(tape.loopIn, tape.loopOut);
-        const loopEnd = Math.max(tape.loopIn, tape.loopOut);
-        const loopDuration = loopEnd - loopStart;
         
         // Create merged buffer by mixing all lifted clips
         const mergedSamples = new Float32Array(loopDuration);
@@ -785,15 +784,6 @@ export function useTapeDispatch(refs: TapeEngineRefs, deps: DispatchDeps) {
           engineRef.current?.loadTape(entry.lanes, poolRef.current);
           return prev.slice(0, -1);
         });
-        break;
-      }
-
-      case 'commitDrag': {
-        if (action.from === action.to) break;
-        const tape = tapeRef.current;
-        setUndoStack((prev) => [...prev, snapshotTape(tape)]);
-        setRedoStack([]);
-        engineRef.current?.loadTape(tape.lanes, poolRef.current);
         break;
       }
 

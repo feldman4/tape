@@ -1,14 +1,15 @@
 # Tape
 
 A browser-based multitrack tape recorder. Vite + React + TypeScript, built as
-a staged implementation — see [docs/starting_plan.md](docs/starting_plan.md)
-for the original design doc and [docs/stage0-progress.md](docs/stage0-progress.md)
-for the staged plan and current progress.
+a staged implementation. Start with the [user manual](docs/user_manual.md),
+then use the [architecture summary](docs/architecture_summary_2026-08-02.md)
+for the current technical shape and deployment critique.
 
-Currently in **Stage 0** (mostly complete): 4-lane tape recorder with full audio
-engine, MIDI sync, OP-Z hardware control, mixer, and session persistence.
-See [docs/starting_plan.md](docs/starting_plan.md) for the original design doc
-and [docs/stage0-progress.md](docs/stage0-progress.md) for current progress.
+Tape currently provides a 4-lane recorder with audio engine, MIDI sync, OP-Z
+hardware control, mixer, and session persistence.
+See the [user manual](docs/user_manual.md) for the active workflow and the
+[architecture summary](docs/architecture_summary_2026-08-02.md) for current
+implementation status and constraints.
 
 ## Running it
 
@@ -28,10 +29,9 @@ npm run lint    # oxlint
 
 ## Hardware validation (OP-Z)
 
-Stage 0's go/no-go gate is validated against a real OP-Z connected via USB
-(class-compliant audio + MIDI). This is automated end-to-end - see
-[docs/testing_proposal.md](docs/testing_proposal.md) 'Running the OP-Z
-hardware tests unattended' for the full rationale.
+Hardware validation uses a real OP-Z connected via USB (class-compliant audio
++ MIDI). The workflow is automated end-to-end after a one-time browser-
+permission setup.
 
 ```sh
 npm run dev                    # in one terminal, dev server must stay running
@@ -42,9 +42,7 @@ npm run test:hardware          # unattended thereafter: latency + Free-mode +
                                 # Sync-mode checks, driven entirely by the OP-Z
 ```
 
-Current status: [docs/stage0-progress.md](docs/stage0-progress.md) - short
-takes pass; a multi-minute drift check is still open before Stage 0 is fully
-closed out.
+Current status: short takes pass; a multi-minute drift check is still open.
 
 ## Key files
 
@@ -109,7 +107,7 @@ closed out.
 - [src/sync/opzControlMode.ts](src/sync/opzControlMode.ts) — parses OP-Z
   channel-15 MIDI messages into typed `ControlEvent`s (lane select/mute,
   transport, edit, loop, encoder deltas). See
-  [docs/opz-control-mode.md](docs/opz-control-mode.md).
+  [docs/op_z_appendix.md](docs/op_z_appendix.md).
 
 ### Hardware test automation
 - [scripts/hardware-profile-setup.mjs](scripts/hardware-profile-setup.mjs) -
@@ -119,26 +117,10 @@ closed out.
   profile headfully with no further prompts; drives the OP-Z through the
   latency/Free/Sync checks and prints a pass/fail report.
 
-## Keyboard shortcuts (TAPE tab)
+## Control Reference
 
-| Key | Action |
-|-----|--------|
-| `1`–`4` | Select lane 1–4 |
-| `Shift`+`1`–`4` | Mute/unmute lane 1–4 |
-| `R` | Record arm / toggle recording |
-| `Space` | Play / pause |
-| `Escape` | Stop / rewind |
-| `[` / `]` | Set loop in / out at playhead |
-| `\` | Toggle loop on/off |
-| `S` | Split clip at playhead |
-| `Shift`+`S` | Join clip with neighbour |
-| `L` | Lift clip to clipboard |
-| `D` | Drop clipboard clip at playhead |
-| `Z` | Toggle Free / Sync mode |
-| `X` | Toggle Snap to beat grid |
-| `Q`+drag | Scrub playhead (blue encoder) |
-| `Shift`+`Q`+drag | Slide selected clip + playhead |
-| `W`+drag | Adjust loop out (Shift: loop in) |
+- [OP-Z control appendix](docs/op_z_appendix.md)
+- [Keyboard control appendix](docs/keyboard_appendix.md)
 
 ## Gotchas worth knowing before touching audio code
 

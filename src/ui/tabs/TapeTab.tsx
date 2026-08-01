@@ -143,10 +143,7 @@ interface TapeTabProps {
   viewWidthSamplesRef: React.RefObject<number>;
   handleRecord: () => void;
   handleStop: () => void;
-  handlePlay: (withCountIn?: boolean) => void;
-  handleCanvasMouseDown: (e: React.MouseEvent<HTMLCanvasElement>) => void;
-  handleCanvasMouseMove: (e: React.MouseEvent<HTMLCanvasElement>) => void;
-  handleCanvasMouseUp: () => void;
+  handlePlay: () => void;
   handleSplit: () => void;
   handleJoin: () => void;
   handleLift: () => void;
@@ -168,7 +165,6 @@ export function TapeTab({
   selectedClipId, undoStack, redoStack, lastClipBeats,
   canvasRef, viewWidthSamplesRef,
   handleRecord, handleStop, handlePlay,
-  handleCanvasMouseDown, handleCanvasMouseMove, handleCanvasMouseUp,
   handleUndo, handleRedo,
   clickEnabled, handleToggleClick,
 }: TapeTabProps) {
@@ -186,11 +182,7 @@ export function TapeTab({
             ref={canvasRef}
             width={CANVAS_WIDTH * 2}
             height={CANVAS_HEIGHT * 2}
-            style={{ display: 'block', cursor: 'crosshair', marginBottom: 8, width: CANVAS_WIDTH, height: CANVAS_HEIGHT }}
-            onMouseDown={handleCanvasMouseDown}
-            onMouseMove={handleCanvasMouseMove}
-            onMouseUp={handleCanvasMouseUp}
-            onMouseLeave={handleCanvasMouseUp}
+            style={{ display: 'block', marginBottom: 8, width: CANVAS_WIDTH, height: CANVAS_HEIGHT }}
           />
 
           {/* Transport and Undo/Redo */}
@@ -206,13 +198,13 @@ export function TapeTab({
                 : transport === 'armed' ? '⏺ Arm'
                 : '⏺ Record'}
             </button>
-            <button style={{ ...btnStyle, ...(transport !== 'idle' ? { background: '#374151', color: '#f9fafb' } : {}) }} onClick={() => void handleStop()} disabled={!ready}>
+            <button style={{ ...btnStyle, ...(transport !== 'idle' ? { background: '#374151', color: '#f9fafb' } : {}) }} onClick={() => void handleStop()} disabled={!ready || mode === 'sync'}>
               {transport === 'playing' ? '⏸ Pause' : '⏹ Stop'}
             </button>
             <button
               style={{ ...btnStyle, ...(transport === 'playing' ? { background: '#15803d', color: '#fff' } : {}) }}
-              onClick={(e) => void handlePlay(e.shiftKey)}
-              disabled={!ready || !hasClips || (transport !== 'idle' && transport !== 'playing' && transport !== 'armed')}>
+              onClick={() => void handlePlay()}
+              disabled={!ready || mode === 'sync' || !hasClips || (transport !== 'idle' && transport !== 'playing' && transport !== 'armed')}>
               {transport === 'playing' ? '⏸ Pause' : '▶ Play'}
             </button>
             <button

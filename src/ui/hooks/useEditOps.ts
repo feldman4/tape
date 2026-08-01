@@ -133,9 +133,8 @@ export function useEditOps(refs: TapeEngineRefs, deps: EditOpsDeps) {
     if (!clipboard) return;
     const currentTape = tapeRef.current;
     const newClips = dropClip(currentTape.lanes[currentTape.activeLane].clips, clipboard, currentTape.playhead);
-    const dropped = newClips[newClips.length - 1]!;
     applyEdit(currentTape, newClips);
-    setTape((prev) => { const t = { ...prev, playhead: dropped.tapeStart + dropped.duration }; tapeRef.current = t; return t; });
+    setTape((prev) => { const t = { ...prev, playhead: currentTape.playhead + clipboard.duration }; tapeRef.current = t; return t; });
   }, [clipboard, applyEdit, setTape]);
 
   const handleJoin = useCallback(() => {
