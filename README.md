@@ -119,6 +119,7 @@ Current status: short takes pass; a multi-minute drift check is still open.
 
 ## Control Reference
 
+- [iPad control appendix](docs/ipad_appendix.md)
 - [OP-Z control appendix](docs/op_z_appendix.md)
 - [Keyboard control appendix](docs/keyboard_appendix.md)
 

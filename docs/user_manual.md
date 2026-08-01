@@ -7,7 +7,8 @@ audio is recorded into immutable buffers and editing rearranges clip references
 on the tape.
 
 This manual names Tape actions in **bold** and describes their behavior. The
-corresponding keyboard and OP-Z controls are documented only in
+corresponding iPad, keyboard, and OP-Z controls are documented only in
+[ipad_appendix.md](ipad_appendix.md),
 [op_z_appendix.md](op_z_appendix.md) and
 [keyboard_appendix.md](keyboard_appendix.md).
 
