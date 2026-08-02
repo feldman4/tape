@@ -14,6 +14,7 @@ interface IpadTapeTabProps {
   snap: boolean;
   clickEnabled: boolean;
   canvasRef: React.RefObject<HTMLCanvasElement | null>;
+  viewWidthSamplesRef: React.RefObject<number>;
   dispatch: (action: TapeAction) => void;
   handleToggleClick: () => void;
   setActiveTab: (tab: 'COM' | 'TAPE' | 'MIXER' | 'PROJ' | 'TEST') => void;
@@ -21,8 +22,9 @@ interface IpadTapeTabProps {
 
 const tabs = ['TAPE', 'MIXER', 'PROJ', 'COM', 'TEST'] as const;
 const laneNumbers = [0, 1, 2, 3] as const;
+const REEL_CENTER_Y = 0.4;
 
-function MiniMap({ tape }: { tape: Tape }) {
+function MiniMap({ tape, viewWidthSamples }: { tape: Tape; viewWidthSamples: number }) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
 
   useEffect(() => {
@@ -36,7 +38,7 @@ function MiniMap({ tape }: { tape: Tape }) {
     for (const lane of tape.lanes) {
       for (const clip of lane.clips) end = Math.max(end, clip.tapeStart + clip.duration);
     }
-    end = Math.max(end, tape.playhead + end / 8);
+    end = Math.max(end, tape.playhead + viewWidthSamples / 2);
 
     context.clearRect(0, 0, width, height);
     context.fillStyle = '#000000';
@@ -51,6 +53,11 @@ function MiniMap({ tape }: { tape: Tape }) {
         context.fillRect(x, laneIndex * laneHeight + 2, clipWidth, laneHeight - 4);
       }
     }
+    const windowStart = Math.max(0, tape.playhead - viewWidthSamples / 2);
+    const windowEnd = Math.min(end, windowStart + viewWidthSamples);
+    context.strokeStyle = '#ffffff';
+    context.lineWidth = 2;
+    context.strokeRect(windowStart / end * width, 0, (windowEnd - windowStart) / end * width, height);
     if (tape.loopEnabled && tape.loopOut > tape.loopIn) {
       context.fillStyle = '#e9c900';
       context.fillRect(tape.loopIn / end * width, 0, (tape.loopOut - tape.loopIn) / end * width, 3);
@@ -64,7 +71,7 @@ function MiniMap({ tape }: { tape: Tape }) {
     context.stroke();
   }, [tape]);
 
-  return <canvas ref={canvasRef} width={1200} height={100} style={{ width: '100%', height: 'auto', aspectRatio: '12 / 1', display: 'block' }} />;
+  return <canvas ref={canvasRef} width={1200} height={100} style={{ width: '100%', height: 'auto', aspectRatio: '12 / 1', display: 'block', transform: 'scaleX(0.7)', transformOrigin: 'center' }} />;
 }
 
 function normalizeAngle(delta: number): number {
@@ -82,6 +89,7 @@ export function IpadTapeTab({
   snap,
   clickEnabled,
   canvasRef,
+  viewWidthSamplesRef,
   dispatch,
   handleToggleClick,
   setActiveTab,
@@ -104,7 +112,7 @@ export function IpadTapeTab({
     if (!ready || event.pointerType === 'mouse') return;
     const rect = event.currentTarget.getBoundingClientRect();
     const x = event.clientX - rect.left - rect.width / 2;
-    const y = event.clientY - rect.top - rect.height / 2;
+    const y = event.clientY - rect.top - rect.height * REEL_CENTER_Y;
     const outerRadius = Math.min(rect.width, rect.height) * 0.47;
     const innerRadius = outerRadius * 0.24;
     const radius = Math.hypot(x, y);
@@ -120,7 +128,7 @@ export function IpadTapeTab({
     const reel = reelRef.current;
     if (!reel || reel.pointerId !== event.pointerId) return;
     const rect = event.currentTarget.getBoundingClientRect();
-    const angle = Math.atan2(event.clientY - rect.top - rect.height / 2, event.clientX - rect.left - rect.width / 2);
+    const angle = Math.atan2(event.clientY - rect.top - rect.height * REEL_CENTER_Y, event.clientX - rect.left - rect.width / 2);
     reel.remainder += normalizeAngle(angle - reel.angle) / (Math.PI / 18);
     reel.angle = angle;
     const ticks = Math.trunc(reel.remainder);
@@ -158,14 +166,13 @@ export function IpadTapeTab({
         ))}
       </div>
 
-      <div style={{ position: 'relative', minHeight: 0, display: 'grid', gridTemplateRows: 'auto 42px auto', alignContent: 'start', gap: 8 }}>
+      <div style={{ position: 'relative', minHeight: 0, display: 'grid', gridTemplateRows: 'auto 122px auto', alignContent: 'start', gap: 8 }}>
         <canvas ref={canvasRef} width={1240} height={268} style={{ width: '100%', height: 'auto', aspectRatio: '620 / 134', display: 'block', background: '#000000' }} />
-        <div style={{ position: 'relative', zIndex: 3, display: 'flex', alignItems: 'center', gap: 8 }}>
+        <div style={{ position: 'relative', zIndex: 3, display: 'flex', justifyContent: 'center', alignItems: 'center', gap: 8, padding: '40px 0' }}>
           <button onPointerDown={() => dispatch({ type: 'stop' })} style={{ ...touchButtonStyle(), height: 34, padding: '0 18px' }}>STOP</button>
           <button onPointerDown={() => dispatch({ type: 'play' })} style={{ ...touchButtonStyle(transport === 'playing'), height: 34, padding: '0 18px' }}>PLAY</button>
-          <button onPointerDown={handleToggleClick} style={{ ...touchButtonStyle(clickEnabled), height: 34, padding: '0 18px' }}>CLICK</button>
         </div>
-        <MiniMap tape={tape} />
+        <MiniMap tape={tape} viewWidthSamples={viewWidthSamplesRef.current} />
         <div
           onPointerDown={handleReelDown}
           onPointerMove={handleReelMove}
@@ -174,8 +181,8 @@ export function IpadTapeTab({
           style={{ position: 'absolute', inset: '0 4% 0', touchAction: 'none', zIndex: 2 }}
         >
           {reelSector && (
-            <div style={{ position: 'absolute', inset: 0, pointerEvents: 'none', display: 'grid', placeItems: 'center' }}>
-              <div style={{ width: 'min(88%, calc(100% - 12px))', aspectRatio: '1', position: 'relative', border: '1px solid rgba(184, 197, 211, 0.7)', borderRadius: '50%' }}>
+            <div style={{ position: 'absolute', inset: 0, pointerEvents: 'none' }}>
+              <div style={{ width: 'min(70%, calc(100% - 12px))', aspectRatio: '1', position: 'absolute', left: '50%', top: '40%', transform: 'translate(-50%, -50%)', border: '1px solid rgba(184, 197, 211, 0.7)', borderRadius: '50%' }}>
                 <div style={{ position: 'absolute', width: '24%', aspectRatio: '1', left: '38%', top: '38%', border: '1px solid rgba(157, 172, 189, 0.55)', borderRadius: '50%' }} />
                 <div style={{ position: 'absolute', left: 0, right: 0, top: '50%', borderTop: '1px solid rgba(184, 197, 211, 0.7)' }} />
               </div>
@@ -192,9 +199,10 @@ export function IpadTapeTab({
       </div>
 
       <button onPointerDown={() => setShift(true)} onPointerUp={() => setShift(false)} onPointerCancel={() => setShift(false)} style={touchButtonStyle(shiftHeld)}>SHIFT</button>
-      <footer style={{ minWidth: 0, border: '1px solid #35404e', display: 'grid', gridTemplateColumns: 'auto auto 1fr', alignItems: 'center', gap: 8, padding: '0 12px' }}>
+      <footer style={{ minWidth: 0, border: '1px solid #35404e', display: 'grid', gridTemplateColumns: 'auto auto auto 1fr', alignItems: 'center', gap: 8, padding: '0 12px' }}>
         <button onPointerDown={() => dispatch({ type: 'toggleMode' })} style={{ ...touchButtonStyle(mode === 'free'), height: 38, padding: '0 16px' }}>{mode.toUpperCase()}</button>
         <button onPointerDown={() => dispatch({ type: 'toggleSnap' })} style={{ ...touchButtonStyle(snap), height: 38, padding: '0 16px' }}>SNAP</button>
+        <button onPointerDown={handleToggleClick} style={{ ...touchButtonStyle(clickEnabled), height: 38, padding: '0 16px' }}>CLICK</button>
         <div style={{ display: 'flex', justifyContent: 'center', gap: 8 }}>
           {tabs.map((tab) => <button key={tab} onPointerDown={() => setActiveTab(tab)} style={{ ...touchButtonStyle(tab === 'TAPE'), height: 38, padding: '0 15px' }}>{tab}</button>)}
         </div>

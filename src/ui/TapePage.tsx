@@ -733,6 +733,7 @@ export function TapePage() {
           snap={snap}
           clickEnabled={clickEnabled}
           canvasRef={canvasRef}
+          viewWidthSamplesRef={viewWidthSamplesRef}
           dispatch={dispatch}
           handleToggleClick={handleToggleClick}
           setActiveTab={setActiveTab}
