@@ -18,16 +18,20 @@ view tabs remain along the bottom.
 | Right edge | Undo | Undo; with Shift, Redo |
 | Top right | Loop | Toggle loop playback; with Shift, set the loop to the selected clip |
 | Bottom left or bottom right | Shift | Hold while using another control for its Shift action |
-| Bottom edge | Snap | Toggle beat Snap |
 | Bottom edge | Free / Sync | Toggle Free and Sync mode |
+| Bottom edge | Snap | Toggle beat Snap |
+| Bottom edge | Click | Toggle the metronome click |
 | Bottom | Tabs | Select TAPE, MIXER, PROJ, COM, or TEST |
 
 The left and right bottom-corner Shift controls are interchangeable. Hold
 either one while touching another control; release it to return to that
 control's normal action.
 
-Play, Pause, Stop, and Click controls remain between the main tape and minimap
-views, as on the existing Tape screen.
+Stop and Play are centred between the main tape and minimap views. Click sits
+on the bottom edge immediately after Snap.
+
+The minimap displays the entire tape and a white outline for the portion shown
+in the main tape view.
 
 ## Circular Swipe Control
 
@@ -40,12 +44,13 @@ circle in either direction. The sector selected at touch-down remains active
 for the entire swipe, even when the finger crosses a sector divider.
 
 The visual marks the fixed swipe coordinate system with two faint concentric
-circles and a horizontal sector divider. The inner circle is a centre dead
-zone; the region beyond the outer circle is an outer dead zone. Only the ring
-between them responds to reel motion. A swipe can enter either dead zone and
-return to the live ring without ending; angular motion continues from its last
-live position. The circles and divider remain fixed while the finger moves and
-do not mark the current touch position.
+circles and a horizontal sector divider. Its centre is positioned above the
+middle of the control area, roughly aligned with the minimap. The inner circle
+is a centre dead zone; the region beyond the outer circle is an outer dead
+zone. Only the ring between them responds to reel motion. A swipe can enter
+either dead zone and return to the live ring without ending; angular motion
+continues from its last live position. The circles and divider remain fixed
+while the finger moves and do not mark the current touch position.
 
 | Sector | Normal action | Hold Shift |
 | --- | --- | --- |
