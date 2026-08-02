@@ -112,9 +112,9 @@ export function ComTab({
           <input
             type="number"
             max={500}
-            step={0.1}
-            value={midiLatencyMs.toFixed(1)}
-            onChange={(e) => setMidiLatencyMs(Number(e.target.value))}
+            step={1}
+            value={Math.round(midiLatencyMs)}
+            onChange={(e) => setMidiLatencyMs(Math.round(Number(e.target.value)))}
             style={{ width: 72, padding: '2px 6px', background: '#27272a', border: '1px solid #3f3f46', color: '#e4e4e7', borderRadius: 4, fontSize: 13 }}
           />
           <span style={{ color: '#52525b' }}>ms — MIDI device to tape playback alignment</span>

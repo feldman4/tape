@@ -71,11 +71,11 @@ export function TestTab({
           id="midi-lat"
           type="number"
           max={50}
-          step={0.5}
-          value={midiLatencyMs}
+          step={1}
+          value={Math.round(midiLatencyMs)}
           onChange={(e) => {
             const v = parseFloat(e.target.value);
-            if (!isNaN(v)) setMidiLatencyMs(v);
+            if (!isNaN(v)) setMidiLatencyMs(Math.round(v));
           }}
           style={{ width: 64, background: '#27272a', color: '#e4e4e7', border: '1px solid #3f3f46', borderRadius: 4, padding: '2px 6px' }}
         />
