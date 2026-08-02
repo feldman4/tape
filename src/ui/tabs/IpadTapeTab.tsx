@@ -145,7 +145,7 @@ export function IpadTapeTab({
   }
 
   return (
-    <div style={{ background: '#000000', color: '#e8edf4', height: '100dvh', minHeight: 540, boxSizing: 'border-box', display: 'grid', gridTemplateColumns: 'minmax(104px, 14vw) minmax(0, 1fr) minmax(104px, 14vw)', gridTemplateRows: '82px minmax(0, 1fr) 74px', gap: 8, fontFamily: 'sans-serif', overscrollBehavior: 'none' }}>
+    <div style={{ background: '#000000', color: '#e8edf4', height: '100dvh', minHeight: 540, boxSizing: 'border-box', display: 'grid', gridTemplateColumns: 'minmax(104px, 14vw) minmax(0, 1fr) minmax(104px, 14vw)', gridTemplateRows: '82px minmax(0, 1fr) 74px', gap: 8, fontFamily: 'sans-serif', touchAction: 'none', overscrollBehavior: 'none' }}>
       <button onPointerDown={() => dispatch({ type: 'record' })} style={touchButtonStyle(transport === 'recording' || transport === 'armed')}>REC</button>
       <div />
       <button onPointerDown={() => dispatchShiftAction({ type: 'toggleLoop' }, { type: 'loopFromClip' })} style={touchButtonStyle(tape.loopEnabled)}>LOOP</button>
