@@ -1,6 +1,6 @@
 // TapePage — four-lane tape recorder with tabbed UI.
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { AudioEngine } from '../audio/audioEngine';
+import { AudioEngine, type InputDiagnostics } from '../audio/audioEngine';
 import { AudioPool } from '../audio/audioPool';
 import { detectOnset } from '../audio/onsetDetect';
 import { SyncEngine, type SyncEvent } from '../sync/syncEngine';
@@ -44,6 +44,11 @@ function clipAtPlayhead(clips: Clip[], playhead: number): string | null {
 const DEFAULT_INPUT_LATENCY_MS = 23;
 const DEFAULT_OUTPUT_LATENCY_MS = 65;
 const DEFAULT_MIDI_LATENCY_MS = 0;
+
+function formatInputDiagnostics(diagnostics: InputDiagnostics | null): string {
+  if (!diagnostics) return 'audio input: no active track';
+  return `audio input active: label=${JSON.stringify(diagnostics.label)} device=${diagnostics.deviceId ?? '-'} group=${diagnostics.groupId ?? '-'} rate=${diagnostics.sampleRate ?? '-'}Hz channels=${diagnostics.channelCount ?? '-'} muted=${diagnostics.muted} state=${diagnostics.readyState}`;
+}
 
 export function TapePage() {
   // ---------------------------------------------------------------------------
@@ -242,14 +247,18 @@ export function TapePage() {
       engineRef.current = engine;
       engine.setRecordingGain(tapeRef.current.recordingGain);
       poolDisplayRef.current = poolRef.current;
+      addLogFnRef.current(formatInputDiagnostics(engine.inputDiagnostics));
 
       const devices = await engine.listInputDevices();
       setAudioDevices(devices);
+      addLogFnRef.current(`audio inputs: ${devices.map((device) => `${JSON.stringify(device.label)} id=${device.deviceId} group=${device.groupId}`).join(' | ') || 'none'}`);
       const defaultDevice = preferOpZ(devices, (d) => d.label);
       if (defaultDevice && defaultDevice.deviceId !== engine.inputDeviceId) {
+        addLogFnRef.current(`audio input request: device=${defaultDevice.deviceId} label=${JSON.stringify(defaultDevice.label)}`);
         await engine.setInputDevice(defaultDevice.deviceId);
+        addLogFnRef.current(formatInputDiagnostics(engine.inputDiagnostics));
       }
-      setSelectedAudioDeviceId(defaultDevice?.deviceId ?? engine.inputDeviceId ?? null);
+      setSelectedAudioDeviceId(engine.inputDeviceId);
 
       const outputDevices = platformCapabilities.audioOutputSelection
         ? await engine.listOutputDevices()
@@ -481,9 +490,14 @@ export function TapePage() {
   // Device change handlers
   // ---------------------------------------------------------------------------
   const handleAudioDeviceChange = useCallback(async (deviceId: string) => {
-    await engineRef.current?.setInputDevice(deviceId);
-    setSelectedAudioDeviceId(deviceId);
-  }, []);
+    const engine = engineRef.current;
+    if (!engine) return;
+    const device = audioDevices.find((item) => item.deviceId === deviceId);
+    addLogFnRef.current(`audio input request: device=${deviceId} label=${JSON.stringify(device?.label ?? '')}`);
+    await engine.setInputDevice(deviceId);
+    setSelectedAudioDeviceId(engine.inputDeviceId);
+    addLogFnRef.current(formatInputDiagnostics(engine.inputDiagnostics));
+  }, [addLogFnRef, audioDevices]);
 
   const handleAudioOutputChange = useCallback(async (sinkId: string) => {
     await engineRef.current?.setOutputDevice(sinkId);

@@ -39,6 +39,16 @@ export interface LoopOptions {
   loopEnabled: boolean;
 }
 
+export interface InputDiagnostics {
+  label: string;
+  deviceId: string | null;
+  groupId: string | null;
+  sampleRate: number | null;
+  channelCount: number | null;
+  muted: boolean;
+  readyState: MediaStreamTrackState;
+}
+
 export class AudioEngine {
   private ctx: AudioContext | null = null;
   private node: AudioWorkletNode | null = null;
@@ -61,6 +71,21 @@ export class AudioEngine {
 
   get inputDeviceId(): string | null {
     return this.currentDeviceId;
+  }
+
+  get inputDiagnostics(): InputDiagnostics | null {
+    const track = this.stream?.getAudioTracks()[0];
+    if (!track) return null;
+    const settings = track.getSettings();
+    return {
+      label: track.label,
+      deviceId: settings.deviceId ?? null,
+      groupId: settings.groupId ?? null,
+      sampleRate: settings.sampleRate ?? null,
+      channelCount: settings.channelCount ?? null,
+      muted: track.muted,
+      readyState: track.readyState,
+    };
   }
 
   get outputDeviceId(): string {
@@ -115,10 +140,13 @@ export class AudioEngine {
   /** Switches the live input device without tearing down the AudioContext/worklet. */
   async setInputDevice(deviceId: string): Promise<void> {
     if (!this.ctx || !this.node) throw new Error('AudioEngine not initialized: call init() first');
-    const newStream = await this.acquireStream(deviceId);
 
     this.source?.disconnect();
     for (const track of this.stream?.getTracks() ?? []) track.stop();
+    this.source = null;
+    this.stream = null;
+
+    const newStream = await this.acquireStream(deviceId);
 
     this.stream = newStream;
     this.source = this.ctx.createMediaStreamSource(this.stream);
