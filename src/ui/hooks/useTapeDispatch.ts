@@ -40,7 +40,7 @@ interface DispatchDeps {
 export function useTapeDispatch(refs: TapeEngineRefs, deps: DispatchDeps) {
   const {
     engineRef, syncEngineRef, poolRef, poolDisplayRef,
-    tapeRef, transportRef, modeRef, snapRef, outputLatencyMsRef, midiLatencyMsRef, ctrlModeRef,
+    tapeRef, transportRef, modeRef, snapRef, outputLatencyMsRef, midiLatencyMsRef, calibratedInputLatencyMsRef, ctrlModeRef,
     tapeStartForRecordingRef, recordStartWallTimeRef,
     loopRotateTimeoutRef, loopRotatingRef, armedRef, ignoreNextMidiStartRef,
     cancelCountInRef, addLogFnRef, selectedClipIdRef, viewWidthSamplesRef,
@@ -169,7 +169,10 @@ export function useTapeDispatch(refs: TapeEngineRefs, deps: DispatchDeps) {
       const tape = tapeRef.current;
       const loopLen = tape.loopOut - tape.loopIn;
       const midiLatencySamples = Math.round(midiLatencyMsRef.current * sr / 1000);
-      const adjTapeStart = Math.max(0, tapeStart - midiLatencySamples);
+      const inputLatencySamples = Math.round(calibratedInputLatencyMsRef.current * sr / 1000);
+      // MIDI Start reaches the app after the device began, while captured audio
+      // represents input that arrived before the recording callback ran.
+      const adjTapeStart = Math.max(0, tapeStart + midiLatencySamples - inputLatencySamples);
       
       if (tape.loopEnabled && loopLen > 0) {
         // Calculate where the recording actually ended
@@ -179,16 +182,16 @@ export function useTapeDispatch(refs: TapeEngineRefs, deps: DispatchDeps) {
         // Use finalizeFreeRecording instead to preserve audio beyond the recording end.
         if (recordingEndSamples < tape.loopOut) {
           newClip = finalizeFreeRecording(poolRef.current, recording.samples, adjTapeStart, existingClips);
-          addLogFnRef.current(`✓ Take (sync+loop-early-stop): ${(recording.samples.length / sr).toFixed(3)}s (stopped at ${(recordingEndSamples / sr).toFixed(3)}s, before loop end ${(tape.loopOut / sr).toFixed(3)}s)`);
+          addLogFnRef.current(`✓ Take (sync+loop-early-stop): ${(recording.samples.length / sr).toFixed(3)}s  midi=${midiLatencyMsRef.current.toFixed(1)}ms input=${calibratedInputLatencyMsRef.current.toFixed(1)}ms`);
         } else {
           newClip = finalizeLoopRecording(poolRef.current, recording.samples, adjTapeStart, tape.loopIn, tape.loopOut);
           const passes = (recording.samples.length - Math.max(0, tape.loopIn - adjTapeStart)) / loopLen;
-          addLogFnRef.current(`✓ Take (sync+loop): ${(recording.samples.length / sr).toFixed(3)}s raw, ${passes.toFixed(2)}x passes`);
+          addLogFnRef.current(`✓ Take (sync+loop): ${(recording.samples.length / sr).toFixed(3)}s raw, ${passes.toFixed(2)}x passes  midi=${midiLatencyMsRef.current.toFixed(1)}ms input=${calibratedInputLatencyMsRef.current.toFixed(1)}ms`);
         }
         setLastClipBeats(null);
       } else {
         newClip = finalizeFreeRecording(poolRef.current, recording.samples, adjTapeStart, existingClips);
-        addLogFnRef.current(`✓ Take (sync): ${(recording.samples.length / sr).toFixed(3)}s  midi-latency-adj=${midiLatencyMsRef.current.toFixed(1)}ms`);
+        addLogFnRef.current(`✓ Take (sync): ${(recording.samples.length / sr).toFixed(3)}s  midi=${midiLatencyMsRef.current.toFixed(1)}ms input=${calibratedInputLatencyMsRef.current.toFixed(1)}ms`);
         setLastClipBeats(null);
       }
     }

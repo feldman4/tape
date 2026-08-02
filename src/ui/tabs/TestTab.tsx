@@ -23,9 +23,9 @@ interface TestTabProps {
   handleSendTestNote: () => void;
   handleSendMidiStart: () => void;
   handleSendMidiStop: () => void;
-  handleMidiStartToNoteTest: () => void;
-  midiStartToNoteOffset: { offsetMs: number } | { error: string } | null;
-  testingMidiStartToNote: boolean;
+  handleMidiLatencyTest: () => void;
+  midiLatencyMeasurement: { roundTripMs: number; latencyMs: number } | { error: string } | null;
+  testingMidiLatency: boolean;
   midiLatencyMs: number;
   setMidiLatencyMs: (ms: number) => void;
   // Input latency calibration
@@ -43,8 +43,8 @@ export function TestTab({
   latency, noteLatency,
   viewWidthSamplesRef, activityLogRef, forceLogUpdate,
   handleLatencyTest, handleOpZLatencyTest,
-  handleSendTestNote, handleSendMidiStart, handleSendMidiStop, handleMidiStartToNoteTest,
-  midiStartToNoteOffset, testingMidiStartToNote,
+  handleSendTestNote, handleSendMidiStart, handleSendMidiStop, handleMidiLatencyTest,
+  midiLatencyMeasurement, testingMidiLatency,
   midiLatencyMs, setMidiLatencyMs,
   inputLatencyMs, inputLatCal, calibratingInputLat, onCalibrateInputLat,
   outputLatencyMs, setOutputLatencyMs,
@@ -61,8 +61,8 @@ export function TestTab({
         <button style={btnStyle} onClick={handleSendTestNote} disabled={!selectedMidiOutputId}>Send Test Note</button>
         <button style={btnStyle} onClick={handleSendMidiStart} disabled={!selectedMidiOutputId}>Send MIDI Start</button>
         <button style={btnStyle} onClick={handleSendMidiStop} disabled={!selectedMidiOutputId}>Send MIDI Stop</button>
-        <button style={btnStyle} onClick={handleMidiStartToNoteTest} disabled={testingMidiStartToNote || !selectedMidiOutputId}>
-          {testingMidiStartToNote ? 'Waiting for MIDI...' : 'Test MIDI Start→Note'}
+        <button style={btnStyle} onClick={handleMidiLatencyTest} disabled={testingMidiLatency || !selectedMidiOutputId}>
+          {testingMidiLatency ? 'Measuring MIDI latency...' : 'Measure MIDI Latency'}
         </button>
       </div>
       <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 12, fontSize: 13 }}>
@@ -143,7 +143,7 @@ export function TestTab({
           <span style={{ fontSize: 12, color: '#71717a' }}>used to start playback early so audio reaches ears on the beat</span>
         </div>
       </div>
-      {(latency || noteLatency || midiStartToNoteOffset) && (
+      {(latency || noteLatency || midiLatencyMeasurement) && (
         <div style={{ fontSize: 13, marginBottom: 8 }}>
           {latency && (
             <div>
@@ -154,11 +154,11 @@ export function TestTab({
           {noteLatency && (
             <div>OP-Z note→sound: {noteLatency.latencyMs !== null ? `${noteLatency.latencyMs.toFixed(1)} ms` : 'not detected'}</div>
           )}
-          {midiStartToNoteOffset && 'error' in midiStartToNoteOffset && (
-            <div style={{ color: '#f87171' }}>MIDI Start→Note: ⚠ {midiStartToNoteOffset.error}</div>
+          {midiLatencyMeasurement && 'error' in midiLatencyMeasurement && (
+            <div style={{ color: '#f87171' }}>MIDI latency: ⚠ {midiLatencyMeasurement.error}</div>
           )}
-          {midiStartToNoteOffset && !('error' in midiStartToNoteOffset) && (
-            <div style={{ color: '#e4e4e7' }}>MIDI Start→Note: <b>{midiStartToNoteOffset.offsetMs.toFixed(1)} ms</b> offset</div>
+          {midiLatencyMeasurement && !('error' in midiLatencyMeasurement) && (
+            <div style={{ color: '#e4e4e7' }}>MIDI round trip: <b>{midiLatencyMeasurement.roundTripMs.toFixed(1)} ms</b>; applied one-way latency: <b>{midiLatencyMeasurement.latencyMs} ms</b></div>
           )}
         </div>
       )}

@@ -98,8 +98,8 @@ export function TapePage() {
   const [sessionName, setSessionName] = useState('');
   const [sessionStatus, setSessionStatus] = useState('');
 
-  const [midiStartToNoteOffset] = useState<{ offsetMs: number } | { error: string } | null>(null);
-  const [testingMidiStartToNote] = useState(false);
+  const [midiLatencyMeasurement, setMidiLatencyMeasurement] = useState<{ roundTripMs: number; latencyMs: number } | { error: string } | null>(null);
+  const [testingMidiLatency, setTestingMidiLatency] = useState(false);
 
   const [outputLatencyMs, setOutputLatencyMs] = useState(DEFAULT_OUTPUT_LATENCY_MS);
   const outputLatencyMsRef = useRef(DEFAULT_OUTPUT_LATENCY_MS);
@@ -508,9 +508,37 @@ export function TapePage() {
   // ---------------------------------------------------------------------------
   // Test handlers
   // ---------------------------------------------------------------------------
-  // MIDI Start→Note test (placeholder)
-  const handleMidiStartToNoteTest = useCallback(() => {
-    // Placeholder: MIDI Start→Note test handler
+  const handleMidiLatencyTest = useCallback(() => {
+    const sync = syncEngineRef.current;
+    if (!sync) return;
+
+    setTestingMidiLatency(true);
+    setMidiLatencyMeasurement(null);
+
+    const startTime = performance.now();
+    let unsubscribe: (() => void) | null = null;
+    const complete = (result: { roundTripMs: number; latencyMs: number } | { error: string }) => {
+      clearTimeout(timeoutId);
+      unsubscribe?.();
+      setMidiLatencyMeasurement(result);
+      setTestingMidiLatency(false);
+    };
+    const timeoutId = setTimeout(() => {
+      complete({ error: 'No MIDI Start echo within 500 ms' });
+    }, 500);
+
+    unsubscribe = sync.on((event: SyncEvent) => {
+      if (event.type !== 'start') return;
+      const roundTripMs = performance.now() - startTime;
+      const latencyMs = Math.round(roundTripMs / 2);
+      sync.midiLatencyMs = latencyMs;
+      setMidiLatencyMs(latencyMs);
+      complete({ roundTripMs, latencyMs });
+    });
+
+    if (!sync.sendStart()) {
+      complete({ error: 'No MIDI output selected' });
+    }
   }, []);
 
   const handleCalibrateInputLatency = useCallback(() => {
@@ -814,9 +842,9 @@ export function TapePage() {
           handleSendTestNote={() => {}}
           handleSendMidiStart={() => {}}
           handleSendMidiStop={() => {}}
-          handleMidiStartToNoteTest={handleMidiStartToNoteTest}
-          midiStartToNoteOffset={midiStartToNoteOffset}
-          testingMidiStartToNote={testingMidiStartToNote}
+          handleMidiLatencyTest={handleMidiLatencyTest}
+          midiLatencyMeasurement={midiLatencyMeasurement}
+          testingMidiLatency={testingMidiLatency}
           midiLatencyMs={midiLatencyMs}
           setMidiLatencyMs={(ms) => {
             setMidiLatencyMs(ms);
