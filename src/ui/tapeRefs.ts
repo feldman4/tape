@@ -45,6 +45,7 @@ export interface TapeEngineRefs {
   modeRef:                  MutableRefObject<Mode>;
   snapRef:                  MutableRefObject<boolean>;
   outputLatencyMsRef:            MutableRefObject<number>;
+  midiLatencyMsRef:              MutableRefObject<number>;
   /** Calibrated audio input latency in ms.  Updated by the metronome calibration test.
    *  Defaults to AudioContext.inputLatency on init; used for sync-recording placement. */
   calibratedInputLatencyMsRef:   MutableRefObject<number>;

@@ -40,7 +40,7 @@ interface DispatchDeps {
 export function useTapeDispatch(refs: TapeEngineRefs, deps: DispatchDeps) {
   const {
     engineRef, syncEngineRef, poolRef, poolDisplayRef,
-    tapeRef, transportRef, modeRef, snapRef, outputLatencyMsRef, ctrlModeRef,
+    tapeRef, transportRef, modeRef, snapRef, outputLatencyMsRef, midiLatencyMsRef, ctrlModeRef,
     tapeStartForRecordingRef, recordStartWallTimeRef,
     loopRotateTimeoutRef, loopRotatingRef, armedRef, ignoreNextMidiStartRef,
     cancelCountInRef, addLogFnRef, selectedClipIdRef, viewWidthSamplesRef,
@@ -168,9 +168,8 @@ export function useTapeDispatch(refs: TapeEngineRefs, deps: DispatchDeps) {
     } else {
       const tape = tapeRef.current;
       const loopLen = tape.loopOut - tape.loopIn;
-      // In sync mode, tapeStart is set to the snapped beat position when MIDI Start arrived.
-      // Use this directly — MIDI Start timing is reliable, so we place audio at the beat with no latency adjustment.
-      const adjTapeStart = Math.max(0, tapeStart);
+      const midiLatencySamples = Math.round(midiLatencyMsRef.current * sr / 1000);
+      const adjTapeStart = Math.max(0, tapeStart - midiLatencySamples);
       
       if (tape.loopEnabled && loopLen > 0) {
         // Calculate where the recording actually ended
@@ -189,7 +188,7 @@ export function useTapeDispatch(refs: TapeEngineRefs, deps: DispatchDeps) {
         setLastClipBeats(null);
       } else {
         newClip = finalizeFreeRecording(poolRef.current, recording.samples, adjTapeStart, existingClips);
-        addLogFnRef.current(`✓ Take (sync): ${(recording.samples.length / sr).toFixed(3)}s`);
+        addLogFnRef.current(`✓ Take (sync): ${(recording.samples.length / sr).toFixed(3)}s  midi-latency-adj=${midiLatencyMsRef.current.toFixed(1)}ms`);
         setLastClipBeats(null);
       }
     }

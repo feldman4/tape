@@ -160,7 +160,7 @@ export function TapePage() {
   const refs: TapeEngineRefs = {
     engineRef, syncEngineRef, ctrlModeRef, ctrlModeHandlerRef,
     poolRef, poolDisplayRef, tapeRef, transportRef, modeRef, snapRef,
-    outputLatencyMsRef, calibratedInputLatencyMsRef,
+    outputLatencyMsRef, midiLatencyMsRef, calibratedInputLatencyMsRef,
     tapeStartForRecordingRef, recordStartWallTimeRef, midiStartContextTimeRef,
     loopRotateTimeoutRef, loopRotatingRef, armedRef, ignoreNextMidiStartRef, clocksSinceStartRef,
     cancelCountInRef, addLogFnRef, viewWidthSamplesRef, selectedClipIdRef,
