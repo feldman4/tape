@@ -80,6 +80,7 @@ export function finalizeLoopRecording(
   loopIn: number,
   loopOut: number,
   existingClips?: Clip[],
+  rotateSamples = 0,
 ): Clip {
   const loopLen = loopOut - loopIn;
   const tapeStart = Math.min(recordStart, loopIn);
@@ -98,6 +99,17 @@ export function finalizeLoopRecording(
   // Overdub: mix in whatever was already on the tape at this region.
   if (existingClips && existingClips.length > 0) {
     mixExistingAudio(result, tapeStart, existingClips, pool);
+  }
+
+  if (rotateSamples !== 0 && result.length > 0) {
+    const shift = ((rotateSamples % result.length) + result.length) % result.length;
+    if (shift !== 0) {
+      const rotated = new Float32Array(result.length);
+      rotated.set(result.subarray(0, result.length - shift), shift);
+      rotated.set(result.subarray(result.length - shift), 0);
+      const audioBufferId = pool.add(rotated);
+      return makeClip(nextId(), audioBufferId, tapeStart, 0, clipLen);
+    }
   }
 
   const audioBufferId = pool.add(result);

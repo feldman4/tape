@@ -170,9 +170,10 @@ export function useTapeDispatch(refs: TapeEngineRefs, deps: DispatchDeps) {
       const loopLen = tape.loopOut - tape.loopIn;
       const midiLatencySamples = Math.round(midiLatencyMsRef.current * sr / 1000);
       const inputLatencySamples = Math.round(calibratedInputLatencyMsRef.current * sr / 1000);
+      const latencyOffsetSamples = midiLatencySamples - inputLatencySamples;
       // MIDI Start reaches the app after the device began, while captured audio
       // represents input that arrived before the recording callback ran.
-      const adjTapeStart = Math.max(0, tapeStart + midiLatencySamples - inputLatencySamples);
+      const adjTapeStart = Math.max(0, tapeStart + latencyOffsetSamples);
       
       if (tape.loopEnabled && loopLen > 0) {
         // Calculate where the recording actually ended
@@ -184,9 +185,10 @@ export function useTapeDispatch(refs: TapeEngineRefs, deps: DispatchDeps) {
           newClip = finalizeFreeRecording(poolRef.current, recording.samples, adjTapeStart, existingClips);
           addLogFnRef.current(`✓ Take (sync+loop-early-stop): ${(recording.samples.length / sr).toFixed(3)}s  midi=${midiLatencyMsRef.current.toFixed(1)}ms input=${calibratedInputLatencyMsRef.current.toFixed(1)}ms`);
         } else {
-          newClip = finalizeLoopRecording(poolRef.current, recording.samples, adjTapeStart, tape.loopIn, tape.loopOut);
-          const passes = (recording.samples.length - Math.max(0, tape.loopIn - adjTapeStart)) / loopLen;
-          addLogFnRef.current(`✓ Take (sync+loop): ${(recording.samples.length / sr).toFixed(3)}s raw, ${passes.toFixed(2)}x passes  midi=${midiLatencyMsRef.current.toFixed(1)}ms input=${calibratedInputLatencyMsRef.current.toFixed(1)}ms`);
+          const rotationSamples = tapeStart - tape.loopIn + latencyOffsetSamples;
+          newClip = finalizeLoopRecording(poolRef.current, recording.samples, tape.loopIn, tape.loopIn, tape.loopOut, undefined, rotationSamples);
+          const passes = recording.samples.length / loopLen;
+          addLogFnRef.current(`✓ Take (sync+loop): ${(recording.samples.length / sr).toFixed(3)}s raw, ${passes.toFixed(2)}x passes  rotated=${(rotationSamples / sr * 1000).toFixed(1)}ms midi=${midiLatencyMsRef.current.toFixed(1)}ms input=${calibratedInputLatencyMsRef.current.toFixed(1)}ms`);
         }
         setLastClipBeats(null);
       } else {
