@@ -64,7 +64,7 @@ function MiniMap({ tape }: { tape: Tape }) {
     context.stroke();
   }, [tape]);
 
-  return <canvas ref={canvasRef} width={1200} height={100} style={{ width: '100%', height: '100%', display: 'block' }} />;
+  return <canvas ref={canvasRef} width={1200} height={100} style={{ width: '100%', height: 'auto', aspectRatio: '12 / 1', display: 'block' }} />;
 }
 
 function normalizeAngle(delta: number): number {
@@ -158,8 +158,8 @@ export function IpadTapeTab({
         ))}
       </div>
 
-      <div style={{ position: 'relative', minHeight: 0, display: 'grid', gridTemplateRows: '134px 42px 46px', gap: 8 }}>
-        <canvas ref={canvasRef} width={1240} height={268} style={{ width: '100%', height: '100%', display: 'block', background: '#000000' }} />
+      <div style={{ position: 'relative', minHeight: 0, display: 'grid', gridTemplateRows: 'auto 42px auto', alignContent: 'start', gap: 8 }}>
+        <canvas ref={canvasRef} width={1240} height={268} style={{ width: '100%', height: 'auto', aspectRatio: '620 / 134', display: 'block', background: '#000000' }} />
         <div style={{ position: 'relative', zIndex: 3, display: 'flex', alignItems: 'center', gap: 8 }}>
           <button onPointerDown={() => dispatch({ type: 'stop' })} style={{ ...touchButtonStyle(), height: 34, padding: '0 18px' }}>STOP</button>
           <button onPointerDown={() => dispatch({ type: 'play' })} style={{ ...touchButtonStyle(transport === 'playing'), height: 34, padding: '0 18px' }}>PLAY</button>
