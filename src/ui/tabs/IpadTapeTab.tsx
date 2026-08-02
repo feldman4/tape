@@ -137,7 +137,7 @@ export function IpadTapeTab({
 
   const touchButtonStyle = (active = false): React.CSSProperties => ({
     appearance: 'none', border: '1px solid #35404e', borderRadius: 0, background: active ? '#293d88' : '#000000',
-    color: '#e8edf4', fontSize: 16, fontWeight: 700, letterSpacing: 0, touchAction: 'none', minWidth: 0,
+    color: '#e8edf4', fontSize: 16, fontWeight: 700, letterSpacing: 0, touchAction: 'none', userSelect: 'none', WebkitUserSelect: 'none', minWidth: 0,
   });
 
   if (!ready) {
@@ -145,7 +145,7 @@ export function IpadTapeTab({
   }
 
   return (
-    <div style={{ background: '#000000', color: '#e8edf4', height: '100dvh', minHeight: 540, padding: 12, boxSizing: 'border-box', display: 'grid', gridTemplateColumns: 'minmax(104px, 14vw) minmax(0, 1fr) minmax(104px, 14vw)', gridTemplateRows: '82px minmax(0, 1fr) 74px', gap: 8, fontFamily: 'sans-serif', overscrollBehavior: 'none' }}>
+    <div style={{ background: '#000000', color: '#e8edf4', height: '100dvh', minHeight: 540, boxSizing: 'border-box', display: 'grid', gridTemplateColumns: 'minmax(104px, 14vw) minmax(0, 1fr) minmax(104px, 14vw)', gridTemplateRows: '82px minmax(0, 1fr) 74px', gap: 8, fontFamily: 'sans-serif', overscrollBehavior: 'none' }}>
       <button onPointerDown={() => dispatch({ type: 'record' })} style={touchButtonStyle(transport === 'recording' || transport === 'armed')}>REC</button>
       <div />
       <button onPointerDown={() => dispatchShiftAction({ type: 'toggleLoop' }, { type: 'loopFromClip' })} style={touchButtonStyle(tape.loopEnabled)}>LOOP</button>
@@ -158,7 +158,7 @@ export function IpadTapeTab({
         ))}
       </div>
 
-      <div style={{ position: 'relative', minHeight: 0, display: 'grid', gridTemplateRows: 'minmax(0, 1fr) 42px 92px', gap: 8 }}>
+      <div style={{ position: 'relative', minHeight: 0, display: 'grid', gridTemplateRows: '134px 42px 46px', gap: 8 }}>
         <canvas ref={canvasRef} width={1240} height={268} style={{ width: '100%', height: '100%', display: 'block', background: '#000000' }} />
         <div style={{ position: 'relative', zIndex: 3, display: 'flex', alignItems: 'center', gap: 8 }}>
           <button onPointerDown={() => dispatch({ type: 'stop' })} style={{ ...touchButtonStyle(), height: 34, padding: '0 18px' }}>STOP</button>
