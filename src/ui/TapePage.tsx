@@ -18,8 +18,10 @@ import { useTapeDispatch } from './hooks/useTapeDispatch';
 import { detectPlatformCapabilities } from './platformCapabilities';
 import { useTimelineRender } from './hooks/useTimelineRender';
 import { useTapeInput } from './hooks/useTapeInput';
+import { useIpadLayout } from './hooks/useIpadLayout';
 import { ComTab } from './tabs/ComTab';
 import { TapeTab } from './tabs/TapeTab';
+import { IpadTapeTab } from './tabs/IpadTapeTab';
 import { MixerTab } from './tabs/MixerTab';
 import { ProjTab } from './tabs/ProjTab';
 import { TestTab } from './tabs/TestTab';
@@ -145,6 +147,7 @@ export function TapePage() {
   const lastMidiStartTimeRef = useRef(0);
   const lastScheduledBeatRef = useRef(-1);
   const platformCapabilities = useRef(detectPlatformCapabilities()).current;
+  const isIpadLayout = useIpadLayout();
 
   // ---------------------------------------------------------------------------
   // Activity log
@@ -600,7 +603,7 @@ export function TapePage() {
     unsubscribed = sync.on(handleSyncEvent);
   }, []);
   useTapeInput({
-    active: activeTab === 'TAPE', dispatch, modeRef, ctrlModeHandlerRef, setClickEnabled,
+    active: activeTab === 'TAPE' && !isIpadLayout, dispatch, modeRef, ctrlModeHandlerRef, setClickEnabled,
   });
 
   // ---------------------------------------------------------------------------
@@ -689,7 +692,7 @@ export function TapePage() {
   selectedClipIdRef.current = selectedClipId;
 
   return (
-    <div style={{ fontFamily: 'sans-serif', color: '#e4e4e7', background: '#000000', minHeight: '100vh', padding: '24px 24px 80px 24px', display: 'block' }}>
+    <div style={{ fontFamily: 'sans-serif', color: '#e4e4e7', background: '#000000', minHeight: '100vh', padding: isIpadLayout && activeTab === 'TAPE' ? 0 : '24px 24px 80px 24px', display: 'block' }}>
 
       {error && <span style={{ color: '#f87171', fontSize: 13 }}>Error: {error}</span>}
 
@@ -720,7 +723,23 @@ export function TapePage() {
         />
       )}
 
-      {activeTab === 'TAPE' && (
+      {activeTab === 'TAPE' && isIpadLayout && (
+        <IpadTapeTab
+          ready={ready}
+          handleInit={() => void handleInit()}
+          tape={tape}
+          transport={transport}
+          mode={mode}
+          snap={snap}
+          clickEnabled={clickEnabled}
+          canvasRef={canvasRef}
+          dispatch={dispatch}
+          handleToggleClick={handleToggleClick}
+          setActiveTab={setActiveTab}
+        />
+      )}
+
+      {activeTab === 'TAPE' && !isIpadLayout && (
         <TapeTab
           ready={ready}
           handleInit={() => void handleInit()}
@@ -812,7 +831,7 @@ export function TapePage() {
       )}
       </div>
 
-      <div style={{ position: 'fixed', bottom: 0, left: 0, right: 0, display: 'flex', gap: 2, justifyContent: 'center', padding: '8px 24px', background: '#000000', borderTop: '1px solid #27272a' }}>
+      {!(isIpadLayout && activeTab === 'TAPE') && <div style={{ position: 'fixed', bottom: 0, left: 0, right: 0, display: 'flex', gap: 2, justifyContent: 'center', padding: '8px 24px', background: '#000000', borderTop: '1px solid #27272a' }}>
         {(['TAPE', 'MIXER', 'PROJ', 'COM', 'TEST'] as const).map((tab) => (
           <button key={tab} onClick={() => setActiveTab(tab)} style={{
             ...btnStyle,
@@ -821,7 +840,7 @@ export function TapePage() {
             fontWeight: activeTab === tab ? 600 : 400,
           }}>{tab}</button>
         ))}
-      </div>
+      </div>}
 
     </div>
   );

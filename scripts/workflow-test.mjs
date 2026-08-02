@@ -144,6 +144,11 @@ function assertApprox(actual, expected, tol, label) {
       tapeStart: c.tapeStart,
       duration: c.duration,
     })).sort((a, b) => a.tapeStart - b.tapeStart);
+    const loopBefore = {
+      loopIn: state.tape.loopIn,
+      loopOut: state.tape.loopOut,
+      loopEnabled: state.tape.loopEnabled,
+    };
 
     // -------------------------------------------------------------------------
     // Step 5: Page reload + re-init
@@ -202,7 +207,9 @@ function assertApprox(actual, expected, tol, label) {
     // Step 7: Verify loop state round-trips
     // -------------------------------------------------------------------------
     console.log('\n7. Verify loop state persists through save/load…');
-    assert(state.tape.loopEnabled === false, 'Loop off after load (was off before save)');
+    assertEq(state.tape.loopEnabled, loopBefore.loopEnabled, 'Loop enabled state matches saved session');
+    assertEq(state.tape.loopIn, loopBefore.loopIn, 'Loop in point matches saved session');
+    assertEq(state.tape.loopOut, loopBefore.loopOut, 'Loop out point matches saved session');
 
   } catch (err) {
     console.error('\nTest runner error:', err.message);
