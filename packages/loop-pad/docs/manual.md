@@ -34,7 +34,7 @@ The **First Sample Note** begins one contiguous range of 16 notes. For example, 
 | Sample loaded, stopped | Any | Start playback from the beginning | Do nothing |
 | Sample loaded, playing | Any | Restart playback from the beginning | Stop playback |
 
-Recording begins and ends immediately. A slot records the selected audio input. Triggering other slots does not stop recording or playback. Stopping the sequencer stops all playback immediately. Reset occurs whether the sequencer is running or stopped.
+Recording begins immediately. After Note Off, recording continues for the configurable recording-tail period (300 ms by default). Playback includes that tail with a decay over the same period. A slot records the selected audio input. Triggering other slots does not stop recording or playback. Stopping the sequencer stops all playback immediately.
 
 ## Deleting a sample
 
@@ -43,7 +43,9 @@ There is one global **Delete Note**.
 1. Trigger a slot's sample note.
 2. Trigger the Delete Note within 500 ms.
 
-That slot is cleared. The two notes may arrive in either order, provided they are no more than 500 ms apart. Deleting a recording cancels it; deleting a playing sample stops it. A delete note outside the 500 ms window does nothing.
+That slot is cleared. The two notes may arrive in either order, provided they are no more than 500 ms apart. Deleting a recording cancels it; deleting a playing sample stops it. When the sequencer is stopped, a Delete Note outside the 500 ms window does nothing.
+
+When the sequencer is running, a Delete Note by itself clears the selected slot after the 500 ms pairing window. Recording a slot selects it; mixer CC adjustments continue to apply to the selected slot. The selected slot has a thin yellow outline. Starting playback does not change the selection, so a standalone Delete Note can undo the last recording.
 
 Choose a Delete Note outside the 16-note sample range.
 
@@ -56,9 +58,9 @@ Each slot has four controls:
 - **LPF Cutoff** — lowers the low-pass cutoff as the CC value decreases.
 - **HPF Cutoff** — raises the high-pass cutoff as the CC value increases.
 
-The four globally assigned CC numbers control the **last triggered slot**. Trigger a slot's sample note, then move a control. The assignment remains on that slot until another sample note is triggered.
+The four globally assigned CC numbers control the **selected slot**. Completing a recording selects that slot, and subsequent CC adjustments continue to apply to it. Playing a slot does not change the selection.
 
-CCs are accepted only on the configured MIDI channel. Before any slot has been triggered, mixer CCs do nothing. The filters have no resonance control. Filter slope and other advanced filter behavior are global settings in the configuration panel.
+CCs are accepted only on the configured MIDI channel. Until a slot is selected, mixer CCs do nothing. The filters have no resonance control. Filter slope and other advanced filter behavior are global settings in the configuration panel.
 
 ## Projects
 
@@ -128,6 +130,7 @@ Select the gear button on the front panel to open the configuration panel. It co
 | Pan CC | Sets the global CC number used for the selected slot's pan. | 3 |
 | Level CC | Sets the global CC number used for the selected slot's level. | 4 |
 | Count-in Beats | Sets the number of beats before transport restarts while Count-in is on. | 4 |
+| Recording Tail | Continues recording after Note Off and sets the playback decay duration. | 300 ms |
 | Filter Slope | Sets the global LPF and HPF slope in the configuration panel. | 24 dB/oct |
 | Audio Input | Selects the signal recorded into slots; its device name is remembered and reconnected automatically. | — |
 | Input Channels | Selects the stereo pair from the audio input recorded into each sample; the last selected pair is restored when available. | 1–2 |

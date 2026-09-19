@@ -26,6 +26,7 @@ export function SamplerPage() {
         bpm: s.bpm,
         clockRunning: s.clockRunning,
         countInCounting: s.countInCounting,
+        selectedSlot: s.selectedSlot,
         slots: s.project.slots.map((slot, index) => ({
           index,
           state: slot.state,
@@ -131,6 +132,7 @@ export function SamplerPage() {
             progress={s.playbackProgress[i] ?? null}
             tick={s.tick}
             active={s.project.slots[i]!.state !== 'empty'}
+            selected={s.selectedSlot === i}
           />
         ))}
       </div>

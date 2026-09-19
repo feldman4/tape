@@ -71,6 +71,7 @@ function assertEq(actual, expected, label) {
     console.log(`   Ready. First sample note=${firstNote}, delete note=${deleteNote}, count-in toggle=${countInToggleNote}`);
     assertEq(deleteNote, 76, 'Delete/reset note defaults to 76');
     assertEq(countInToggleNote, 74, 'Count-in toggle note defaults to 74');
+    assertEq(initState.settings.recordingTailMs, 300, 'Recording tail defaults to 300 ms');
 
     console.log('\n2. Empty slots ignore Note On while stopped…');
     await page.evaluate((note) => window.__loopPadTest.noteOn(note), firstNote);
@@ -97,12 +98,14 @@ function assertEq(actual, expected, label) {
     assertEq(state.slots[0].state, 'stopped', 'Slot 0 stopped after Note Off');
     assert(state.slots[0].hasSample, 'Slot 0 has a stored sample');
     assertEq(state.slots[0].sampleChannels, 2, 'Slot 0 retains a stereo sample');
-    assert(state.slots[0].durationSecs > 0.1, 'Slot 0 sample has non-trivial duration', `got ${state.slots[0].durationSecs}s`);
+    assert(state.slots[0].durationSecs >= 0.6, 'Slot 0 sample includes the 300 ms recording tail', `got ${state.slots[0].durationSecs}s`);
 
-    console.log('\n4. Mixer CC routes to the last-triggered slot…');
+    console.log('\n4. Recording selects the slot and mixer CC keeps that selection…');
+    assertEq(state.selectedSlot, 0, 'Completed recording selects slot 0');
     await page.evaluate((cc) => window.__loopPadTest.cc(cc, 64), state.settings.panCc);
     state = await page.evaluate(() => window.__loopPadTest.getState());
     assertEq(Math.round(state.slots[0].mixer.pan * 100) / 100, Math.round(((64 / 127) * 2 - 1) * 100) / 100, 'Slot 0 pan updated by CC');
+    assertEq(state.selectedSlot, 0, 'CC adjustment keeps slot 0 selected');
 
     console.log('\n5. Sequencer Stop stops playback immediately…');
     await page.evaluate((note) => window.__loopPadTest.noteOn(note), firstNote);
@@ -134,7 +137,24 @@ function assertEq(actual, expected, label) {
     assertEq(state.slots[0].state, 'empty', 'Slot 0 empty after delete');
     assert(!state.slots[0].hasSample, 'Slot 0 has no sample after delete');
 
-    console.log('\n8. Project switch resets the visible slots…');
+    console.log('\n8. Standalone Reset clears the selected slot while running…');
+    await page.evaluate((note) => window.__loopPadTest.noteOn(note), firstNote + 1);
+    await page.waitForTimeout(400);
+    await page.evaluate((note) => window.__loopPadTest.noteOff(note), firstNote + 1);
+    state = await waitFor(page, () => {
+      const st = window.__loopPadTest.getState();
+      return st.slots[1].state === 'stopped' ? st : null;
+    }, TIMEOUT_MS, 'slot 1 finished recording');
+    assertEq(state.selectedSlot, 1, 'Completed recording selects slot 1');
+    await page.evaluate((note) => window.__loopPadTest.noteOn(note), deleteNote);
+    state = await waitFor(page, () => {
+      const st = window.__loopPadTest.getState();
+      return st.slots[1].state === 'empty' ? st : null;
+    }, TIMEOUT_MS, 'selected slot cleared by standalone Reset');
+    assertEq(state.slots[1].state, 'empty', 'Standalone Reset clears selected slot while running');
+    assertEq(state.selectedSlot, null, 'Reset clears the selection after deleting its slot');
+
+    console.log('\n9. Project switch resets the visible slots…');
     await page.evaluate(() => window.__loopPadTest.selectProject(2));
     state = await waitFor(page, () => {
       const st = window.__loopPadTest.getState();
@@ -144,7 +164,7 @@ function assertEq(actual, expected, label) {
     assert(state.slots.every((s) => s.state === 'empty'), 'Fresh project has all-empty slots');
     await page.evaluate(() => window.__loopPadTest.selectProject(1));
 
-    console.log('\n9. Count-in toggles from its channel-16 MIDI Note On…');
+    console.log('\n10. Count-in toggles from its channel-16 MIDI Note On…');
     await page.evaluate(([note, channel]) => window.__loopPadTest.noteOn(note, 100, channel), [countInToggleNote, 14]);
     state = await page.evaluate(() => window.__loopPadTest.getState());
     assertEq(state.settings.countInEnabled, false, 'Count-in ignores its toggle note on another channel');
@@ -162,7 +182,7 @@ function assertEq(actual, expected, label) {
     assertEq(state.settings.countInEnabled, false, 'Count-in disabled by MIDI toggle note');
     await page.evaluate((note) => window.__loopPadTest.noteOn(note), countInToggleNote);
 
-    console.log('\n10. Count-in: Start intercepted, then re-Start after N beats of clock…');
+    console.log('\n11. Count-in: Start intercepted, then re-Start after N beats of clock…');
     await page.evaluate(() => window.__loopPadTest.updateSettings({ countInBeats: 2 }));
     await waitFor(page, () => window.__loopPadTest.getState().settings.countInEnabled === true, TIMEOUT_MS, 'count-in enabled');
     await page.evaluate(() => window.__loopPadTest.start());

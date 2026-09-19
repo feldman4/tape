@@ -9,6 +9,7 @@ interface SlotViewProps {
   progress: number | null;
   tick: number;
   active: boolean;
+  selected: boolean;
 }
 
 const NOTE_NAMES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
@@ -17,7 +18,7 @@ function noteName(note: number): string {
   return `${NOTE_NAMES[note % 12]}${Math.floor(note / 12) - 1}`;
 }
 
-export function SlotView({ slot, index, firstNote, progress, tick, active }: SlotViewProps) {
+export function SlotView({ slot, index, firstNote, progress, tick, active, selected }: SlotViewProps) {
   return (
     <div
       style={{
@@ -27,7 +28,7 @@ export function SlotView({ slot, index, firstNote, progress, tick, active }: Slo
         gap: 8,
         padding: 12,
         background: '#1c1c1f',
-        border: active ? '1px solid #52525b' : '1px solid #27272a',
+        border: selected ? '1px solid #facc15' : active ? '1px solid #52525b' : '1px solid #27272a',
         borderRadius: 8,
       }}
     >

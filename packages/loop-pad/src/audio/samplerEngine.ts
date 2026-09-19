@@ -22,6 +22,7 @@ export interface SlotMixerValues {
 interface Voice {
   source: AudioBufferSourceNode;
   gain: GainNode;
+  tailGain: GainNode;
   outputSplitter: ChannelSplitterNode;
   panner: StereoPannerNode;
   lpf: BiquadFilterNode[];
@@ -298,7 +299,7 @@ export class SamplerEngine {
   }
 
   /** Starts (or restarts, if already playing) one-shot playback for a slot. */
-  play(slot: number, mixer: SlotMixerValues): void {
+  play(slot: number, mixer: SlotMixerValues, tailMs: number): void {
     const buffer = this.buffers.get(slot);
     if (!buffer) return;
     this.stopVoice(slot);
@@ -325,19 +326,26 @@ export class SamplerEngine {
     panner.pan.value = mixer.pan;
     const gain = ctx.createGain();
     gain.gain.value = mixer.level;
+    const tailGain = ctx.createGain();
+    const tailSecs = Math.min(buffer.duration, Math.max(0, tailMs) / 1000);
+    if (tailSecs > 0) {
+      tailGain.gain.setValueAtTime(1, ctx.currentTime);
+      tailGain.gain.setValueAtTime(1, ctx.currentTime + buffer.duration - tailSecs);
+      tailGain.gain.linearRampToValueAtTime(0, ctx.currentTime + buffer.duration);
+    }
     const outputSplitter = ctx.createChannelSplitter(2);
 
-    const chain: AudioNode[] = [source, ...lpf, ...hpf, panner, gain];
+    const chain: AudioNode[] = [source, ...lpf, ...hpf, panner, gain, tailGain];
     for (let i = 0; i < chain.length - 1; i++) chain[i]!.connect(chain[i + 1]!);
-    gain.connect(outputSplitter);
-    this.connectVoiceToOutput({ source, gain, outputSplitter, panner, lpf, hpf });
+    tailGain.connect(outputSplitter);
+    this.connectVoiceToOutput({ source, gain, tailGain, outputSplitter, panner, lpf, hpf });
 
     source.onended = () => {
       this.voices.delete(slot);
       for (const listener of this.endedListeners) listener(slot);
     };
     source.start();
-    this.voices.set(slot, { source, gain, outputSplitter, panner, lpf, hpf });
+    this.voices.set(slot, { source, gain, tailGain, outputSplitter, panner, lpf, hpf });
   }
 
   /** Stops playback for a slot; a no-op if it isn't currently playing. */

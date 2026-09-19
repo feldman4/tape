@@ -129,6 +129,7 @@ export function SettingsPanel({
         {numberField('Pan CC', settings.panCc, (n) => onChange({ panCc: n }))}
         {numberField('Level CC', settings.levelCc, (n) => onChange({ levelCc: n }))}
         {numberField('Count-in Beats', settings.countInBeats, (n) => onChange({ countInBeats: Math.max(1, n) }), { min: 1, max: 32 })}
+        {numberField('Recording Tail (ms)', settings.recordingTailMs, (n) => onChange({ recordingTailMs: n }), { min: 0, max: 5000 })}
         <label style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, color: '#a1a1aa' }}>
           Filter Slope
           <select
