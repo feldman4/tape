@@ -1,21 +1,23 @@
 {
-  "name": "tape",
+  "name": "tape-workspace",
   "private": true,
-  "version": "0.0.0",
-  "type": "module",
+  "workspaces": [
+    "packages/*"
+  ],
   "scripts": {
-    "dev": "vite",
-    "build": "tsc -b && vite build",
-    "lint": "oxlint",
-    "preview": "vite preview",
-    "test:hardware:setup": "node scripts/hardware-profile-setup.mjs",
-    "test:hardware": "node scripts/hardware-test.mjs",
-    "test:workflow": "node scripts/workflow-test.mjs",
-    "test:control-mode": "node scripts/control-mode-test.mjs"
-  },
-  "dependencies": {
-    "react": "^19.2.7",
-    "react-dom": "^19.2.7"
+    "dev": "npm run dev:tape",
+    "dev:tape": "npm run dev --workspace=tape",
+    "dev:loop-pad": "npm run dev --workspace=loop-pad",
+    "build": "npm run build --workspaces --if-present",
+    "build:tape": "npm run build --workspace=tape",
+    "build:loop-pad": "npm run build --workspace=loop-pad",
+    "lint": "npm run lint --workspaces --if-present",
+    "lint:tape": "npm run lint --workspace=tape",
+    "lint:loop-pad": "npm run lint --workspace=loop-pad",
+    "test:hardware:setup": "npm run test:hardware:setup --workspace=tape",
+    "test:hardware": "npm run test:hardware --workspace=tape",
+    "test:workflow": "npm run test:workflow --workspace=tape",
+    "test:control-mode": "npm run test:control-mode --workspace=tape"
   },
   "devDependencies": {
     "@types/node": "^24.13.2",

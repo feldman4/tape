@@ -1,20 +1,4 @@
-# Tape Workspace
-
-This repository contains independently deployable web apps:
-
-- `tape`: browser-based multitrack tape recorder, deployed at `/tape/`.
-- `loop-pad`: loop pad app, deployed at `/tape/loop-pad/`.
-
-Install dependencies once at the repository root:
-
-```sh
-npm install
-```
-
-Run an app locally with `npm run dev:tape` or `npm run dev:loop-pad`.
-Build or lint both apps with `npm run build` or `npm run lint`.
-
-The Tape-specific guide and hardware workflows are in `packages/tape/README.md`.# Tape
+# Tape
 
 A browser-based multitrack tape recorder. Vite + React + TypeScript, built as
 a staged implementation. Start with the [user manual](docs/user_manual.md),

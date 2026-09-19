@@ -27,12 +27,19 @@ jobs:
           cache: npm
       - name: Install dependencies
         run: npm ci
-      - name: Build
-        run: npm run build
+      - name: Build Tape
+        run: npm run build:tape
+      - name: Build Loop Pad
+        run: npm run build:loop-pad
+      - name: Assemble Pages site
+        run: |
+          mkdir deploy
+          cp -R packages/tape/dist/. deploy/
+          cp -R packages/loop-pad/dist deploy/loop-pad
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          path: dist
+          path: deploy
 
   deploy:
     environment:

@@ -1,0 +1,21 @@
+{
+  "name": "tape",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -b && vite build",
+    "lint": "oxlint",
+    "preview": "vite preview",
+    "test:hardware:setup": "node scripts/hardware-profile-setup.mjs",
+    "test:hardware": "node scripts/hardware-test.mjs",
+    "test:workflow": "node scripts/workflow-test.mjs",
+    "test:control-mode": "node scripts/control-mode-test.mjs"
+  },
+  "dependencies": {
+    "react": "^19.2.7",
+    "react-dom": "^19.2.7"
+  },
+  "devDependencies": {}
+}

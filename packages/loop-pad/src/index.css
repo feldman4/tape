@@ -1,0 +1,16 @@
+:root {
+  font-family: system-ui, sans-serif;
+  color: #f4f4f0;
+  background: #151715;
+}
+
+body {
+  margin: 0;
+}
+
+.loop-pad {
+  display: grid;
+  min-height: 100vh;
+  place-items: center;
+  font-size: 2rem;
+}
