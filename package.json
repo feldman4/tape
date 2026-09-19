@@ -17,6 +17,7 @@
     "test:hardware:setup": "npm run test:hardware:setup --workspace=tape",
     "test:hardware": "npm run test:hardware --workspace=tape",
     "test:workflow": "npm run test:workflow --workspace=tape",
+    "test:workflow:loop-pad": "npm run test:workflow --workspace=loop-pad",
     "test:control-mode": "npm run test:control-mode --workspace=tape"
   },
   "devDependencies": {

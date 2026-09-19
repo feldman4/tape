@@ -3,7 +3,8 @@
 This repository contains independently deployable web apps:
 
 - `tape`: browser-based multitrack tape recorder, deployed at `/tape/`.
-- `loop-pad`: loop pad app, deployed at `/tape/loop-pad/`.
+- `loop-pad`: 16-slot MIDI sampler, deployed at `/tape/loop-pad/`. See
+  [packages/loop-pad/README.md](packages/loop-pad/README.md).
 
 Install dependencies once at the repository root:
 

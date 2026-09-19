@@ -1,5 +1,7 @@
+import { SamplerPage } from './ui/SamplerPage';
+
 function App() {
-  return <main className="loop-pad">Loop Pad</main>
+  return <SamplerPage />;
 }
 
 export default App
