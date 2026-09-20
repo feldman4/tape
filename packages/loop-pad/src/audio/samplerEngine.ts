@@ -33,6 +33,7 @@ const LPF_MIN_HZ = 200;
 const LPF_MAX_HZ = 20000;
 const HPF_MIN_HZ = 20;
 const HPF_MAX_HZ = 2000;
+const VOICE_RELEASE_SECS = 0.005;
 
 /** Maps a 0..1 LPF knob value to a cutoff frequency (log scale, 1 = fully open). */
 export function lpfFrequency(cutoff01: number): number {
@@ -55,6 +56,10 @@ export class SamplerEngine {
   private inputPairMerger: ChannelMergerNode | null = null;
   private silentGain: GainNode | null = null;
   private outputBus: ChannelMergerNode | null = null;
+  private masterGain: GainNode | null = null;
+  private masterLevelSplitter: ChannelSplitterNode | null = null;
+  private masterLevelAnalyserL: AnalyserNode | null = null;
+  private masterLevelAnalyserR: AnalyserNode | null = null;
   private currentDeviceId: string | null = null;
   private inputChannelCount = 1;
   private inputChannelPairStart = 0;
@@ -116,6 +121,17 @@ export class SamplerEngine {
     return this.levelAnalyserL && this.levelAnalyserR ? { left: this.levelAnalyserL, right: this.levelAnalyserR } : null;
   }
 
+  /** L/R analysers for the post-master output level meter, or null before init(). */
+  get masterLevelAnalysers(): { left: AnalyserNode; right: AnalyserNode } | null {
+    return this.masterLevelAnalyserL && this.masterLevelAnalyserR
+      ? { left: this.masterLevelAnalyserL, right: this.masterLevelAnalyserR }
+      : null;
+  }
+
+  setMasterLevel(level: number): void {
+    if (this.masterGain) this.masterGain.gain.value = Math.max(0, Math.min(1, level));
+  }
+
   async init(deviceId?: string): Promise<void> {
     this.stream = await this.acquireStream(deviceId);
     this.ctx = new AudioContext({ latencyHint: 0 });
@@ -145,7 +161,18 @@ export class SamplerEngine {
     this.outputChannelCount = Math.max(2, this.ctx.destination.maxChannelCount);
     this.ctx.destination.channelCount = this.outputChannelCount;
     this.outputBus = this.ctx.createChannelMerger(this.outputChannelCount);
-    this.outputBus.connect(this.ctx.destination);
+    this.masterGain = this.ctx.createGain();
+    this.outputBus.connect(this.masterGain);
+    this.masterGain.connect(this.ctx.destination);
+
+    this.masterLevelSplitter = this.ctx.createChannelSplitter(2);
+    this.masterLevelAnalyserL = this.ctx.createAnalyser();
+    this.masterLevelAnalyserL.fftSize = 256;
+    this.masterLevelAnalyserR = this.ctx.createAnalyser();
+    this.masterLevelAnalyserR.fftSize = 256;
+    this.masterGain.connect(this.masterLevelSplitter);
+    this.masterLevelSplitter.connect(this.masterLevelAnalyserL, 0);
+    this.masterLevelSplitter.connect(this.masterLevelAnalyserR, 1);
 
     // The recorder node produces no audible output; route through a silent
     // gain to the output bus so the graph keeps pulling it for processing.
@@ -356,13 +383,16 @@ export class SamplerEngine {
   private stopVoice(slot: number): void {
     const voice = this.voices.get(slot);
     if (!voice) return;
-    voice.source.onended = null;
+    const now = this.audioContext.currentTime;
+    voice.gain.gain.cancelScheduledValues(now);
+    voice.gain.gain.setValueAtTime(voice.gain.gain.value, now);
+    voice.gain.gain.linearRampToValueAtTime(0, now + VOICE_RELEASE_SECS);
+    voice.source.onended = () => voice.outputSplitter.disconnect();
     try {
-      voice.source.stop();
+      voice.source.stop(now + VOICE_RELEASE_SECS);
     } catch {
       // already stopped
     }
-    voice.outputSplitter.disconnect();
     this.voices.delete(slot);
   }
 
@@ -437,6 +467,10 @@ export class SamplerEngine {
     this.inputPairMerger?.disconnect();
     this.silentGain?.disconnect();
     this.outputBus?.disconnect();
+    this.masterGain?.disconnect();
+    this.masterLevelSplitter?.disconnect();
+    this.masterLevelAnalyserL?.disconnect();
+    this.masterLevelAnalyserR?.disconnect();
     this.levelSplitter?.disconnect();
     this.levelAnalyserL?.disconnect();
     this.levelAnalyserR?.disconnect();
@@ -449,6 +483,10 @@ export class SamplerEngine {
     this.inputPairMerger = null;
     this.silentGain = null;
     this.outputBus = null;
+    this.masterGain = null;
+    this.masterLevelSplitter = null;
+    this.masterLevelAnalyserL = null;
+    this.masterLevelAnalyserR = null;
     this.levelSplitter = null;
     this.levelAnalyserL = null;
     this.levelAnalyserR = null;

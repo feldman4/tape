@@ -122,19 +122,22 @@ export function SamplerPage() {
 
       {s.restoreStatus && <div style={{ fontSize: 12, color: '#a1a1aa' }}>{s.restoreStatus}</div>}
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, maxWidth: 640 }}>
-        {Array.from({ length: SLOT_COUNT }, (_, i) => (
-          <SlotView
-            key={i}
-            index={i}
-            slot={s.project.slots[i]!}
-            firstNote={s.settings.firstSampleNote}
-            progress={s.playbackProgress[i] ?? null}
-            tick={s.tick}
-            active={s.project.slots[i]!.state !== 'empty'}
-            selected={s.selectedSlot === i}
-          />
-        ))}
+      <div style={{ display: 'flex', gap: 12, alignItems: 'stretch', width: 'fit-content' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, maxWidth: 640 }}>
+          {Array.from({ length: SLOT_COUNT }, (_, i) => (
+            <SlotView
+              key={i}
+              index={i}
+              slot={s.project.slots[i]!}
+              firstNote={s.settings.firstSampleNote}
+              progress={s.playbackProgress[i] ?? null}
+              tick={s.tick}
+              active={s.project.slots[i]!.state !== 'empty'}
+              selected={s.selectedSlot === i}
+            />
+          ))}
+        </div>
+        <InputLevelMeter analysers={s.masterLevelAnalysers} side="right" level={s.settings.masterLevel} contained />
       </div>
 
       {showSettings && (

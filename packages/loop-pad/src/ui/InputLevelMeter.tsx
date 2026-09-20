@@ -7,6 +7,9 @@ import { useEffect, useRef } from 'react';
 
 interface InputLevelMeterProps {
   analysers: { left: AnalyserNode; right: AnalyserNode } | null;
+  side?: 'left' | 'right';
+  level?: number;
+  contained?: boolean;
 }
 
 const RELEASE = 0.85; // per-frame decay once below the current peak
@@ -25,7 +28,7 @@ function peakOf(buffer: Float32Array): number {
   return peak;
 }
 
-export function InputLevelMeter({ analysers }: InputLevelMeterProps) {
+export function InputLevelMeter({ analysers, side = 'left', level, contained = false }: InputLevelMeterProps) {
   const leftBarRef = useRef<HTMLDivElement | null>(null);
   const rightBarRef = useRef<HTMLDivElement | null>(null);
   const displayRef = useRef({ left: 0, right: 0 });
@@ -62,12 +65,17 @@ export function InputLevelMeter({ analysers }: InputLevelMeterProps) {
   return (
     <div
       style={{
-        position: 'fixed', left: 0, top: 0, bottom: 0, width: 16,
+        position: contained ? 'relative' : 'fixed',
+        ...(contained ? {} : { [side]: 0, top: 0, bottom: 0 }),
+        width: 16, flex: '0 0 16px',
         display: 'flex', gap: 2, padding: '8px 3px', background: '#0a0a0b',
         boxSizing: 'border-box', zIndex: 5,
       }}
-      aria-label="Input level"
+      aria-label={`${side === 'left' ? 'Input' : 'Master'} level`}
     >
+      {level !== undefined && (
+        <div style={{ position: 'absolute', left: 2, right: 2, bottom: `calc(8px + ${Math.max(0, Math.min(1, level)) * 100}% - ${Math.max(0, Math.min(1, level)) * 16}px)`, height: 1, background: '#a1a1aa', pointerEvents: 'none' }} />
+      )}
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column-reverse', background: '#18181b', borderRadius: 2, overflow: 'hidden' }}>
         <div ref={leftBarRef} style={{ width: '100%', height: '0%' }} />
       </div>

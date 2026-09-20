@@ -16,8 +16,8 @@ The sampler records and plays 16 audio clips from MIDI notes. It is designed for
    - **Output Channels** — a stereo pair on multi-output devices.
    - **MIDI Input** — the OP-Z or other controller sending notes and clock.
    - **MIDI Output** — the OP-Z, required only for count-in transport control.
-5. Set the **MIDI Channel**, **First Sample Note**, **Delete Note**, and **Count-in Toggle Note**. The notes must not overlap.
-6. Assign the four mixer CCs: **HPF Cutoff**, **LPF Cutoff**, **Pan**, and **Level** (CC 1–4 by default).
+5. Set the **MIDI Channel**, **First Sample Note**, **Delete Note**, **Count-in On Note**, and **Count-in Off Note**. The notes must not overlap.
+6. Assign the four per-slot mixer CCs: **HPF Cutoff**, **LPF Cutoff**, **Pan**, and **Level** (CC 1–4 by default), plus **Master Level** (CC 16 by default).
 7. Select **Project 1–10** from the project dropdown.
 
 The app remembers the last selected Audio Input, Input Channels, Audio Output, Audio Output Channels, MIDI Input, and MIDI Output in browser storage. On later visits, it automatically reconnects each device selector when a device with the same name becomes available, then restores remembered stereo input and output pairs when the device exposes them. If a remembered device or channel selection is unavailable, the selector uses its default until it appears or another selection is made.
@@ -45,7 +45,7 @@ There is one global **Delete Note**.
 
 That slot is cleared. The two notes may arrive in either order, provided they are no more than 500 ms apart. Deleting a recording cancels it; deleting a playing sample stops it. When the sequencer is stopped, a Delete Note outside the 500 ms window does nothing.
 
-When the sequencer is running, a Delete Note by itself clears the selected slot after the 500 ms pairing window. Recording a slot selects it; mixer CC adjustments continue to apply to the selected slot. The selected slot has a thin yellow outline. Starting playback does not change the selection, so a standalone Delete Note can undo the last recording.
+When the sequencer is running, a Delete Note by itself clears the selected slot after the 500 ms pairing window. Recording a slot selects it; mixer CC adjustments continue to apply to the selected slot. Playing a sample while the sequencer is stopped also selects its slot. The selected slot has a thin yellow outline. Starting playback while the sequencer is running does not change the selection, so a standalone Delete Note can undo the last recording.
 
 Choose a Delete Note outside the 16-note sample range.
 
@@ -58,7 +58,7 @@ Each slot has four controls:
 - **LPF Cutoff** — lowers the low-pass cutoff as the CC value decreases.
 - **HPF Cutoff** — raises the high-pass cutoff as the CC value increases.
 
-The four globally assigned CC numbers control the **selected slot**. Completing a recording selects that slot, and subsequent CC adjustments continue to apply to it. Playing a slot does not change the selection.
+The four per-slot CC assignments control the **selected slot**. Completing a recording selects that slot, and subsequent CC adjustments continue to apply to it. Playing a slot while the sequencer is stopped selects that slot; playback while running does not change the selection. The global **Master Level CC** controls the final playback level without requiring a selected slot.
 
 CCs are accepted only on the configured MIDI channel. Until a slot is selected, mixer CCs do nothing. The filters have no resonance control. Filter slope and other advanced filter behavior are global settings in the configuration panel.
 
@@ -84,9 +84,11 @@ To restore one project, upload a single project file. Its contents overwrite the
 
 ## Display
 
-The app name appears in the browser tab, not on the front panel. The panel contains 16 circular waveforms in note order, left to right and top to bottom. Four tiny knobs beside each waveform display Level, Pan, LPF Cutoff, and HPF Cutoff. The circles and knobs are displays, not mouse controls.
+The app name appears in the browser tab, not on the front panel. The panel contains 16 circular waveforms in note order, left to right and top to bottom. Their heights are peak-normalized for display, with a fixed floor that keeps near-silent recordings visibly small. Four tiny knobs beside each waveform display Level, Pan, LPF Cutoff, and HPF Cutoff. The circles and knobs are displays, not mouse controls.
 
 A narrow stereo input level meter runs down the left edge of the screen, showing the live L/R input signal (independent of any slot's recording/playback state). Each column is green under normal levels, orange as it approaches saturation, and red at/near saturation.
+
+A matching stereo master meter runs down the right edge, showing the post-master playback signal. Its thin gray horizontal line indicates the current master level.
 
 Their appearance shows each slot's state:
 
@@ -102,7 +104,7 @@ All recording, playback, deletion, and mixing is performed by MIDI.
 
 **Count-in** affects OP-Z transport start only; it does not delay an individual sample recording. Once the BPM indicator has a value, the front-panel **Count-in** button manually runs the same Stop, count, and Start procedure. The app plays an audible click for each count-in beat through the selected audio output.
 
-Send a Note On for the **Count-in Toggle Note** on the configured MIDI channel to switch Count-in on or off. Its state is displayed on the front panel and cannot be changed there or in the configuration panel. The default toggle note is 74.
+Send a Note On for the **Count-in On Note** on the configured MIDI channel to enable Count-in, or the **Count-in Off Note** to disable it. Its state is displayed on the front panel and cannot be changed there. The default On and Off notes are 74 and 72.
 
 When Count-in is off, OP-Z Start passes through normally. When it is on:
 
@@ -121,14 +123,16 @@ Select the gear button on the front panel to open the configuration panel. It co
 
 | Option | Function | Default |
 | --- | --- | --- |
-| MIDI Channel | Sets the channel used by sample notes, the Delete Note, Count-in Toggle Note, and mixer CCs. | 16 |
+| MIDI Channel | Sets the channel used by sample notes, the Delete Note, Count-in On and Off Notes, and mixer CCs. | 16 |
 | First Sample Note | Sets the first note in the 16-note slot range. | 53 (F3) |
 | Delete Note | Sets the note used with a slot note to clear that slot. | 76 |
-| Count-in Toggle Note | Sets the note that toggles Count-in on and off. | 74 |
+| Count-in On Note | Sets the note that enables Count-in. | 74 |
+| Count-in Off Note | Sets the note that disables Count-in. | 72 |
 | HPF Cutoff CC | Sets the global CC number used for the selected slot's high-pass cutoff. | 1 |
 | LPF Cutoff CC | Sets the global CC number used for the selected slot's low-pass cutoff. | 2 |
 | Pan CC | Sets the global CC number used for the selected slot's pan. | 3 |
 | Level CC | Sets the global CC number used for the selected slot's level. | 4 |
+| Master Level CC | Sets the global CC number used for final playback level. | 16 |
 | Count-in Beats | Sets the number of beats before transport restarts while Count-in is on. | 4 |
 | Recording Tail | Continues recording after Note Off and sets the playback decay duration. | 300 ms |
 | Filter Slope | Sets the global LPF and HPF slope in the configuration panel. | 24 dB/oct |

@@ -14,6 +14,7 @@ interface SlotRingProps {
 }
 
 const BAR_COUNT = 48;
+const DISPLAY_NORMALIZATION_FLOOR = 0.05;
 
 function draw(canvas: HTMLCanvasElement, slot: Slot, progress: number | null, size: number): void {
   const ctx = canvas.getContext('2d');
@@ -47,13 +48,14 @@ function draw(canvas: HTMLCanvasElement, slot: Slot, progress: number | null, si
   const isRecording = slot.state === 'recording';
   const peaks = isRecording ? slot.recordingPeaks : slot.peaks;
   if (peaks.length > 0) {
+    const peakScale = Math.max(DISPLAY_NORMALIZATION_FLOOR, ...peaks);
     const color = isRecording ? '#ef4444' : '#3b82f6';
     ctx.strokeStyle = color;
     ctx.lineWidth = 2;
     for (let i = 0; i < BAR_COUNT; i++) {
       const t = i / BAR_COUNT;
       const peakIdx = Math.min(peaks.length - 1, Math.floor(t * peaks.length));
-      const amp = peaks[peakIdx] ?? 0;
+      const amp = Math.min(1, (peaks[peakIdx] ?? 0) / peakScale);
       const len = Math.max(2, amp * (outerR - innerR));
       const angle = t * Math.PI * 2 - Math.PI / 2;
       const x0 = cx + Math.cos(angle) * innerR;

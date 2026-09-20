@@ -15,7 +15,7 @@ import {
 } from './session';
 import { loadSettings, saveSettings, type SamplerSettings } from './settings';
 import {
-  findRememberedDevice, getRememberedDeviceName, getRememberedDeviceNumber,
+  findRememberedDevice, getRememberedDeviceNumber,
   rememberDeviceName, rememberDeviceNumber,
 } from '../util/deviceMemory';
 
@@ -64,6 +64,7 @@ export function useSampler() {
   const [playbackProgress, setPlaybackProgress] = useState<(number | null)[]>(() => Array(SLOT_COUNT).fill(null));
   const [tick, setTick] = useState(0);
   const [inputLevelAnalysers, setInputLevelAnalysers] = useState<{ left: AnalyserNode; right: AnalyserNode } | null>(null);
+  const [masterLevelAnalysers, setMasterLevelAnalysers] = useState<{ left: AnalyserNode; right: AnalyserNode } | null>(null);
   const [selectedSlot, setSelectedSlot] = useState<number | null>(null);
 
   const engineRef = useRef<SamplerEngine | null>(null);
@@ -80,7 +81,7 @@ export function useSampler() {
   const clockTimesRef = useRef<number[]>([]);
   const clockRunningRef = useRef(false);
   const clocksSinceStartRef = useRef(0);
-  const countInStateRef = useRef<'idle' | 'counting'>('idle');
+  const countInStateRef = useRef<'idle' | 'counting' | 'awaiting-restart'>('idle');
   const countInClockCountRef = useRef(0);
   const countInTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const expectedTransportEchoRef = useRef<{ type: 'start' | 'stop'; expiresAt: number } | null>(null);
@@ -161,6 +162,7 @@ export function useSampler() {
       lastSampleEventRef.current = { slot, time };
       engine.play(slot, current.mixer, settingsRef.current.recordingTailMs);
       current.state = 'playing';
+      if (!clockRunningRef.current) selectSlot(slot);
       const durationMs = current.samples ? (current.samples.left.length / current.sampleRate) * 1000 : 0;
       playbackStartRef.current.set(slot, { startedAt: performance.now(), durationMs });
     }
@@ -172,8 +174,7 @@ export function useSampler() {
     if (current.state === 'recording') {
       cancelRecordingTail(slot);
       const tailMs = settingsRef.current.recordingTailMs;
-      const timeout = setTimeout(() => {
-        recordingTailTimeoutRef.current.delete(slot);
+      const finishRecording = () => {
         if (projectRef.current.slots[slot] !== current || current.state !== 'recording') return;
         void engine.stopRecording(slot).then((samples) => {
           // The slot may have been deleted while the flush was in flight.
@@ -187,6 +188,14 @@ export function useSampler() {
           selectSlot(slot);
           scheduleAutoSave();
         });
+      };
+      if (tailMs === 0) {
+        finishRecording();
+        return;
+      }
+      const timeout = setTimeout(() => {
+        recordingTailTimeoutRef.current.delete(slot);
+        finishRecording();
       }, tailMs);
       recordingTailTimeoutRef.current.set(slot, timeout);
     } else if (current.state === 'playing') {
@@ -214,9 +223,10 @@ export function useSampler() {
     }, DELETE_WINDOW_MS);
   }
 
-  function toggleCountIn(): void {
+  function setCountInEnabled(enabled: boolean): void {
     setSettings((prev) => {
-      const next = { ...prev, countInEnabled: !prev.countInEnabled };
+      if (prev.countInEnabled === enabled) return prev;
+      const next = { ...prev, countInEnabled: enabled };
       saveSettings(next);
       return next;
     });
@@ -238,7 +248,7 @@ export function useSampler() {
     if (countInStateRef.current !== 'counting') return;
     if (countInTimerRef.current) clearTimeout(countInTimerRef.current);
     countInTimerRef.current = null;
-    countInStateRef.current = 'idle';
+    countInStateRef.current = 'awaiting-restart';
     setCountInCounting(false);
     sendTransportStart();
   }
@@ -285,9 +295,15 @@ export function useSampler() {
   }
 
   function handleCc(controller: number, value: number): void {
+    const s = settingsRef.current;
+    if (controller === s.masterLevelCc) {
+      const masterLevel = value / 127;
+      engineRef.current?.setMasterLevel(masterLevel);
+      updateSettings({ masterLevel });
+      return;
+    }
     const slot = selectedSlotRef.current;
     if (slot === null) return;
-    const s = settingsRef.current;
     const current = projectRef.current.slots[slot]!;
     if (controller === s.levelCc) current.mixer.level = value / 127;
     else if (controller === s.panCc) current.mixer.pan = (value / 127) * 2 - 1;
@@ -319,7 +335,10 @@ export function useSampler() {
       return;
     }
     if (event.type === 'start') {
-      if (isExpectedTransportEcho('start')) return;
+      if (isExpectedTransportEcho('start')) {
+        countInStateRef.current = 'idle';
+        return;
+      }
       clockRunningRef.current = true;
       setClockRunning(true);
       if (s.countInEnabled) {
@@ -345,8 +364,10 @@ export function useSampler() {
     if (event.type === 'noteon') {
       if (event.channel !== s.midiChannel) return;
       const time = performance.now();
-      if (event.note === s.countInToggleNote) { toggleCountIn(); return; }
+      if (event.note === s.countInOnNote) { setCountInEnabled(true); return; }
+      if (event.note === s.countInOffNote) { setCountInEnabled(false); return; }
       if (event.note === s.deleteNote) { handleDeleteNote(time); return; }
+      if (countInStateRef.current !== 'idle') return;
       const slot = event.note - s.firstSampleNote;
       if (slot >= 0 && slot < SLOT_COUNT) {
         if (lastDeleteEventTimeRef.current !== null && time - lastDeleteEventTimeRef.current <= DELETE_WINDOW_MS) {
@@ -359,6 +380,7 @@ export function useSampler() {
     }
     if (event.type === 'noteoff') {
       if (event.channel !== s.midiChannel) return;
+      if (countInStateRef.current !== 'idle') return;
       const slot = event.note - s.firstSampleNote;
       if (slot >= 0 && slot < SLOT_COUNT) handleSampleNoteOff(slot);
       return;
@@ -392,15 +414,16 @@ export function useSampler() {
       midiRef.current = null;
 
       const engine = new SamplerEngine();
-      const rememberedAudioIn = getRememberedDeviceName('audio-in');
       await engine.init();
       engineRef.current = engine;
       engine.setFilterSlope(settingsRef.current.filterSlopeStages);
+      engine.setMasterLevel(settingsRef.current.masterLevel);
       setAudioInputChannelCount(engine.inputChannels);
       setSelectedAudioInputChannelPairStart(engine.selectedInputChannelPairStart);
       setAudioOutputChannelCount(engine.outputChannels);
       setSelectedAudioOutputChannelPairStart(engine.selectedOutputChannelPairStart);
       setInputLevelAnalysers(engine.inputLevelAnalysers);
+      setMasterLevelAnalysers(engine.masterLevelAnalysers);
       engine.onRecordingProgress((slot, peak) => {
         const s = projectRef.current.slots[slot];
         if (s && s.state === 'recording') {
@@ -430,7 +453,7 @@ export function useSampler() {
 
       const rememberedIn = findRememberedDevice(inputs, 'audio-in') ?? inputs.find((d) => d.deviceId === engine.inputDeviceId);
       if (rememberedIn) setSelectedAudioInputId(rememberedIn.deviceId);
-      if (rememberedAudioIn && rememberedIn && rememberedIn.label !== rememberedAudioIn) {
+      if (rememberedIn && rememberedIn.deviceId !== engine.inputDeviceId) {
         await engine.setInputDevice(rememberedIn.deviceId);
       }
       restoreRememberedInputChannelPair(engine);
@@ -584,6 +607,7 @@ export function useSampler() {
       const next = { ...prev, ...patch };
       saveSettings(next);
       if (patch.filterSlopeStages) engineRef.current?.setFilterSlope(patch.filterSlopeStages);
+      if (patch.masterLevel !== undefined) engineRef.current?.setMasterLevel(patch.masterLevel);
       return next;
     });
   }
@@ -687,7 +711,7 @@ export function useSampler() {
       settings, updateSettings,
       projectIndex, selectProject, projectCount: PROJECT_COUNT,
       project, bpm, clockRunning, countInCounting, playbackProgress, tick, selectedSlot,
-      downloadProjects, restoreFromFile, clearProjectMemory, restoreStatus, inputLevelAnalysers,
+      downloadProjects, restoreFromFile, clearProjectMemory, restoreStatus, inputLevelAnalysers, masterLevelAnalysers,
       startCountIn,
       /** Test-only: drives MIDI handling directly, bypassing real hardware. */
       simulateMidiEvent: handleMidiEvent,
@@ -701,7 +725,7 @@ export function useSampler() {
       audioOutputChannelCount, selectedAudioOutputChannelPairStart,
       midiInputs, selectedMidiInputId, midiOutputs, selectedMidiOutputId,
       settings, projectIndex, project, bpm, clockRunning, countInCounting, playbackProgress, tick, selectedSlot, restoreStatus,
-      inputLevelAnalysers,
+      inputLevelAnalysers, masterLevelAnalysers,
     ],
   );
 }

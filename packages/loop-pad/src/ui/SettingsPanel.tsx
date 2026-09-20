@@ -123,11 +123,13 @@ export function SettingsPanel({
         {numberField('MIDI Channel (1-16)', settings.midiChannel + 1, (n) => onChange({ midiChannel: Math.max(0, Math.min(15, n - 1)) }), { min: 1, max: 16 })}
         {numberField('First Sample Note', settings.firstSampleNote, (n) => onChange({ firstSampleNote: n }))}
         {numberField('Delete Note', settings.deleteNote, (n) => onChange({ deleteNote: n }))}
-        {numberField('Count-in Toggle Note', settings.countInToggleNote, (n) => onChange({ countInToggleNote: n }))}
+        {numberField('Count-in On Note', settings.countInOnNote, (n) => onChange({ countInOnNote: n }))}
+        {numberField('Count-in Off Note', settings.countInOffNote, (n) => onChange({ countInOffNote: n }))}
         {numberField('HPF Cutoff CC', settings.hpfCc, (n) => onChange({ hpfCc: n }))}
         {numberField('LPF Cutoff CC', settings.lpfCc, (n) => onChange({ lpfCc: n }))}
         {numberField('Pan CC', settings.panCc, (n) => onChange({ panCc: n }))}
         {numberField('Level CC', settings.levelCc, (n) => onChange({ levelCc: n }))}
+        {numberField('Master Level CC', settings.masterLevelCc, (n) => onChange({ masterLevelCc: n }))}
         {numberField('Count-in Beats', settings.countInBeats, (n) => onChange({ countInBeats: Math.max(1, n) }), { min: 1, max: 32 })}
         {numberField('Recording Tail (ms)', settings.recordingTailMs, (n) => onChange({ recordingTailMs: n }), { min: 0, max: 5000 })}
         <label style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, color: '#a1a1aa' }}>

@@ -7,11 +7,14 @@ export interface SamplerSettings {
   midiChannel: number;       // 0-based (0 = MIDI channel 1)
   firstSampleNote: number;   // 0-127; slots occupy [firstSampleNote, firstSampleNote+15]
   deleteNote: number;        // 0-127
-  countInToggleNote: number; // 0-127
+  countInOnNote: number;     // 0-127
+  countInOffNote: number;    // 0-127
   hpfCc: number;
   lpfCc: number;
   panCc: number;
   levelCc: number;
+  masterLevelCc: number;
+  masterLevel: number;
   countInEnabled: boolean;
   countInBeats: number;
   recordingTailMs: number;
@@ -25,11 +28,14 @@ export function defaultSettings(): SamplerSettings {
     midiChannel: 15, // MIDI channel 16 (0-based)
     firstSampleNote: 53, // F3
     deleteNote: 76,
-    countInToggleNote: 74,
+    countInOnNote: 74,
+    countInOffNote: 72,
     hpfCc: 1,
     lpfCc: 2,
     panCc: 3,
     levelCc: 4,
+    masterLevelCc: 16,
+    masterLevel: 1,
     countInEnabled: false,
     countInBeats: 4,
     recordingTailMs: 300,
@@ -41,7 +47,12 @@ export function loadSettings(): SamplerSettings {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return defaultSettings();
-    return { ...defaultSettings(), ...(JSON.parse(raw) as Partial<SamplerSettings>) };
+    const saved = JSON.parse(raw) as Partial<SamplerSettings> & { countInToggleNote?: number };
+    const settings = { ...defaultSettings(), ...saved };
+    if (saved.countInOnNote === undefined && saved.countInToggleNote !== undefined) {
+      settings.countInOnNote = saved.countInToggleNote;
+    }
+    return settings;
   } catch {
     return defaultSettings();
   }
