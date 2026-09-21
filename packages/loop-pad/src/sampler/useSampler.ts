@@ -487,12 +487,16 @@ export function useSampler() {
         midi.setOutputDevice(rememberedMidiOut.id);
       }
 
-      const loaded = await loadProject(1);
+      const lastProjectIndex = settingsRef.current.lastProjectIndex;
+      const initialProjectIndex = lastProjectIndex >= 1 && lastProjectIndex <= PROJECT_COUNT ? lastProjectIndex : 1;
+      const loaded = await loadProject(initialProjectIndex);
       projectRef.current = loaded;
+      projectIndexRef.current = initialProjectIndex;
       for (let slot = 0; slot < SLOT_COUNT; slot++) {
         const s = loaded.slots[slot]!;
         if (s.samples) engine.loadSlotBuffer(slot, s.samples);
       }
+      setProjectIndex(initialProjectIndex);
       setProject({ slots: [...loaded.slots] });
       setReady(true);
     } catch (e) {
@@ -648,6 +652,7 @@ export function useSampler() {
     const loaded = await loadProject(index);
     projectRef.current = loaded;
     projectIndexRef.current = index;
+    updateSettings({ lastProjectIndex: index });
     selectSlot(null);
     for (let slot = 0; slot < SLOT_COUNT; slot++) {
       engine.clearSlotBuffer(slot);
@@ -709,6 +714,7 @@ export function useSampler() {
     const emptyProject = makeDefaultProject();
     projectRef.current = emptyProject;
     projectIndexRef.current = 1;
+    updateSettings({ lastProjectIndex: 1 });
     selectSlot(null);
     playbackStartRef.current.clear();
     setProjectIndex(1);

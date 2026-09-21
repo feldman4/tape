@@ -4,6 +4,7 @@
 // docs/manual.md "Projects").
 
 export interface SamplerSettings {
+  lastProjectIndex: number;
   midiChannel: number;       // 0-based (0 = MIDI channel 1)
   firstSampleNote: number;   // 0-127; slots occupy [firstSampleNote, firstSampleNote+15]
   deleteNote: number;        // 0-127
@@ -26,6 +27,7 @@ const STORAGE_KEY = 'loop-pad:settings';
 
 export function defaultSettings(): SamplerSettings {
   return {
+    lastProjectIndex: 1,
     midiChannel: 15, // MIDI channel 16 (0-based)
     firstSampleNote: 53, // F3
     deleteNote: 76,

@@ -64,7 +64,7 @@ CCs are accepted only on the configured MIDI channel. Until a slot is selected, 
 
 ## Projects
 
-Use the project dropdown to select **Project 1–10**. Each project stores its 16 samples and all per-sample mixer settings. Changes are saved automatically in the browser. Switching projects saves the current project, then loads the selected project.
+Use the project dropdown to select **Project 1–10**. Each project stores its 16 samples and all per-sample mixer settings. Changes are saved automatically in the browser. Switching projects saves the current project, then loads the selected project. Reloading the app opens the last selected project.
 
 Project playback and recording stop when switching projects. Device selections, MIDI and CC assignments, count-in settings, recording latency compensation, and global filter configuration are app settings and do not change with the project.
 

@@ -62,8 +62,18 @@ function assertEq(actual, expected, label) {
     const initBtn = page.locator('button', { hasText: 'Enable Audio' });
     if (await initBtn.isVisible({ timeout: 3000 }).catch(() => false)) await initBtn.click();
 
-    await waitFor(page, () => window.__loopPadTest?.getState()?.ready === true, TIMEOUT_MS, 'app ready');
-    const initState = await page.evaluate(() => window.__loopPadTest.getState());
+    let initState = await waitFor(page, () => {
+      const state = window.__loopPadTest?.getState();
+      return state?.ready || state?.error ? state : null;
+    }, TIMEOUT_MS, 'app ready or project error');
+    if (initState.error) {
+      page.once('dialog', (dialog) => void dialog.accept());
+      await page.getByRole('button', { name: 'Clear Project Memory' }).click();
+      initState = await waitFor(page, () => {
+        const state = window.__loopPadTest?.getState();
+        return state?.ready ? state : null;
+      }, TIMEOUT_MS, 'app ready after startup project recovery');
+    }
     assert(initState.ready, 'App initialised');
     const firstNote = initState.settings.firstSampleNote;
     const deleteNote = initState.settings.deleteNote;
@@ -175,7 +185,7 @@ function assertEq(actual, expected, label) {
     assertEq(state.slots[1].state, 'empty', 'Standalone Reset clears selected slot while running');
     assertEq(state.selectedSlot, null, 'Reset clears the selection after deleting its slot');
 
-    console.log('\n10. Project switch resets the visible slots…');
+    console.log('\n10. Project switch resets the visible slots and persists across reload…');
     await page.evaluate(() => window.__loopPadTest.selectProject(2));
     state = await waitFor(page, () => {
       const st = window.__loopPadTest.getState();
@@ -183,7 +193,17 @@ function assertEq(actual, expected, label) {
     }, TIMEOUT_MS, 'project switched to 2');
     assertEq(state.projectIndex, 2, 'Project index is 2');
     assert(state.slots.every((s) => s.state === 'empty'), 'Fresh project has all-empty slots');
+    await page.reload({ waitUntil: 'domcontentloaded' });
+    state = await waitFor(page, () => {
+      const st = window.__loopPadTest?.getState();
+      return st?.ready && st.projectIndex === 2 ? st : null;
+    }, TIMEOUT_MS, 'last selected project restored after reload');
+    assertEq(state.projectIndex, 2, 'Reload restores the last selected project');
     await page.evaluate(() => window.__loopPadTest.selectProject(1));
+    await waitFor(page, () => {
+      const st = window.__loopPadTest.getState();
+      return st.projectIndex === 1 ? st : null;
+    }, TIMEOUT_MS, 'project switched back to 1');
 
     console.log('\n11. Count-in turns on and off from dedicated channel-16 MIDI notes…');
     await page.evaluate(([note, channel]) => window.__loopPadTest.noteOn(note, 100, channel), [countInOnNote, 14]);
@@ -299,6 +319,8 @@ function assertEq(actual, expected, label) {
       db.close();
     });
     await page.reload({ waitUntil: 'domcontentloaded' });
+    const reloadInitBtn = page.locator('button', { hasText: 'Enable Audio' });
+    if (await reloadInitBtn.isVisible({ timeout: 3000 }).catch(() => false)) await reloadInitBtn.click();
     await waitFor(page, () => document.body.innerText.includes('Not a valid Loop Pad project file'), TIMEOUT_MS, 'invalid project error');
     page.once('dialog', (dialog) => void dialog.accept());
     await page.getByRole('button', { name: 'Clear Project Memory' }).click();
