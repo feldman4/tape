@@ -28,6 +28,7 @@ const CLOCK_STALE_FALLBACK_MS = 1000;
 const CLOCK_STALE_MULTIPLIER = 4; // no-pulse gap, in multiples of the recent avg interval
 const TRANSPORT_ECHO_WINDOW_MS = 250;
 const MAX_RECORDING_TAIL_MS = 5000;
+const MAX_RECORDING_LATENCY_MS = 5000;
 
 function calcBpm(times: number[]): number | null {
   if (times.length < 2) return null;
@@ -163,16 +164,17 @@ export function useSampler() {
       void engine.snapshotRecording(slot).then((samples) => {
         if (projectRef.current.slots[slot] !== current || current.state !== 'recording') return;
         engine.loadSlotBuffer(slot, samples);
-        engine.play(slot, current.mixer, settingsRef.current.recordingTailMs);
+        engine.play(slot, current.mixer, settingsRef.current.recordingTailMs, settingsRef.current.recordingLatencyMs);
       });
     } else if (current.state === 'recording') {
       // Note On while the note that began this recording is still held: no-op.
     } else {
       lastSampleEventRef.current = { slot, time };
-      engine.play(slot, current.mixer, settingsRef.current.recordingTailMs);
+      engine.play(slot, current.mixer, settingsRef.current.recordingTailMs, settingsRef.current.recordingLatencyMs);
       current.state = 'playing';
       if (!clockRunningRef.current) selectSlot(slot);
-      const durationMs = current.samples ? (current.samples.left.length / current.sampleRate) * 1000 : 0;
+      const sampleDurationMs = current.samples ? (current.samples.left.length / current.sampleRate) * 1000 : 0;
+      const durationMs = Math.max(0, sampleDurationMs - settingsRef.current.recordingLatencyMs);
       playbackStartRef.current.set(slot, { startedAt: performance.now(), durationMs });
     }
   }
@@ -611,6 +613,9 @@ export function useSampler() {
   function updateSettings(patch: Partial<SamplerSettings>): void {
     if (patch.recordingTailMs !== undefined) {
       patch = { ...patch, recordingTailMs: Math.max(0, Math.min(MAX_RECORDING_TAIL_MS, Math.round(patch.recordingTailMs))) };
+    }
+    if (patch.recordingLatencyMs !== undefined) {
+      patch = { ...patch, recordingLatencyMs: Math.max(0, Math.min(MAX_RECORDING_LATENCY_MS, Math.round(patch.recordingLatencyMs))) };
     }
     setSettings((prev) => {
       const next = { ...prev, ...patch };

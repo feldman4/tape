@@ -18,6 +18,7 @@ export interface SamplerSettings {
   countInEnabled: boolean;
   countInBeats: number;
   recordingTailMs: number;
+  recordingLatencyMs: number;
   filterSlopeStages: 1 | 2;  // 12 dB/oct vs 24 dB/oct per filter
 }
 
@@ -39,6 +40,7 @@ export function defaultSettings(): SamplerSettings {
     countInEnabled: false,
     countInBeats: 4,
     recordingTailMs: 300,
+    recordingLatencyMs: 20,
     filterSlopeStages: 2,
   };
 }

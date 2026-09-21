@@ -74,6 +74,7 @@ function assertEq(actual, expected, label) {
     assertEq(countInOnNote, 74, 'Count-in On note defaults to 74');
     assertEq(countInOffNote, 72, 'Count-in Off note defaults to 72');
     assertEq(initState.settings.recordingTailMs, 300, 'Recording tail defaults to 300 ms');
+    assertEq(initState.settings.recordingLatencyMs, 20, 'Recording latency defaults to 20 ms');
 
     console.log('\n2. Empty slots ignore Note On while stopped…');
     await page.evaluate((note) => window.__loopPadTest.noteOn(note), firstNote);

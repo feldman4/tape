@@ -341,7 +341,7 @@ export class SamplerEngine {
   }
 
   /** Starts (or restarts, if already playing) one-shot playback for a slot. */
-  play(slot: number, mixer: SlotMixerValues, tailMs: number): void {
+  play(slot: number, mixer: SlotMixerValues, tailMs: number, startOffsetMs = 0): void {
     const buffer = this.buffers.get(slot);
     if (!buffer) return;
     this.stopVoice(slot);
@@ -349,6 +349,8 @@ export class SamplerEngine {
     const ctx = this.audioContext;
     const source = ctx.createBufferSource();
     source.buffer = buffer;
+    const startOffsetSecs = Math.min(buffer.duration, Math.max(0, startOffsetMs) / 1000);
+    const playbackDurationSecs = buffer.duration - startOffsetSecs;
 
     const lpf: BiquadFilterNode[] = [];
     const hpf: BiquadFilterNode[] = [];
@@ -371,11 +373,11 @@ export class SamplerEngine {
     const gain = ctx.createGain();
     gain.gain.value = mixer.level;
     const tailGain = ctx.createGain();
-    const tailSecs = Math.min(buffer.duration, Math.max(0, tailMs) / 1000);
+    const tailSecs = Math.min(playbackDurationSecs, Math.max(0, tailMs) / 1000);
     if (tailSecs > 0) {
       tailGain.gain.setValueAtTime(1, ctx.currentTime);
-      tailGain.gain.setValueAtTime(1, ctx.currentTime + buffer.duration - tailSecs);
-      tailGain.gain.linearRampToValueAtTime(0, ctx.currentTime + buffer.duration);
+      tailGain.gain.setValueAtTime(1, ctx.currentTime + playbackDurationSecs - tailSecs);
+      tailGain.gain.linearRampToValueAtTime(0, ctx.currentTime + playbackDurationSecs);
     }
     const outputSplitter = ctx.createChannelSplitter(2);
 
@@ -388,7 +390,7 @@ export class SamplerEngine {
       this.voices.delete(slot);
       for (const listener of this.endedListeners) listener(slot);
     };
-    source.start();
+    source.start(0, startOffsetSecs);
     this.voices.set(slot, { source, gain, tailGain, outputSplitter, panner, lpf, hpf });
   }
 

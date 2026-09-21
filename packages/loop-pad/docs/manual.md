@@ -66,7 +66,7 @@ CCs are accepted only on the configured MIDI channel. Until a slot is selected, 
 
 Use the project dropdown to select **Project 1–10**. Each project stores its 16 samples and all per-sample mixer settings. Changes are saved automatically in the browser. Switching projects saves the current project, then loads the selected project.
 
-Project playback and recording stop when switching projects. Device selections, MIDI and CC assignments, count-in settings, and global filter configuration are app settings and do not change with the project.
+Project playback and recording stop when switching projects. Device selections, MIDI and CC assignments, count-in settings, recording latency compensation, and global filter configuration are app settings and do not change with the project.
 
 Browser storage belongs to the current browser profile and site. Clearing site data removes all projects, so use **Download Projects** for backup or transfer.
 
@@ -135,6 +135,7 @@ Select the gear button on the front panel to open the configuration panel. It co
 | Master Level CC | Sets the global CC number used for final playback level. | 16 |
 | Count-in Beats | Sets the number of beats before transport restarts while Count-in is on. | 4 |
 | Recording Tail | Continues recording after Note Off and sets the playback decay duration. | 300 ms |
+| Recording Latency | Skips this amount from the start of every sample when it is triggered, compensating for recording latency without modifying the stored sample. Changes apply to the next trigger. | 20 ms |
 | Filter Slope | Sets the global LPF and HPF slope in the configuration panel. | 24 dB/oct |
 | Audio Input | Selects the signal recorded into slots; its device name is remembered and reconnected automatically. | — |
 | Input Channels | Selects the stereo pair from the audio input recorded into each sample; the last selected pair is restored when available. | 1–2 |
