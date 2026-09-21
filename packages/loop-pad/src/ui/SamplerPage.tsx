@@ -30,6 +30,7 @@ export function SamplerPage() {
         slots: s.project.slots.map((slot, index) => ({
           index,
           state: slot.state,
+          isPlaying: s.isSlotPlaying(index),
           hasSample: slot.samples !== null,
           sampleChannels: slot.samples ? 2 : 0,
           durationSecs: slot.samples ? slot.samples.left.length / slot.sampleRate : 0,

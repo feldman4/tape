@@ -9,11 +9,13 @@
 
 type ToProcessorMessage =
   | { type: 'arm'; slot: number }
+  | { type: 'snapshot'; slot: number }
   | { type: 'flush'; slot: number }
   | { type: 'discard'; slot: number };
 
 type FromProcessorMessage =
   | { type: 'recorded'; slot: number; samples: { left: Float32Array; right: Float32Array } }
+  | { type: 'snapshot'; slot: number; samples: { left: Float32Array; right: Float32Array } }
   | { type: 'progress'; slot: number; peak: number };
 
 const PROGRESS_POST_INTERVAL_BLOCKS = 4; // ~12ms @128/44.1kHz — smooth ring animation
@@ -32,8 +34,11 @@ class SamplerRecorderProcessor extends AudioWorkletProcessor {
       case 'arm':
         this.chunks.set(msg.slot, { left: [], right: [] });
         break;
+      case 'snapshot':
+        this.sendSamples(msg.slot, 'snapshot', false);
+        break;
       case 'flush':
-        this.flush(msg.slot, true);
+        this.sendSamples(msg.slot, 'recorded', true);
         break;
       case 'discard':
         this.chunks.delete(msg.slot);
@@ -41,10 +46,10 @@ class SamplerRecorderProcessor extends AudioWorkletProcessor {
     }
   }
 
-  private flush(slot: number, post: boolean): void {
+  private sendSamples(slot: number, type: 'recorded' | 'snapshot', discard: boolean): void {
     const parts = this.chunks.get(slot);
-    this.chunks.delete(slot);
-    if (!post || !parts) return;
+    if (discard) this.chunks.delete(slot);
+    if (!parts) return;
     const total = parts.left.reduce((sum, chunk) => sum + chunk.length, 0);
     const left = new Float32Array(total);
     const right = new Float32Array(total);
@@ -55,7 +60,7 @@ class SamplerRecorderProcessor extends AudioWorkletProcessor {
       right.set(parts.right[index]!, offset);
       offset += leftChunk.length;
     }
-    const message: FromProcessorMessage = { type: 'recorded', slot, samples: { left, right } };
+    const message: FromProcessorMessage = { type, slot, samples: { left, right } };
     this.port.postMessage(message, [left.buffer, right.buffer]);
   }
 

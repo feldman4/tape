@@ -93,6 +93,13 @@ function assertEq(actual, expected, label) {
 
     await page.waitForTimeout(400); // let the worklet accumulate some samples
     await page.evaluate((note) => window.__loopPadTest.noteOff(note), firstNote);
+    await page.evaluate((note) => window.__loopPadTest.noteOn(note), firstNote);
+    state = await waitFor(page, () => {
+      const st = window.__loopPadTest.getState();
+      return st.slots[0].isPlaying ? st : null;
+    }, TIMEOUT_MS, 'recording-tail preview playing');
+    assertEq(state.slots[0].state, 'recording', 'Slot 0 keeps recording while its tail preview plays');
+    assert(state.slots[0].isPlaying, 'Next pattern Note On plays the capture before its recording tail flushes');
     state = await waitFor(page, () => {
       const st = window.__loopPadTest.getState();
       return st.slots[0].state === 'stopped' ? st : null;

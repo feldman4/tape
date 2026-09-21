@@ -10,6 +10,7 @@ import type { StereoSamples } from '../sampler/model';
 
 type FromProcessorMessage =
   | { type: 'recorded'; slot: number; samples: StereoSamples }
+  | { type: 'snapshot'; slot: number; samples: StereoSamples }
   | { type: 'progress'; slot: number; peak: number };
 
 export interface SlotMixerValues {
@@ -33,6 +34,7 @@ const LPF_MIN_HZ = 200;
 const LPF_MAX_HZ = 20000;
 const HPF_MIN_HZ = 20;
 const HPF_MAX_HZ = 2000;
+const FILTER_Q = 0.7;
 const VOICE_RELEASE_SECS = 0.005;
 
 /** Maps a 0..1 LPF knob value to a cutoff frequency (log scale, 1 = fully open). */
@@ -78,6 +80,7 @@ export class SamplerEngine {
   private progressListeners = new Set<(slot: number, peak: number) => void>();
   private endedListeners = new Set<(slot: number) => void>();
   private pendingRecordings = new Map<number, (samples: StereoSamples) => void>();
+  private pendingSnapshots = new Map<number, (samples: StereoSamples) => void>();
 
   get audioContext(): AudioContext {
     if (!this.ctx) throw new Error('SamplerEngine not initialized: call init() first');
@@ -276,6 +279,9 @@ export class SamplerEngine {
     if (msg.type === 'recorded') {
       this.pendingRecordings.get(msg.slot)?.(msg.samples);
       this.pendingRecordings.delete(msg.slot);
+    } else if (msg.type === 'snapshot') {
+      this.pendingSnapshots.get(msg.slot)?.(msg.samples);
+      this.pendingSnapshots.delete(msg.slot);
     } else {
       for (const listener of this.progressListeners) listener(msg.slot, msg.peak);
     }
@@ -302,9 +308,18 @@ export class SamplerEngine {
     });
   }
 
+  /** Returns the captured audio so far without ending the active recording. */
+  snapshotRecording(slot: number): Promise<StereoSamples> {
+    return new Promise((resolve) => {
+      this.pendingSnapshots.set(slot, resolve);
+      this.recorderNode!.port.postMessage({ type: 'snapshot', slot });
+    });
+  }
+
   /** Discards an in-progress recording (e.g. the slot was deleted mid-take). */
   cancelRecording(slot: number): void {
     this.pendingRecordings.delete(slot);
+    this.pendingSnapshots.delete(slot);
     this.recorderNode!.port.postMessage({ type: 'discard', slot });
   }
 
@@ -341,12 +356,14 @@ export class SamplerEngine {
       const node = ctx.createBiquadFilter();
       node.type = 'lowpass';
       node.frequency.value = lpfFrequency(mixer.lpfCutoff);
+      node.Q.value = FILTER_Q;
       lpf.push(node);
     }
     for (let i = 0; i < this.filterSlopeStages; i++) {
       const node = ctx.createBiquadFilter();
       node.type = 'highpass';
       node.frequency.value = hpfFrequency(mixer.hpfCutoff);
+      node.Q.value = FILTER_Q;
       hpf.push(node);
     }
     const panner = ctx.createStereoPanner();

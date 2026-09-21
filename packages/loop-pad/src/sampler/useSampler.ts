@@ -134,8 +134,8 @@ export function useSampler() {
     const engine = engineRef.current!;
     for (let slot = 0; slot < SLOT_COUNT; slot++) {
       const current = projectRef.current.slots[slot]!;
-      if (current.state !== 'playing') continue;
       engine.stop(slot);
+      if (current.state !== 'playing') continue;
       current.state = 'stopped';
     }
     playbackStartRef.current.clear();
@@ -156,8 +156,17 @@ export function useSampler() {
       engine.startRecording(slot);
       current.state = 'recording';
       current.recordingPeaks = [];
+    } else if (current.state === 'recording' && recordingTailTimeoutRef.current.has(slot)) {
+      // The following pattern cycle can start before the recording tail has
+      // flushed. Play the capture so far while the worklet keeps recording.
+      lastSampleEventRef.current = { slot, time };
+      void engine.snapshotRecording(slot).then((samples) => {
+        if (projectRef.current.slots[slot] !== current || current.state !== 'recording') return;
+        engine.loadSlotBuffer(slot, samples);
+        engine.play(slot, current.mixer, settingsRef.current.recordingTailMs);
+      });
     } else if (current.state === 'recording') {
-      // Note On while already recording: no-op per spec.
+      // Note On while the note that began this recording is still held: no-op.
     } else {
       lastSampleEventRef.current = { slot, time };
       engine.play(slot, current.mixer, settingsRef.current.recordingTailMs);
@@ -612,6 +621,10 @@ export function useSampler() {
     });
   }
 
+  function isSlotPlaying(slot: number): boolean {
+    return engineRef.current?.isPlaying(slot) ?? false;
+  }
+
   async function selectProject(index: number): Promise<void> {
     const engine = engineRef.current;
     if (!engine || index === projectIndexRef.current) return;
@@ -709,6 +722,7 @@ export function useSampler() {
       midiInputs, selectedMidiInputId, selectMidiInput,
       midiOutputs, selectedMidiOutputId, selectMidiOutput,
       settings, updateSettings,
+      isSlotPlaying,
       projectIndex, selectProject, projectCount: PROJECT_COUNT,
       project, bpm, clockRunning, countInCounting, playbackProgress, tick, selectedSlot,
       downloadProjects, restoreFromFile, clearProjectMemory, restoreStatus, inputLevelAnalysers, masterLevelAnalysers,

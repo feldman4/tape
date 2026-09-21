@@ -30,11 +30,11 @@ The **First Sample Note** begins one contiguous range of 16 notes. For example, 
 | --- | --- | --- | --- |
 | Empty, idle | Running | Start recording | Do nothing |
 | Empty, idle | Stopped | Do nothing | Do nothing |
-| Empty, recording | Any | Do nothing | Stop recording and store the sample |
+| Empty, recording | Any | Do nothing while the original note is held; during the recording tail, play the capture so far while recording continues | Stop recording and store the sample |
 | Sample loaded, stopped | Any | Start playback from the beginning | Do nothing |
 | Sample loaded, playing | Any | Restart playback from the beginning | Stop playback |
 
-Recording begins immediately. After Note Off, recording continues for the configurable recording-tail period (300 ms by default). Playback includes that tail with a decay over the same period. A slot records the selected audio input. Triggering other slots does not stop recording or playback. Stopping the sequencer stops all playback immediately.
+Recording begins immediately. After Note Off, recording continues for the configurable recording-tail period (300 ms by default). If the next pattern cycle triggers that slot before the tail has finished, it plays the captured portion immediately while the tail continues recording. Playback includes that tail with a decay over the same period. A slot records the selected audio input. Triggering other slots does not stop recording or playback. Stopping the sequencer stops all playback immediately.
 
 ## Deleting a sample
 
