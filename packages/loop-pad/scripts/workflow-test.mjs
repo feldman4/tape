@@ -194,7 +194,7 @@ function assertEq(actual, expected, label) {
     assertEq(state.selectedSlot, 1, 'Completed recording selects slot 1');
     assert(state.slots[1].durationSecs < 0.55, 'Zero recording tail adds no capture duration', `got ${state.slots[1].durationSecs}s`);
 
-    console.log('\n10. Recording another slot establishes the previous selection…');
+    console.log('\n10. Recording another slot selects it…');
     await page.evaluate((note) => window.__loopPadTest.noteOn(note), firstNote + 3);
     await page.waitForTimeout(400);
     await page.evaluate((note) => window.__loopPadTest.noteOff(note), firstNote + 3);
@@ -203,14 +203,14 @@ function assertEq(actual, expected, label) {
       return st.slots[3].state === 'stopped' && st.selectedSlot === 3 ? st : null;
     }, TIMEOUT_MS, 'slot 3 finished recording and selected');
 
-    console.log('\n11. Standalone Reset restores the previous selection while running…');
+    console.log('\n11. Standalone Reset clears the selection while running…');
     await page.evaluate((note) => window.__loopPadTest.noteOn(note), deleteNote);
     state = await waitFor(page, () => {
       const st = window.__loopPadTest.getState();
-      return st.slots[3].state === 'empty' && st.selectedSlot === 1 ? st : null;
-    }, TIMEOUT_MS, 'selected slot cleared and prior slot restored by standalone Reset');
+      return st.slots[3].state === 'empty' && st.selectedSlot === null ? st : null;
+    }, TIMEOUT_MS, 'selected slot and selection cleared by standalone Reset');
     assertEq(state.slots[3].state, 'empty', 'Standalone Reset clears selected slot while running');
-    assertEq(state.selectedSlot, 1, 'Reset restores the previous selection after deleting its slot');
+    assertEq(state.selectedSlot, null, 'Reset clears the selection after deleting its slot');
 
     console.log('\n12. Project switch resets the visible slots and persists across reload…');
     await page.evaluate(() => window.__loopPadTest.selectProject(2));

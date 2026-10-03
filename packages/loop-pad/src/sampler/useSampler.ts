@@ -76,7 +76,6 @@ export function useSampler() {
   settingsRef.current = settings;
 
   const selectedSlotRef = useRef<number | null>(null);
-  const previousSelectedSlotRef = useRef<number | null>(null);
   const deletedSlotsRef = useRef<Map<number, Slot>>(new Map());
   const lastSampleEventRef = useRef<{ slot: number; time: number } | null>(null);
   const lastDeleteEventTimeRef = useRef<number | null>(null);
@@ -110,23 +109,12 @@ export function useSampler() {
 
   function selectSlot(slot: number | null): void {
     if (selectedSlotRef.current === slot) return;
-    if (slot !== null && selectedSlotRef.current !== null) {
-      previousSelectedSlotRef.current = selectedSlotRef.current;
-    }
     selectedSlotRef.current = slot;
     setSelectedSlot(slot);
   }
 
   function clearSelection(): void {
-    previousSelectedSlotRef.current = null;
     selectSlot(null);
-  }
-
-  function restorePreviousSelection(): void {
-    const previous = previousSelectedSlotRef.current;
-    previousSelectedSlotRef.current = null;
-    selectedSlotRef.current = previous;
-    setSelectedSlot(previous);
   }
 
   function deleteSlot(slot: number): void {
@@ -148,7 +136,7 @@ export function useSampler() {
     }
     if (current.samples) deletedSlotsRef.current.set(slot, { ...current, state: 'stopped' });
     projectRef.current.slots[slot] = makeDefaultSlot();
-    if (selectedSlotRef.current === slot) restorePreviousSelection();
+    if (selectedSlotRef.current === slot) clearSelection();
     scheduleAutoSave();
   }
 

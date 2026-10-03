@@ -44,7 +44,7 @@ The selected sample receives the four per-slot mixer CCs and is outlined in thin
 | --- | --- | --- |
 | Finish recording a slot | Any | Selects the recorded slot. |
 | Trigger a loaded slot | Stopped | Selects the triggered slot. |
-| Delete the selected slot | Any | Selects the slot that was selected immediately before it. |
+| Delete the selected slot | Any | Clears the selection. |
 | Send a standalone Delete Note | Running | Deletes and clears the selected slot after 500 ms; if no slot is selected, it has no effect. |
 | Switch projects | Any | Clears the selection. |
 | Clear Project Memory | Any | Clears the selection. |
