@@ -36,7 +36,7 @@ export function SlotView({ slot, index, firstNote, progress, tick, active, selec
       <SlotRing slot={slot} progress={progress} tick={tick} />
       <div style={{ display: 'flex', gap: 10 }}>
         <MiniKnob label="LEV" value={slot.mixer.level} color="#3b82f6" />
-        <MiniKnob label="PAN" value={(slot.mixer.pan + 1) / 2} color="#3b82f6" />
+        <MiniKnob label="PAN" value={slot.mixer.pan} color="#3b82f6" sweep="bipolar" />
         <MiniKnob label="LPF" value={slot.mixer.lpfCutoff} color="#3b82f6" />
         <MiniKnob label="HPF" value={slot.mixer.hpfCutoff} color="#3b82f6" />
       </div>

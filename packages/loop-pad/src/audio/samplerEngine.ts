@@ -70,7 +70,7 @@ export class SamplerEngine {
   private outputChannelCount = 2;
 
   private buffers = new Map<number, AudioBuffer>();
-  private voices = new Map<number, Voice>();
+  private voices = new Map<number, Set<Voice>>();
   private filterSlopeStages: 1 | 2 = 2;
   private levelSplitter: ChannelSplitterNode | null = null;
   private levelAnalyserL: AnalyserNode | null = null;
@@ -219,7 +219,9 @@ export class SamplerEngine {
   setOutputChannelPair(start: number): void {
     const maximumStart = Math.max(0, this.outputChannelCount - 2);
     this.outputChannelPairStart = Math.max(0, Math.min(maximumStart, start));
-    for (const voice of this.voices.values()) this.connectVoiceToOutput(voice);
+    for (const voices of this.voices.values()) {
+      for (const voice of voices) this.connectVoiceToOutput(voice);
+    }
   }
 
   private async acquireStream(deviceId?: string): Promise<MediaStream> {
@@ -344,13 +346,14 @@ export class SamplerEngine {
   play(slot: number, mixer: SlotMixerValues, tailMs: number, startOffsetMs = 0): void {
     const buffer = this.buffers.get(slot);
     if (!buffer) return;
-    this.stopVoice(slot);
 
     const ctx = this.audioContext;
     const source = ctx.createBufferSource();
     source.buffer = buffer;
     const startOffsetSecs = Math.min(buffer.duration, Math.max(0, startOffsetMs) / 1000);
     const playbackDurationSecs = buffer.duration - startOffsetSecs;
+    const tailSecs = Math.min(playbackDurationSecs, Math.max(0, tailMs) / 1000);
+    this.fadeOutVoices(slot, tailSecs);
 
     const lpf: BiquadFilterNode[] = [];
     const hpf: BiquadFilterNode[] = [];
@@ -373,7 +376,6 @@ export class SamplerEngine {
     const gain = ctx.createGain();
     gain.gain.value = mixer.level;
     const tailGain = ctx.createGain();
-    const tailSecs = Math.min(playbackDurationSecs, Math.max(0, tailMs) / 1000);
     if (tailSecs > 0) {
       tailGain.gain.setValueAtTime(1, ctx.currentTime);
       tailGain.gain.setValueAtTime(1, ctx.currentTime + playbackDurationSecs - tailSecs);
@@ -384,35 +386,60 @@ export class SamplerEngine {
     const chain: AudioNode[] = [source, ...lpf, ...hpf, panner, gain, tailGain];
     for (let i = 0; i < chain.length - 1; i++) chain[i]!.connect(chain[i + 1]!);
     tailGain.connect(outputSplitter);
-    this.connectVoiceToOutput({ source, gain, tailGain, outputSplitter, panner, lpf, hpf });
+    const voice = { source, gain, tailGain, outputSplitter, panner, lpf, hpf };
+    this.connectVoiceToOutput(voice);
 
     source.onended = () => {
-      this.voices.delete(slot);
-      for (const listener of this.endedListeners) listener(slot);
+      this.removeVoice(slot, voice);
     };
     source.start(0, startOffsetSecs);
-    this.voices.set(slot, { source, gain, tailGain, outputSplitter, panner, lpf, hpf });
+    let voices = this.voices.get(slot);
+    if (!voices) {
+      voices = new Set();
+      this.voices.set(slot, voices);
+    }
+    voices.add(voice);
   }
 
   /** Stops playback for a slot; a no-op if it isn't currently playing. */
   stop(slot: number): void {
-    this.stopVoice(slot);
+    this.stopVoices(slot);
   }
 
-  private stopVoice(slot: number): void {
-    const voice = this.voices.get(slot);
-    if (!voice) return;
+  private stopVoices(slot: number): void {
+    const voices = this.voices.get(slot);
+    if (!voices) return;
+    for (const voice of voices) this.fadeOutVoice(voice, VOICE_RELEASE_SECS);
+    this.voices.delete(slot);
+  }
+
+  private fadeOutVoices(slot: number, durationSecs: number): void {
+    const voices = this.voices.get(slot);
+    if (!voices) return;
+    for (const voice of voices) this.fadeOutVoice(voice, durationSecs);
+  }
+
+  private fadeOutVoice(voice: Voice, durationSecs: number): void {
     const now = this.audioContext.currentTime;
     voice.gain.gain.cancelScheduledValues(now);
     voice.gain.gain.setValueAtTime(voice.gain.gain.value, now);
-    voice.gain.gain.linearRampToValueAtTime(0, now + VOICE_RELEASE_SECS);
-    voice.source.onended = () => voice.outputSplitter.disconnect();
+    if (durationSecs > 0) voice.gain.gain.linearRampToValueAtTime(0, now + durationSecs);
+    else voice.gain.gain.setValueAtTime(0, now);
     try {
-      voice.source.stop(now + VOICE_RELEASE_SECS);
+      voice.source.stop(now + durationSecs);
     } catch {
       // already stopped
     }
+  }
+
+  private removeVoice(slot: number, voice: Voice): void {
+    voice.outputSplitter.disconnect();
+    const voices = this.voices.get(slot);
+    if (!voices) return;
+    voices.delete(voice);
+    if (voices.size > 0) return;
     this.voices.delete(slot);
+    for (const listener of this.endedListeners) listener(slot);
   }
 
   private connectVoiceToOutput(voice: Voice): void {
@@ -422,17 +449,19 @@ export class SamplerEngine {
   }
 
   isPlaying(slot: number): boolean {
-    return this.voices.has(slot);
+    return (this.voices.get(slot)?.size ?? 0) > 0;
   }
 
-  /** Live-updates level/pan/filter cutoffs for a currently playing voice. */
+  /** Live-updates level/pan/filter cutoffs for all active voices in a slot. */
   updateMixer(slot: number, mixer: SlotMixerValues): void {
-    const voice = this.voices.get(slot);
-    if (!voice) return;
-    voice.gain.gain.value = mixer.level;
-    voice.panner.pan.value = mixer.pan;
-    for (const node of voice.lpf) node.frequency.value = lpfFrequency(mixer.lpfCutoff);
-    for (const node of voice.hpf) node.frequency.value = hpfFrequency(mixer.hpfCutoff);
+    const voices = this.voices.get(slot);
+    if (!voices) return;
+    for (const voice of voices) {
+      voice.gain.gain.value = mixer.level;
+      voice.panner.pan.value = mixer.pan;
+      for (const node of voice.lpf) node.frequency.value = lpfFrequency(mixer.lpfCutoff);
+      for (const node of voice.hpf) node.frequency.value = hpfFrequency(mixer.hpfCutoff);
+    }
   }
 
   /** Plays one audible metronome click per count-in beat on the selected output pair. */
@@ -477,7 +506,7 @@ export class SamplerEngine {
   }
 
   async dispose(): Promise<void> {
-    for (const slot of Array.from(this.voices.keys())) this.stopVoice(slot);
+    for (const slot of Array.from(this.voices.keys())) this.stopVoices(slot);
     this.stopCountInClicks();
     this.recorderNode?.port.close();
     this.recorderNode?.disconnect();

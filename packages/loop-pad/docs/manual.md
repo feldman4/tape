@@ -34,7 +34,7 @@ The **First Sample Note** begins one contiguous range of 16 notes. For example, 
 | Sample loaded, stopped | Any | Start playback from the beginning | Do nothing |
 | Sample loaded, playing | Any | Restart playback from the beginning | Stop playback |
 
-Recording begins immediately. After Note Off, recording continues for the configurable recording-tail period (300 ms by default). If the next pattern cycle triggers that slot before the tail has finished, it plays the captured portion immediately while the tail continues recording. Playback includes that tail with a decay over the same period. A slot records the selected audio input. Samples are one-shots and can overlap, so triggering other slots does not stop recording or playback. Stopping the sequencer stops all playback immediately.
+Recording begins immediately. After Note Off, recording continues for the configurable recording-tail period (300 ms by default). If the next pattern cycle triggers that slot before the tail has finished, it plays the captured portion immediately while the tail continues recording. Playback fades the final recording-tail period to silence. When the same slot is retriggered before its playback ends, the outgoing playback fades out over the recording-tail period while the new playback starts from the beginning, crossfading the tail into the new attack. A slot records the selected audio input. Samples are one-shots and can overlap, so triggering other slots does not stop recording or playback. Stopping the sequencer stops all playback immediately.
 
 ## Selected sample
 
@@ -153,7 +153,7 @@ Select the gear button on the front panel to open the configuration panel. It co
 | Level CC | Sets the global CC number used for the selected slot's level. | 4 |
 | Master Level CC | Sets the global CC number used for final playback level. | 16 |
 | Count-in Beats | Sets the number of beats before transport restarts while Count-in is on. | 4 |
-| Recording Tail | Continues recording after Note Off and sets the playback decay duration. | 300 ms |
+| Recording Tail | Continues recording after Note Off and sets the playback fade and same-slot retrigger crossfade duration. | 300 ms |
 | Recording Latency | Skips this amount from the start of every sample when it is triggered, compensating for recording latency without modifying the stored sample. Changes apply to the next trigger. | 20 ms |
 | Filter Slope | Sets the global LPF and HPF slope in the configuration panel. | 24 dB/oct |
 | Clear Project Memory | Permanently removes all ten locally stored projects without changing device or MIDI settings. | — |
