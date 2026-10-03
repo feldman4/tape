@@ -8,7 +8,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { SamplerEngine } from '../audio/samplerEngine';
 import { MidiEngine, type MidiDeviceRef, type MidiEvent } from '../midi/midiEngine';
-import { computePeaks, makeDefaultProject, makeDefaultSlot, SLOT_COUNT, type Project } from './model';
+import { computePeaks, makeDefaultProject, makeDefaultSlot, SLOT_COUNT, type Project, type Slot } from './model';
 import {
   clearAllProjects, loadProject, saveProject, downloadAllProjects,
   restoreProjectsFromZip, restoreSingleProject, PROJECT_COUNT,
@@ -76,6 +76,8 @@ export function useSampler() {
   settingsRef.current = settings;
 
   const selectedSlotRef = useRef<number | null>(null);
+  const previousSelectedSlotRef = useRef<number | null>(null);
+  const deletedSlotsRef = useRef<Map<number, Slot>>(new Map());
   const lastSampleEventRef = useRef<{ slot: number; time: number } | null>(null);
   const lastDeleteEventTimeRef = useRef<number | null>(null);
   const standaloneDeleteTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -88,6 +90,7 @@ export function useSampler() {
   const expectedTransportEchoRef = useRef<{ type: 'start' | 'stop'; expiresAt: number } | null>(null);
   const sentTransportEventsRef = useRef<('start' | 'stop')[]>([]);
   const initPromiseRef = useRef<Promise<void> | null>(null);
+  const initErrorRef = useRef<string | null>(null);
   const autoSaveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const playbackStartRef = useRef<Map<number, { startedAt: number; durationMs: number }>>(new Map());
   const recordingTailTimeoutRef = useRef<Map<number, ReturnType<typeof setTimeout>>>(new Map());
@@ -107,20 +110,45 @@ export function useSampler() {
 
   function selectSlot(slot: number | null): void {
     if (selectedSlotRef.current === slot) return;
+    if (slot !== null && selectedSlotRef.current !== null) {
+      previousSelectedSlotRef.current = selectedSlotRef.current;
+    }
     selectedSlotRef.current = slot;
     setSelectedSlot(slot);
+  }
+
+  function clearSelection(): void {
+    previousSelectedSlotRef.current = null;
+    selectSlot(null);
+  }
+
+  function restorePreviousSelection(): void {
+    const previous = previousSelectedSlotRef.current;
+    previousSelectedSlotRef.current = null;
+    selectedSlotRef.current = previous;
+    setSelectedSlot(previous);
   }
 
   function deleteSlot(slot: number): void {
     const engine = engineRef.current!;
     const current = projectRef.current.slots[slot]!;
+    const deleted = deletedSlotsRef.current.get(slot);
     if (current.state === 'recording') {
       cancelRecordingTail(slot);
       engine.cancelRecording(slot);
     }
     engine.clearSlotBuffer(slot);
+    if (deleted) {
+      projectRef.current.slots[slot] = deleted;
+      if (deleted.samples) engine.loadSlotBuffer(slot, deleted.samples);
+      deletedSlotsRef.current.delete(slot);
+      selectSlot(slot);
+      scheduleAutoSave();
+      return;
+    }
+    if (current.samples) deletedSlotsRef.current.set(slot, { ...current, state: 'stopped' });
     projectRef.current.slots[slot] = makeDefaultSlot();
-    if (selectedSlotRef.current === slot) selectSlot(null);
+    if (selectedSlotRef.current === slot) restorePreviousSelection();
     scheduleAutoSave();
   }
 
@@ -196,6 +224,7 @@ export function useSampler() {
           current.recordingPeaks = [];
           current.state = 'stopped';
           engine.loadSlotBuffer(slot, samples);
+          deletedSlotsRef.current.delete(slot);
           selectSlot(slot);
           scheduleAutoSave();
         });
@@ -259,7 +288,7 @@ export function useSampler() {
     if (countInStateRef.current !== 'counting') return;
     if (countInTimerRef.current) clearTimeout(countInTimerRef.current);
     countInTimerRef.current = null;
-    countInStateRef.current = 'awaiting-restart';
+    countInStateRef.current = 'idle';
     setCountInCounting(false);
     sendTransportStart();
   }
@@ -403,7 +432,11 @@ export function useSampler() {
   }
 
   async function init(opts?: { silent?: boolean }): Promise<void> {
-    if (initPromiseRef.current) return initPromiseRef.current;
+    if (initPromiseRef.current) {
+      await initPromiseRef.current;
+      if (!opts?.silent && initErrorRef.current) setError(initErrorRef.current);
+      return;
+    }
     const pending = initialize(opts);
     initPromiseRef.current = pending;
     try {
@@ -491,6 +524,7 @@ export function useSampler() {
       const initialProjectIndex = lastProjectIndex >= 1 && lastProjectIndex <= PROJECT_COUNT ? lastProjectIndex : 1;
       const loaded = await loadProject(initialProjectIndex);
       projectRef.current = loaded;
+      deletedSlotsRef.current.clear();
       projectIndexRef.current = initialProjectIndex;
       for (let slot = 0; slot < SLOT_COUNT; slot++) {
         const s = loaded.slots[slot]!;
@@ -498,9 +532,12 @@ export function useSampler() {
       }
       setProjectIndex(initialProjectIndex);
       setProject({ slots: [...loaded.slots] });
+      initErrorRef.current = null;
       setReady(true);
     } catch (e) {
-      if (!opts?.silent) setError(e instanceof Error ? e.message : String(e));
+      const message = e instanceof Error ? e.message : String(e);
+      initErrorRef.current = message;
+      if (!opts?.silent) setError(message);
     }
   }
 
@@ -651,9 +688,10 @@ export function useSampler() {
 
     const loaded = await loadProject(index);
     projectRef.current = loaded;
+    deletedSlotsRef.current.clear();
     projectIndexRef.current = index;
     updateSettings({ lastProjectIndex: index });
-    selectSlot(null);
+    clearSelection();
     for (let slot = 0; slot < SLOT_COUNT; slot++) {
       engine.clearSlotBuffer(slot);
       const s = loaded.slots[slot]!;
@@ -661,6 +699,28 @@ export function useSampler() {
     }
     setProjectIndex(index);
     setProject({ slots: [...loaded.slots] });
+  }
+
+  async function initializeProject(): Promise<void> {
+    const engine = engineRef.current;
+    if (!engine) return;
+    if (autoSaveTimeoutRef.current) clearTimeout(autoSaveTimeoutRef.current);
+
+    for (let slot = 0; slot < SLOT_COUNT; slot++) {
+      cancelRecordingTail(slot);
+      engine.cancelRecording(slot);
+      engine.stop(slot);
+      engine.clearSlotBuffer(slot);
+    }
+
+    const emptyProject = makeDefaultProject();
+    projectRef.current = emptyProject;
+    deletedSlotsRef.current.clear();
+    clearSelection();
+    playbackStartRef.current.clear();
+    await saveProject(projectIndexRef.current, emptyProject);
+    setProject({ slots: [...emptyProject.slots] });
+    setRestoreStatus('');
   }
 
   async function downloadProjects(): Promise<void> {
@@ -688,6 +748,7 @@ export function useSampler() {
       const engine = engineRef.current!;
       const loaded = await loadProject(projectIndexRef.current);
       projectRef.current = loaded;
+      deletedSlotsRef.current.clear();
       for (let slot = 0; slot < SLOT_COUNT; slot++) {
         engine.clearSlotBuffer(slot);
         const s = loaded.slots[slot]!;
@@ -713,9 +774,10 @@ export function useSampler() {
     }
     const emptyProject = makeDefaultProject();
     projectRef.current = emptyProject;
+    deletedSlotsRef.current.clear();
     projectIndexRef.current = 1;
     updateSettings({ lastProjectIndex: 1 });
-    selectSlot(null);
+    clearSelection();
     playbackStartRef.current.clear();
     setProjectIndex(1);
     setProject({ slots: [...emptyProject.slots] });
@@ -734,7 +796,7 @@ export function useSampler() {
       midiOutputs, selectedMidiOutputId, selectMidiOutput,
       settings, updateSettings,
       isSlotPlaying,
-      projectIndex, selectProject, projectCount: PROJECT_COUNT,
+      projectIndex, selectProject, initializeProject, projectCount: PROJECT_COUNT,
       project, bpm, clockRunning, countInCounting, playbackProgress, tick, selectedSlot,
       downloadProjects, restoreFromFile, clearProjectMemory, restoreStatus, inputLevelAnalysers, masterLevelAnalysers,
       startCountIn,

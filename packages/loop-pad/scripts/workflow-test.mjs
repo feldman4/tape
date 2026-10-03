@@ -50,10 +50,18 @@ function assertEq(actual, expected, label) {
 
 (async () => {
   const browser = await chromium.launch({
-    headless: false,
-    args: ['--use-fake-ui-for-media-stream', '--use-fake-device-for-media-stream'],
+    headless: true,
+    args: ['--autoplay-policy=no-user-gesture-required', '--use-fake-ui-for-media-stream', '--use-fake-device-for-media-stream'],
   });
-  const page = await browser.newPage();
+  const context = await browser.newContext();
+  await context.grantPermissions(['microphone'], { origin: new URL(APP_URL).origin });
+  await context.addInitScript(() => {
+    Object.defineProperty(navigator, 'requestMIDIAccess', {
+      configurable: true,
+      value: async () => ({ inputs: new Map(), outputs: new Map() }),
+    });
+  });
+  const page = await context.newPage();
   console.log('\n=== Loop Pad Workflow Test ===\n');
 
   try {
@@ -164,7 +172,17 @@ function assertEq(actual, expected, label) {
     assertEq(state.slots[0].state, 'empty', 'Slot 0 empty after delete');
     assert(!state.slots[0].hasSample, 'Slot 0 has no sample after delete');
 
-    console.log('\n8. A zero recording tail stops capture immediately…');
+    console.log('\n8. Deleting the same slot again restores it…');
+    await page.evaluate((note) => window.__loopPadTest.noteOn(note), firstNote);
+    await page.evaluate((note) => window.__loopPadTest.noteOn(note), deleteNote);
+    state = await waitFor(page, () => {
+      const st = window.__loopPadTest.getState();
+      return st.slots[0].state === 'stopped' && st.slots[0].hasSample ? st : null;
+    }, 2000, 'slot 0 restored by a second delete');
+    assertEq(state.slots[0].state, 'stopped', 'Second delete restores slot 0');
+    assert(state.slots[0].hasSample, 'Restored slot 0 has its stored sample');
+
+    console.log('\n9. A zero recording tail stops capture immediately…');
     await page.evaluate(() => window.__loopPadTest.updateSettings({ recordingTailMs: 0 }));
     await page.evaluate((note) => window.__loopPadTest.noteOn(note), firstNote + 1);
     await page.waitForTimeout(400);
@@ -176,16 +194,25 @@ function assertEq(actual, expected, label) {
     assertEq(state.selectedSlot, 1, 'Completed recording selects slot 1');
     assert(state.slots[1].durationSecs < 0.55, 'Zero recording tail adds no capture duration', `got ${state.slots[1].durationSecs}s`);
 
-    console.log('\n9. Standalone Reset clears the selected slot while running…');
+    console.log('\n10. Recording another slot establishes the previous selection…');
+    await page.evaluate((note) => window.__loopPadTest.noteOn(note), firstNote + 3);
+    await page.waitForTimeout(400);
+    await page.evaluate((note) => window.__loopPadTest.noteOff(note), firstNote + 3);
+    state = await waitFor(page, () => {
+      const st = window.__loopPadTest.getState();
+      return st.slots[3].state === 'stopped' && st.selectedSlot === 3 ? st : null;
+    }, TIMEOUT_MS, 'slot 3 finished recording and selected');
+
+    console.log('\n11. Standalone Reset restores the previous selection while running…');
     await page.evaluate((note) => window.__loopPadTest.noteOn(note), deleteNote);
     state = await waitFor(page, () => {
       const st = window.__loopPadTest.getState();
-      return st.slots[1].state === 'empty' ? st : null;
-    }, TIMEOUT_MS, 'selected slot cleared by standalone Reset');
-    assertEq(state.slots[1].state, 'empty', 'Standalone Reset clears selected slot while running');
-    assertEq(state.selectedSlot, null, 'Reset clears the selection after deleting its slot');
+      return st.slots[3].state === 'empty' && st.selectedSlot === 1 ? st : null;
+    }, TIMEOUT_MS, 'selected slot cleared and prior slot restored by standalone Reset');
+    assertEq(state.slots[3].state, 'empty', 'Standalone Reset clears selected slot while running');
+    assertEq(state.selectedSlot, 1, 'Reset restores the previous selection after deleting its slot');
 
-    console.log('\n10. Project switch resets the visible slots and persists across reload…');
+    console.log('\n12. Project switch resets the visible slots and persists across reload…');
     await page.evaluate(() => window.__loopPadTest.selectProject(2));
     state = await waitFor(page, () => {
       const st = window.__loopPadTest.getState();
@@ -205,7 +232,16 @@ function assertEq(actual, expected, label) {
       return st.projectIndex === 1 ? st : null;
     }, TIMEOUT_MS, 'project switched back to 1');
 
-    console.log('\n11. Count-in turns on and off from dedicated channel-16 MIDI notes…');
+    console.log('\n13. Initialize clears the current project…');
+    await page.evaluate(() => window.__loopPadTest.initializeProject());
+    state = await waitFor(page, () => {
+      const st = window.__loopPadTest.getState();
+      return st.slots.every((slot) => slot.state === 'empty') && st.selectedSlot === null ? st : null;
+    }, TIMEOUT_MS, 'current project initialized');
+    assert(state.slots.every((slot) => slot.state === 'empty'), 'Initialize clears every slot in the current project');
+    assertEq(state.selectedSlot, null, 'Initialize clears the selection');
+
+    console.log('\n14. Count-in turns on and off from dedicated channel-16 MIDI notes…');
     await page.evaluate(([note, channel]) => window.__loopPadTest.noteOn(note, 100, channel), [countInOnNote, 14]);
     state = await page.evaluate(() => window.__loopPadTest.getState());
     assertEq(state.settings.countInEnabled, false, 'Count-in ignores its On note on another channel');
@@ -223,7 +259,7 @@ function assertEq(actual, expected, label) {
     assertEq(state.settings.countInEnabled, false, 'Count-in disabled by MIDI Off note');
     await page.evaluate((note) => window.__loopPadTest.noteOn(note), countInOnNote);
 
-    console.log('\n12. Count-in: Start intercepted, then re-Start after N beats of clock…');
+    console.log('\n15. Count-in: Start intercepted, then re-Start after N beats of clock…');
     await page.evaluate(() => window.__loopPadTest.updateSettings({ countInBeats: 2 }));
     await waitFor(page, () => window.__loopPadTest.getState().settings.countInEnabled === true, TIMEOUT_MS, 'count-in enabled');
     await page.evaluate(() => window.__loopPadTest.start());
@@ -253,19 +289,19 @@ function assertEq(actual, expected, label) {
     assert(!state.countInCounting, 'Count-in finished after the configured beat count');
     transportEvents = await page.evaluate(() => window.__loopPadTest.sentTransportEvents());
     assertEq(transportEvents.at(-1), 'start', 'Count-in sends Start to the OP-Z after the final beat');
+    await page.evaluate((note) => window.__loopPadTest.noteOn(note), firstNote + 1);
+    state = await page.evaluate(() => window.__loopPadTest.getState());
+    assertEq(state.slots[1].state, 'recording', 'Slot notes record after count-in without a Start echo');
     await page.evaluate(() => window.__loopPadTest.start());
     state = await page.evaluate(() => window.__loopPadTest.getState());
     assert(!state.countInCounting, 'Echoed Start does not begin another count-in');
-    await page.evaluate((note) => window.__loopPadTest.noteOn(note), firstNote + 1);
-    state = await page.evaluate(() => window.__loopPadTest.getState());
-    assertEq(state.slots[1].state, 'recording', 'Slot notes record after the synthetic Start echo');
     await page.evaluate((note) => window.__loopPadTest.noteOff(note), firstNote + 1);
     await waitFor(page, () => {
       const st = window.__loopPadTest.getState();
       return st.slots[1].state === 'stopped' ? st : null;
     }, TIMEOUT_MS, 'slot 1 recording finished after count-in');
 
-    console.log('\n11. BPM: stabilize after two beats of timestamped MIDI Clock…');
+    console.log('\n16. BPM: stabilize after two beats of timestamped MIDI Clock…');
     const bpm = 120;
     const clockIntervalMs = 60_000 / (bpm * 24);
     const firstClockTime = performance.now();
@@ -301,8 +337,10 @@ function assertEq(actual, expected, label) {
     }, TIMEOUT_MS, 'BPM cleared on Stop');
     assertEq(state.bpm, null, 'BPM clears on Stop');
 
-    console.log('\n12. Invalid project recovery clears only project memory…');
-    await page.evaluate(async () => {
+    console.log('\n17. Invalid project recovery clears only project memory…');
+    await page.waitForTimeout(1000); // let the preceding recording autosave settle
+    const corruptProjectIndex = await page.evaluate(() => window.__loopPadTest.getState().projectIndex);
+    await page.evaluate(async (index) => {
       const db = await new Promise((resolve, reject) => {
         const request = indexedDB.open('loop-pad-projects');
         request.onsuccess = () => resolve(request.result);
@@ -311,13 +349,13 @@ function assertEq(actual, expected, label) {
       await new Promise((resolve, reject) => {
         const transaction = db.transaction('projects', 'readwrite');
         transaction.objectStore('projects').put({
-          name: 'project-01', savedAt: Date.now(), bytes: new Uint8Array([0, 0, 0, 0]),
+          name: `project-${String(index).padStart(2, '0')}`, savedAt: Date.now(), bytes: new Uint8Array([0, 0, 0, 0]),
         });
         transaction.oncomplete = () => resolve();
         transaction.onerror = () => reject(transaction.error);
       });
       db.close();
-    });
+    }, corruptProjectIndex);
     await page.reload({ waitUntil: 'domcontentloaded' });
     const reloadInitBtn = page.locator('button', { hasText: 'Enable Audio' });
     if (await reloadInitBtn.isVisible({ timeout: 3000 }).catch(() => false)) await reloadInitBtn.click();

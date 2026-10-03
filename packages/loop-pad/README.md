@@ -15,6 +15,17 @@ npm run dev:loop-pad
 Requires a real Chromium-based browser (Chrome/Edge) for Web MIDI's
 permission prompt.
 
+## Refreshing the front-panel image
+
+With the Loop Pad dev server running, render the current UI into
+`docs/front-panel.png`:
+
+```sh
+npm run render:front-panel
+```
+
+Set `LOOP_PAD_URL` to capture an app running at a different URL.
+
 ```sh
 npm run build:loop-pad   # tsc -b && vite build
 npm run lint:loop-pad    # oxlint

@@ -49,6 +49,7 @@ export function SamplerPage() {
       startCountIn: () => s.startCountIn(),
       sentTransportEvents: () => s.getSentTransportEvents(),
       selectProject: (index: number) => s.selectProject(index),
+      initializeProject: () => s.initializeProject(),
       updateSettings: (patch: Partial<typeof s.settings>) => s.updateSettings(patch),
     };
   }, [s]);
@@ -87,6 +88,16 @@ export function SamplerPage() {
             ))}
           </select>
         </label>
+        <button
+          style={btnStyle}
+          onClick={() => {
+            if (window.confirm(`Initialize Project ${s.projectIndex}? This cannot be undone.`)) {
+              void s.initializeProject();
+            }
+          }}
+        >
+          Initialize
+        </button>
         <button style={btnStyle} onClick={() => void s.downloadProjects()}>Download</button>
         <button style={btnStyle} onClick={() => fileInputRef.current?.click()}>Restore</button>
         <input

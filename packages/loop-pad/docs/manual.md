@@ -2,7 +2,7 @@
 
 ## Purpose
 
-The sampler records and plays 16 audio clips from MIDI notes. It is designed for an OP-Z-led setup and runs in a Chromium browser on macOS. Ten projects preserve samples and mixer state in browser storage.
+The sampler records and plays 16 audio clips from MIDI notes. It is designed for an OP-Z-led setup and runs in a Chromium browser on macOS.
 
 ## Setup
 
@@ -20,7 +20,7 @@ The sampler records and plays 16 audio clips from MIDI notes. It is designed for
 6. Assign the four per-slot mixer CCs: **HPF Cutoff**, **LPF Cutoff**, **Pan**, and **Level** (CC 1–4 by default), plus **Master Level** (CC 16 by default).
 7. Select **Project 1–10** from the project dropdown.
 
-The app remembers the last selected Audio Input, Input Channels, Audio Output, Audio Output Channels, MIDI Input, and MIDI Output in browser storage. On later visits, it automatically reconnects each device selector when a device with the same name becomes available, then restores remembered stereo input and output pairs when the device exposes them. If a remembered device or channel selection is unavailable, the selector uses its default until it appears or another selection is made.
+The app remembers the last selected Audio Input, Input Channels, Audio Output, Audio Output Channels, MIDI Input, MIDI Output, and project in browser storage. On later visits, it automatically reconnects each device selector when a device with the same name becomes available, then restores remembered stereo input and output pairs when the device exposes them. It also opens the last selected project. If a remembered device or channel selection is unavailable, the selector uses its default until it appears or another selection is made.
 
 ## Sample notes
 
@@ -36,6 +36,19 @@ The **First Sample Note** begins one contiguous range of 16 notes. For example, 
 
 Recording begins immediately. After Note Off, recording continues for the configurable recording-tail period (300 ms by default). If the next pattern cycle triggers that slot before the tail has finished, it plays the captured portion immediately while the tail continues recording. Playback includes that tail with a decay over the same period. A slot records the selected audio input. Triggering other slots does not stop recording or playback. Stopping the sequencer stops all playback immediately.
 
+## Selected sample
+
+The selected sample receives the four per-slot mixer CCs and is outlined in thin yellow on the front panel. There is no selection when the app starts or after a project change. The following table lists the only actions that change the selection:
+
+| Action | Sequencer state | Effect on selected sample |
+| --- | --- | --- |
+| Finish recording a slot | Any | Selects the recorded slot. |
+| Trigger a loaded slot | Stopped | Selects the triggered slot. |
+| Delete the selected slot | Any | Selects the slot that was selected immediately before it. |
+| Send a standalone Delete Note | Running | Deletes and clears the selected slot after 500 ms; if no slot is selected, it has no effect. |
+| Switch projects | Any | Clears the selection. |
+| Clear Project Memory | Any | Clears the selection. |
+
 ## Deleting a sample
 
 There is one global **Delete Note**.
@@ -43,9 +56,9 @@ There is one global **Delete Note**.
 1. Trigger a slot's sample note.
 2. Trigger the Delete Note within 500 ms.
 
-That slot is cleared. The two notes may arrive in either order, provided they are no more than 500 ms apart. Deleting a recording cancels it; deleting a playing sample stops it. When the sequencer is stopped, a Delete Note outside the 500 ms window does nothing.
+That slot is cleared. Repeat the same delete gesture for that slot to restore the deleted sample and its mixer settings. The two notes may arrive in either order, provided they are no more than 500 ms apart. Deleting a recording cancels it; deleting a playing sample stops it. When the sequencer is stopped, a Delete Note outside the 500 ms window does nothing.
 
-When the sequencer is running, a Delete Note by itself clears the selected slot after the 500 ms pairing window. Recording a slot selects it; mixer CC adjustments continue to apply to the selected slot. Playing a sample while the sequencer is stopped also selects its slot. The selected slot has a thin yellow outline. Starting playback while the sequencer is running does not change the selection, so a standalone Delete Note can undo the last recording.
+When the sequencer is running, a Delete Note by itself deletes the selected slot after the 500 ms pairing window. Starting playback while the sequencer is running does not change the selection, so a standalone Delete Note can undo the last recording.
 
 Choose a Delete Note outside the 16-note sample range.
 
@@ -58,13 +71,15 @@ Each slot has four controls:
 - **LPF Cutoff** — lowers the low-pass cutoff as the CC value decreases.
 - **HPF Cutoff** — raises the high-pass cutoff as the CC value increases.
 
-The four per-slot CC assignments control the **selected slot**. Completing a recording selects that slot, and subsequent CC adjustments continue to apply to it. Playing a slot while the sequencer is stopped selects that slot; playback while running does not change the selection. The global **Master Level CC** controls the final playback level without requiring a selected slot.
+The four per-slot CC assignments control the **selected slot**. Completing a recording selects that slot, and subsequent CC adjustments continue to apply to it. The global **Master Level CC** controls the final playback level without requiring a selected slot.
 
 CCs are accepted only on the configured MIDI channel. Until a slot is selected, mixer CCs do nothing. The filters have no resonance control. Filter slope and other advanced filter behavior are global settings in the configuration panel.
 
 ## Projects
 
-Use the project dropdown to select **Project 1–10**. Each project stores its 16 samples and all per-sample mixer settings. Changes are saved automatically in the browser. Switching projects saves the current project, then loads the selected project. Reloading the app opens the last selected project.
+Use the project dropdown to select **Project 1–10**. Each project stores its 16 samples and all per-sample mixer settings. Changes are saved automatically in the browser.
+
+**Initialize** permanently replaces the selected project with an empty project. It does not affect the other nine projects or app settings.
 
 Project playback and recording stop when switching projects. Device selections, MIDI and CC assignments, count-in settings, recording latency compensation, and global filter configuration are app settings and do not change with the project.
 
@@ -150,6 +165,7 @@ Select the gear button on the front panel to open the configuration panel. It co
 | Setting | Function | Default |
 | --- | --- | --- |
 | Project | Selects Project 1–10, saving the current project before loading another. | 1 |
+| Initialize | Permanently replaces the selected project with an empty project. | — |
 | Download Projects | Downloads all ten projects in one ZIP. | — |
 | Restore | Restores matching projects from a ZIP or replaces the current project from one project file. | — |
 
@@ -159,5 +175,4 @@ Select the gear button on the front panel to open the configuration panel. It co
 - MIDI velocity does not change recording or playback level.
 - Mixer CC values use the standard MIDI range, 0–127.
 - Samples are one-shots and can overlap.
-- Reloading or closing the page preserves the current project in browser storage.
 - Automatic reconnection matches the exact device name. Selecting another device updates the remembered choice.
