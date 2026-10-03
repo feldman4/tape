@@ -24,7 +24,7 @@ The app remembers the last selected Audio Input, Input Channels, Audio Output, A
 
 ## Sample notes
 
-The **First Sample Note** begins one contiguous range of 16 notes. For example, if it is C2, the slots use C2 through D#3. Each note always controls the same slot. Only notes on the configured MIDI channel are accepted.
+The **First Sample Note** begins one contiguous range of 16 notes. For example, if it is C2, the slots use C2 through D#3. Each note always controls the same slot. Only notes on the configured MIDI channel are accepted, and MIDI velocity does not change recording or playback level.
 
 | Slot state | Sequencer state | Note On | Note Off |
 | --- | --- | --- | --- |
@@ -34,7 +34,7 @@ The **First Sample Note** begins one contiguous range of 16 notes. For example, 
 | Sample loaded, stopped | Any | Start playback from the beginning | Do nothing |
 | Sample loaded, playing | Any | Restart playback from the beginning | Stop playback |
 
-Recording begins immediately. After Note Off, recording continues for the configurable recording-tail period (300 ms by default). If the next pattern cycle triggers that slot before the tail has finished, it plays the captured portion immediately while the tail continues recording. Playback includes that tail with a decay over the same period. A slot records the selected audio input. Triggering other slots does not stop recording or playback. Stopping the sequencer stops all playback immediately.
+Recording begins immediately. After Note Off, recording continues for the configurable recording-tail period (300 ms by default). If the next pattern cycle triggers that slot before the tail has finished, it plays the captured portion immediately while the tail continues recording. Playback includes that tail with a decay over the same period. A slot records the selected audio input. Samples are one-shots and can overlap, so triggering other slots does not stop recording or playback. Stopping the sequencer stops all playback immediately.
 
 ## Selected sample
 
@@ -113,11 +113,9 @@ Their appearance shows each slot's state:
 - Playing: playback progress over the waveform.
 - Delete: the circle returns to empty.
 
-All recording, playback, deletion, and mixing is performed by MIDI.
-
 ## Count-in
 
-**Count-in** affects OP-Z transport start only; it does not delay an individual sample recording. Once the BPM indicator has a value, the front-panel **Count-in** button manually runs the same Stop, count, and Start procedure. The app plays an audible click for each count-in beat through the selected audio output.
+The OP-Z has no built-in count-in for recording, so **Count-in** stops it, counts the configured beats, then restarts it. It affects transport start only and does not delay an individual sample recording. Once the BPM indicator has a value, the front-panel **Count-in** button manually runs the same Stop, count, and Start procedure. The app plays an audible click for each count-in beat through the selected audio output.
 
 Send a Note On for the **Count-in On Note** on the configured MIDI channel to enable Count-in, or the **Count-in Off Note** to disable it. Its state is displayed on the front panel and cannot be changed there. The default On and Off notes are 74 and 72.
 
@@ -138,6 +136,12 @@ Select the gear button on the front panel to open the configuration panel. It co
 
 | Option | Function | Default |
 | --- | --- | --- |
+| Audio Input | Selects the signal recorded into slots; its device name is remembered and reconnected automatically. | — |
+| Input Channels | Selects the stereo pair from the audio input recorded into each sample; the last selected pair is restored when available. | 1–2 |
+| Audio Output | Selects where sample playback is sent; its device name is remembered and reconnected automatically. | System default |
+| Output Channels | Selects the stereo output pair for sample playback when the device exposes multiple pairs; the last selected pair is restored when available. | 1–2 |
+| MIDI Input | Selects the source of notes, clock, and transport; its device name is remembered and reconnected automatically. | — |
+| MIDI Output | Selects the destination for Stop and Start during count-in; its device name is remembered and reconnected automatically. | — |
 | MIDI Channel | Sets the channel used by sample notes, the Delete Note, Count-in On and Off Notes, and mixer CCs. | 16 |
 | First Sample Note | Sets the first note in the 16-note slot range. | 53 (F3) |
 | Delete Note | Sets the note used with a slot note to clear that slot. | 76 |
@@ -152,27 +156,14 @@ Select the gear button on the front panel to open the configuration panel. It co
 | Recording Tail | Continues recording after Note Off and sets the playback decay duration. | 300 ms |
 | Recording Latency | Skips this amount from the start of every sample when it is triggered, compensating for recording latency without modifying the stored sample. Changes apply to the next trigger. | 20 ms |
 | Filter Slope | Sets the global LPF and HPF slope in the configuration panel. | 24 dB/oct |
-| Audio Input | Selects the signal recorded into slots; its device name is remembered and reconnected automatically. | — |
-| Input Channels | Selects the stereo pair from the audio input recorded into each sample; the last selected pair is restored when available. | 1–2 |
-| Audio Output | Selects where sample playback is sent; its device name is remembered and reconnected automatically. | System default |
-| Output Channels | Selects the stereo output pair for sample playback when the device exposes multiple pairs; the last selected pair is restored when available. | 1–2 |
-| MIDI Input | Selects the source of notes, clock, and transport; its device name is remembered and reconnected automatically. | — |
-| MIDI Output | Selects the destination for Stop and Start during count-in; its device name is remembered and reconnected automatically. | — |
 | Clear Project Memory | Permanently removes all ten locally stored projects without changing device or MIDI settings. | — |
 
 ## Front-panel settings
 
-| Setting | Function | Default |
-| --- | --- | --- |
-| Project | Selects Project 1–10, saving the current project before loading another. | 1 |
-| Initialize | Permanently replaces the selected project with an empty project. | — |
-| Download Projects | Downloads all ten projects in one ZIP. | — |
-| Restore | Restores matching projects from a ZIP or replaces the current project from one project file. | — |
+| Setting | Function |
+| --- | --- |
+| Project | Selects Project 1–10, saving the current project before loading another. Defaults to Project 1. |
+| Initialize | Permanently replaces the selected project with an empty project. |
+| Download Projects | Downloads all ten projects in one ZIP. |
+| Restore | Restores matching projects from a ZIP or replaces the current project from one project file. |
 
-## Notes
-
-- Sample-note actions distinguish MIDI Note On from Note Off as shown above.
-- MIDI velocity does not change recording or playback level.
-- Mixer CC values use the standard MIDI range, 0–127.
-- Samples are one-shots and can overlap.
-- Automatic reconnection matches the exact device name. Selecting another device updates the remembered choice.
