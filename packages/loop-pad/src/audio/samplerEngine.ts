@@ -57,6 +57,9 @@ export class SamplerEngine {
   private inputSplitter: ChannelSplitterNode | null = null;
   private inputPairMerger: ChannelMergerNode | null = null;
   private silentGain: GainNode | null = null;
+  private monitorGain: GainNode | null = null;
+  private monitorPanner: StereoPannerNode | null = null;
+  private monitorSplitter: ChannelSplitterNode | null = null;
   private outputBus: ChannelMergerNode | null = null;
   private masterGain: GainNode | null = null;
   private masterLevelSplitter: ChannelSplitterNode | null = null;
@@ -135,6 +138,12 @@ export class SamplerEngine {
     if (this.masterGain) this.masterGain.gain.value = Math.max(0, Math.min(1, level));
   }
 
+  /** Live-monitors the selected input pair, summed to mono and hard-panned (-1..1); disabled when off. */
+  setMonitor(enabled: boolean, pan: number): void {
+    if (this.monitorGain) this.monitorGain.gain.value = enabled ? 1 : 0;
+    if (this.monitorPanner) this.monitorPanner.pan.value = Math.max(-1, Math.min(1, pan));
+  }
+
   async init(deviceId?: string): Promise<void> {
     this.stream = await this.acquireStream(deviceId);
     this.ctx = new AudioContext({ latencyHint: 0 });
@@ -158,6 +167,15 @@ export class SamplerEngine {
     this.levelAnalyserR.fftSize = 256;
     this.levelSplitter.connect(this.levelAnalyserR, 1);
 
+    this.monitorGain = this.ctx.createGain();
+    this.monitorGain.gain.value = 0;
+    this.monitorGain.channelCount = 1;
+    this.monitorGain.channelCountMode = 'explicit';
+    this.monitorPanner = this.ctx.createStereoPanner();
+    this.monitorSplitter = this.ctx.createChannelSplitter(2);
+    this.monitorGain.connect(this.monitorPanner);
+    this.monitorPanner.connect(this.monitorSplitter);
+
     this.source = this.ctx.createMediaStreamSource(this.stream);
     this.configureInputRouting();
 
@@ -167,6 +185,7 @@ export class SamplerEngine {
     this.masterGain = this.ctx.createGain();
     this.outputBus.connect(this.masterGain);
     this.masterGain.connect(this.ctx.destination);
+    this.connectMonitorToOutput();
 
     this.masterLevelSplitter = this.ctx.createChannelSplitter(2);
     this.masterLevelAnalyserL = this.ctx.createAnalyser();
@@ -222,6 +241,14 @@ export class SamplerEngine {
     for (const voices of this.voices.values()) {
       for (const voice of voices) this.connectVoiceToOutput(voice);
     }
+    this.connectMonitorToOutput();
+  }
+
+  private connectMonitorToOutput(): void {
+    if (!this.monitorSplitter || !this.outputBus) return;
+    this.monitorSplitter.disconnect();
+    this.monitorSplitter.connect(this.outputBus, 0, this.outputChannelPairStart);
+    this.monitorSplitter.connect(this.outputBus, 1, this.outputChannelPairStart + 1);
   }
 
   private async acquireStream(deviceId?: string): Promise<MediaStream> {
@@ -263,6 +290,7 @@ export class SamplerEngine {
     this.source!.connect(this.inputSplitter);
     this.inputPairMerger.connect(this.recorderNode!);
     this.inputPairMerger.connect(this.levelSplitter!);
+    this.inputPairMerger.connect(this.monitorGain!);
     this.connectInputChannelPair();
   }
 
@@ -514,6 +542,9 @@ export class SamplerEngine {
     this.inputSplitter?.disconnect();
     this.inputPairMerger?.disconnect();
     this.silentGain?.disconnect();
+    this.monitorGain?.disconnect();
+    this.monitorPanner?.disconnect();
+    this.monitorSplitter?.disconnect();
     this.outputBus?.disconnect();
     this.masterGain?.disconnect();
     this.masterLevelSplitter?.disconnect();
@@ -530,6 +561,9 @@ export class SamplerEngine {
     this.inputSplitter = null;
     this.inputPairMerger = null;
     this.silentGain = null;
+    this.monitorGain = null;
+    this.monitorPanner = null;
+    this.monitorSplitter = null;
     this.outputBus = null;
     this.masterGain = null;
     this.masterLevelSplitter = null;

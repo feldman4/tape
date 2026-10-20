@@ -10,6 +10,7 @@ interface SlotViewProps {
   tick: number;
   active: boolean;
   selected: boolean;
+  mixerEnabled: boolean;
 }
 
 const NOTE_NAMES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
@@ -18,7 +19,7 @@ function noteName(note: number): string {
   return `${NOTE_NAMES[note % 12]}${Math.floor(note / 12) - 1}`;
 }
 
-export function SlotView({ slot, index, firstNote, progress, tick, active, selected }: SlotViewProps) {
+export function SlotView({ slot, index, firstNote, progress, tick, active, selected, mixerEnabled }: SlotViewProps) {
   return (
     <div
       style={{
@@ -34,7 +35,7 @@ export function SlotView({ slot, index, firstNote, progress, tick, active, selec
     >
       <span style={{ fontSize: 10, color: '#52525b' }}>{noteName(firstNote + index)}</span>
       <SlotRing slot={slot} progress={progress} tick={tick} />
-      <div style={{ display: 'flex', gap: 10 }}>
+      <div style={{ display: 'flex', gap: 10, opacity: mixerEnabled ? 1 : 0.35 }}>
         <MiniKnob label="LEV" value={slot.mixer.level} color="#3b82f6" />
         <MiniKnob label="PAN" value={slot.mixer.pan} color="#3b82f6" sweep="bipolar" />
         <MiniKnob label="LPF" value={slot.mixer.lpfCutoff} color="#3b82f6" />

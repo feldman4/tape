@@ -2,6 +2,8 @@
 // its per-slot mixer settings; a Project is the 16 slots persisted together.
 
 export const SLOT_COUNT = 16;
+export const BANK_COUNT = 2;
+export type BankIndex = 0 | 1;
 
 export type SlotState = 'empty' | 'recording' | 'stopped' | 'playing';
 
@@ -26,10 +28,11 @@ export interface Slot {
   /** Live peak envelope accumulated while recording, for the recording-state ring. */
   recordingPeaks: number[];
   mixer: SlotMixer;
+  takePending: boolean;
 }
 
 export interface Project {
-  slots: Slot[];
+  banks: [Slot[], Slot[]];
 }
 
 export function makeDefaultMixer(): SlotMixer {
@@ -44,11 +47,17 @@ export function makeDefaultSlot(): Slot {
     peaks: [],
     recordingPeaks: [],
     mixer: makeDefaultMixer(),
+    takePending: false,
   };
 }
 
 export function makeDefaultProject(): Project {
-  return { slots: Array.from({ length: SLOT_COUNT }, () => makeDefaultSlot()) };
+  return {
+    banks: [
+      Array.from({ length: SLOT_COUNT }, () => makeDefaultSlot()),
+      Array.from({ length: SLOT_COUNT }, () => makeDefaultSlot()),
+    ],
+  };
 }
 
 const PEAK_BUCKETS = 96;

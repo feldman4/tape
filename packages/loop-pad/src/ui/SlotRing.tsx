@@ -1,6 +1,7 @@
 // Canvas-drawn circular waveform ring for one slot: faint base ticks always
-// visible, colored data ticks once a sample exists (blue = ready/playing,
-// red = recording), and a bright progress arc while playing or recording.
+// visible, colored data ticks once a sample exists (blue = finalized,
+// amber = unfinished take, red = recording), and a bright progress arc while
+// playing or recording.
 // Purely a display — no pointer handlers, per docs/manual.md "Display".
 
 import { useEffect, useRef } from 'react';
@@ -49,7 +50,7 @@ function draw(canvas: HTMLCanvasElement, slot: Slot, progress: number | null, si
   const peaks = isRecording ? slot.recordingPeaks : slot.peaks;
   if (peaks.length > 0) {
     const peakScale = Math.max(DISPLAY_NORMALIZATION_FLOOR, ...peaks);
-    const color = isRecording ? '#ef4444' : '#3b82f6';
+    const color = isRecording ? '#ef4444' : slot.takePending ? '#f59e0b' : '#3b82f6';
     ctx.strokeStyle = color;
     ctx.lineWidth = 2;
     for (let i = 0; i < BAR_COUNT; i++) {

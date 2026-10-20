@@ -10,6 +10,13 @@ export interface SamplerSettings {
   deleteNote: number;        // 0-127
   countInOnNote: number;     // 0-127
   countInOffNote: number;    // 0-127
+  channelSwitchNote: number; // 0-127; selects the sending MIDI channel's bank in channel mode
+  oneShotModeNote: number;   // 0-127
+  takeModeNote: number;      // 0-127
+  recordingMode: 'one-shot' | 'take';
+  channelMode: boolean;
+  channelAMidiChannel: number; // 0-based
+  channelBMidiChannel: number; // 0-based
   hpfCc: number;
   lpfCc: number;
   panCc: number;
@@ -30,9 +37,16 @@ export function defaultSettings(): SamplerSettings {
     lastProjectIndex: 1,
     midiChannel: 15, // MIDI channel 16 (0-based)
     firstSampleNote: 53, // F3
-    deleteNote: 76,
-    countInOnNote: 74,
-    countInOffNote: 72,
+    deleteNote: 75,
+    countInOnNote: 72,
+    countInOffNote: 71,
+    channelSwitchNote: 73,
+    oneShotModeNote: 74,
+    takeModeNote: 76,
+    recordingMode: 'one-shot',
+    channelMode: false,
+    channelAMidiChannel: 14, // MIDI channel 15 (0-based)
+    channelBMidiChannel: 15, // MIDI channel 16 (0-based)
     hpfCc: 1,
     lpfCc: 2,
     panCc: 3,
@@ -52,6 +66,14 @@ export function loadSettings(): SamplerSettings {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return defaultSettings();
     const saved = JSON.parse(raw) as Partial<SamplerSettings> & { countInToggleNote?: number };
+    // Control notes were reassigned when channelSwitchNote was added; drop the
+    // old assignments so they don't collide with the new defaults.
+    if (saved.channelSwitchNote === undefined) {
+      for (const key of ['deleteNote', 'countInOnNote', 'countInOffNote', 'oneShotModeNote', 'takeModeNote'] as const) {
+        delete saved[key];
+      }
+      delete saved.countInToggleNote;
+    }
     const settings = { ...defaultSettings(), ...saved };
     if (saved.countInOnNote === undefined && saved.countInToggleNote !== undefined) {
       settings.countInOnNote = saved.countInToggleNote;

@@ -31,7 +31,7 @@ function numberField(
   label: string,
   value: number,
   onChange: (n: number) => void,
-  props: { min?: number; max?: number } = {},
+  props: { min?: number; max?: number; disabled?: boolean } = {},
 ) {
   return (
     <label style={{ display: 'flex', justifyContent: 'space-between', gap: 12, fontSize: 13, color: '#a1a1aa' }}>
@@ -42,6 +42,7 @@ function numberField(
         max={props.max ?? 127}
         value={value}
         onChange={(e) => onChange(Number(e.target.value))}
+        disabled={props.disabled}
         style={{ width: 70, background: '#18181b', border: '1px solid #3f3f46', color: '#e4e4e7', borderRadius: 4, padding: '2px 6px' }}
       />
     </label>
@@ -71,13 +72,14 @@ export function SettingsPanel({
         onClick={(e) => e.stopPropagation()}
         style={{
           background: '#1c1c1f', border: '1px solid #3f3f46', borderRadius: 8,
-          padding: 20, width: 320, maxHeight: 'calc(100vh - 40px)', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 10,
+          padding: 20, width: 680, maxWidth: 'calc(100vw - 40px)', maxHeight: 'calc(100vh - 40px)', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 10,
         }}
       >
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <h3 style={{ margin: 0, fontSize: 14, color: '#e4e4e7' }}>Settings</h3>
           <button style={btnStyle} onClick={onClose}>Close</button>
         </div>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', columnGap: 24, rowGap: 10, alignItems: 'center' }}>
         <label style={{ display: 'flex', justifyContent: 'space-between', gap: 12, fontSize: 13, color: '#a1a1aa' }}>
           Audio Input
           <select value={selectedAudioInputId ?? ''} onChange={(e) => onSelectAudioInput(e.target.value)}>
@@ -125,11 +127,24 @@ export function SettingsPanel({
         {numberField('Delete Note', settings.deleteNote, (n) => onChange({ deleteNote: n }))}
         {numberField('Count-in On Note', settings.countInOnNote, (n) => onChange({ countInOnNote: n }))}
         {numberField('Count-in Off Note', settings.countInOffNote, (n) => onChange({ countInOffNote: n }))}
-        {numberField('HPF Cutoff CC', settings.hpfCc, (n) => onChange({ hpfCc: n }))}
-        {numberField('LPF Cutoff CC', settings.lpfCc, (n) => onChange({ lpfCc: n }))}
-        {numberField('Pan CC', settings.panCc, (n) => onChange({ panCc: n }))}
-        {numberField('Level CC', settings.levelCc, (n) => onChange({ levelCc: n }))}
-        {numberField('Master Level CC', settings.masterLevelCc, (n) => onChange({ masterLevelCc: n }))}
+        {numberField('Channel Switch Note', settings.channelSwitchNote, (n) => onChange({ channelSwitchNote: n }))}
+        {numberField('One-shot Mode Note', settings.oneShotModeNote, (n) => onChange({ oneShotModeNote: n }))}
+        {numberField('Take Mode Note', settings.takeModeNote, (n) => onChange({ takeModeNote: n }))}
+        <label style={{ display: 'flex', justifyContent: 'space-between', gap: 12, fontSize: 13, color: '#a1a1aa' }}>
+          Channel Mode
+          <input type="checkbox" checked={settings.channelMode} onChange={(e) => onChange({ channelMode: e.target.checked })} />
+        </label>
+        {settings.channelMode && (
+          <>
+            {numberField('Channel A MIDI Channel (1-16)', settings.channelAMidiChannel + 1, (n) => onChange({ channelAMidiChannel: Math.max(0, Math.min(15, n - 1)) }), { min: 1, max: 16 })}
+            {numberField('Channel B MIDI Channel (1-16)', settings.channelBMidiChannel + 1, (n) => onChange({ channelBMidiChannel: Math.max(0, Math.min(15, n - 1)) }), { min: 1, max: 16 })}
+          </>
+        )}
+        {numberField('HPF Cutoff CC', settings.hpfCc, (n) => onChange({ hpfCc: n }), { disabled: settings.channelMode })}
+        {numberField('LPF Cutoff CC', settings.lpfCc, (n) => onChange({ lpfCc: n }), { disabled: settings.channelMode })}
+        {numberField('Pan CC', settings.panCc, (n) => onChange({ panCc: n }), { disabled: settings.channelMode })}
+        {numberField('Level CC', settings.levelCc, (n) => onChange({ levelCc: n }), { disabled: settings.channelMode })}
+        {numberField('Master Level CC', settings.masterLevelCc, (n) => onChange({ masterLevelCc: n }), { disabled: settings.channelMode })}
         {numberField('Count-in Beats', settings.countInBeats, (n) => onChange({ countInBeats: Math.max(1, n) }), { min: 1, max: 32 })}
         {numberField('Recording Tail (ms)', settings.recordingTailMs, (n) => onChange({ recordingTailMs: n }), { min: 0, max: 5000 })}
         {numberField('Recording Latency (ms)', settings.recordingLatencyMs, (n) => onChange({ recordingLatencyMs: n }), { min: 0, max: 5000 })}
@@ -144,6 +159,7 @@ export function SettingsPanel({
             <option value={2}>24 dB/oct</option>
           </select>
         </label>
+        </div>
         <button
           style={{ ...btnStyle, color: '#fca5a5', borderColor: '#7f1d1d', alignSelf: 'flex-start' }}
           onClick={onClearProjectMemory}

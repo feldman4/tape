@@ -26,8 +26,9 @@ export function SamplerPage() {
         bpm: s.bpm,
         clockRunning: s.clockRunning,
         countInCounting: s.countInCounting,
-        selectedSlot: s.selectedSlot,
-        slots: s.project.slots.map((slot, index) => ({
+        activeBank: s.activeBank,
+        selectedSlot: s.selectedSlot?.slot ?? null,
+        slots: s.project.banks[s.activeBank].map((slot, index) => ({
           index,
           state: slot.state,
           isPlaying: s.isSlotPlaying(index),
@@ -120,6 +121,9 @@ export function SamplerPage() {
         <span style={{ fontSize: 13, color: s.settings.countInEnabled ? '#22c55e' : '#a1a1aa' }}>
           Count-in {s.settings.countInEnabled ? 'On' : 'Off'}
         </span>
+        <span style={{ fontSize: 13, color: s.settings.recordingMode === 'take' ? '#fbbf24' : '#a1a1aa' }}>
+          Mode {s.settings.recordingMode === 'take' ? 'Take' : 'One-shot'}
+        </span>
         <button
           style={btnStyle}
           onClick={s.startCountIn}
@@ -135,19 +139,27 @@ export function SamplerPage() {
       {s.restoreStatus && <div style={{ fontSize: 12, color: '#a1a1aa' }}>{s.restoreStatus}</div>}
 
       <div style={{ display: 'flex', gap: 12, alignItems: 'stretch', width: 'fit-content' }}>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, maxWidth: 640 }}>
+        <div>
+          {s.settings.channelMode && (
+            <div style={{ marginBottom: 8, color: '#a1a1aa', fontSize: 13 }}>
+              Bank {s.activeBank === 0 ? `A (MIDI ${s.settings.channelAMidiChannel + 1})` : `B (MIDI ${s.settings.channelBMidiChannel + 1})`}
+            </div>
+          )}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, maxWidth: 640 }}>
           {Array.from({ length: SLOT_COUNT }, (_, i) => (
             <SlotView
               key={i}
               index={i}
-              slot={s.project.slots[i]!}
+              slot={s.project.banks[s.activeBank][i]!}
               firstNote={s.settings.firstSampleNote}
               progress={s.playbackProgress[i] ?? null}
               tick={s.tick}
-              active={s.project.slots[i]!.state !== 'empty'}
-              selected={s.selectedSlot === i}
+              active={s.project.banks[s.activeBank][i]!.state !== 'empty'}
+              selected={s.selectedSlot?.bank === s.activeBank && s.selectedSlot.slot === i}
+              mixerEnabled={!s.settings.channelMode}
             />
           ))}
+          </div>
         </div>
         <InputLevelMeter analysers={s.masterLevelAnalysers} side="right" level={s.settings.masterLevel} contained />
       </div>

@@ -8,7 +8,10 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { SamplerEngine } from '../audio/samplerEngine';
 import { MidiEngine, type MidiDeviceRef, type MidiEvent } from '../midi/midiEngine';
-import { computePeaks, makeDefaultProject, makeDefaultSlot, SLOT_COUNT, type Project, type Slot } from './model';
+import {
+  computePeaks, makeDefaultProject, makeDefaultSlot, SLOT_COUNT,
+  type BankIndex, type Project, type Slot,
+} from './model';
 import {
   clearAllProjects, loadProject, saveProject, downloadAllProjects,
   restoreProjectsFromZip, restoreSingleProject, PROJECT_COUNT,
@@ -29,6 +32,17 @@ const CLOCK_STALE_MULTIPLIER = 4; // no-pulse gap, in multiples of the recent av
 const TRANSPORT_ECHO_WINDOW_MS = 250;
 const MAX_RECORDING_TAIL_MS = 5000;
 const MAX_RECORDING_LATENCY_MS = 5000;
+const BANK_A: BankIndex = 0;
+const BANK_B: BankIndex = 1;
+
+interface SlotAddress {
+  bank: BankIndex;
+  slot: number;
+}
+
+function engineSlot({ bank, slot }: SlotAddress): number {
+  return bank * SLOT_COUNT + slot;
+}
 
 function calcBpm(times: number[]): number | null {
   if (times.length < 2) return null;
@@ -66,8 +80,10 @@ export function useSampler() {
   const [tick, setTick] = useState(0);
   const [inputLevelAnalysers, setInputLevelAnalysers] = useState<{ left: AnalyserNode; right: AnalyserNode } | null>(null);
   const [masterLevelAnalysers, setMasterLevelAnalysers] = useState<{ left: AnalyserNode; right: AnalyserNode } | null>(null);
-  const [selectedSlot, setSelectedSlot] = useState<number | null>(null);
+  const [selectedSlot, setSelectedSlot] = useState<SlotAddress | null>(null);
+  const [activeBank, setActiveBank] = useState<BankIndex>(BANK_A);
 
+  const activeBankRef = useRef<BankIndex>(BANK_A);
   const engineRef = useRef<SamplerEngine | null>(null);
   const midiRef = useRef<MidiEngine | null>(null);
   const projectRef = useRef<Project>(project);
@@ -75,9 +91,9 @@ export function useSampler() {
   const settingsRef = useRef(settings);
   settingsRef.current = settings;
 
-  const selectedSlotRef = useRef<number | null>(null);
+  const selectedSlotRef = useRef<SlotAddress | null>(null);
   const deletedSlotsRef = useRef<Map<number, Slot>>(new Map());
-  const lastSampleEventRef = useRef<{ slot: number; time: number } | null>(null);
+  const lastSampleEventRef = useRef<{ address: SlotAddress; time: number } | null>(null);
   const lastDeleteEventTimeRef = useRef<number | null>(null);
   const standaloneDeleteTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const clockTimesRef = useRef<number[]>([]);
@@ -93,6 +109,16 @@ export function useSampler() {
   const autoSaveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const playbackStartRef = useRef<Map<number, { startedAt: number; durationMs: number }>>(new Map());
   const recordingTailTimeoutRef = useRef<Map<number, ReturnType<typeof setTimeout>>>(new Map());
+  const recordingWasEmptyRef = useRef<Map<number, boolean>>(new Map());
+  const recordingModeRef = useRef<Map<number, 'one-shot' | 'take'>>(new Map());
+
+  function slotAt(address: SlotAddress): Slot {
+    return projectRef.current.banks[address.bank][address.slot]!;
+  }
+
+  function refreshProject(): void {
+    setProject({ banks: [ [...projectRef.current.banks[0]], [...projectRef.current.banks[1]] ] });
+  }
 
   function scheduleAutoSave(): void {
     if (autoSaveTimeoutRef.current) clearTimeout(autoSaveTimeoutRef.current);
@@ -101,120 +127,196 @@ export function useSampler() {
     }, AUTO_SAVE_DEBOUNCE_MS);
   }
 
-  function cancelRecordingTail(slot: number): void {
-    const timeout = recordingTailTimeoutRef.current.get(slot);
+  function cancelRecordingTail(address: SlotAddress): void {
+    const id = engineSlot(address);
+    const timeout = recordingTailTimeoutRef.current.get(id);
     if (timeout) clearTimeout(timeout);
-    recordingTailTimeoutRef.current.delete(slot);
+    recordingTailTimeoutRef.current.delete(id);
   }
 
-  function selectSlot(slot: number | null): void {
-    if (selectedSlotRef.current === slot) return;
-    selectedSlotRef.current = slot;
-    setSelectedSlot(slot);
+  function selectSlot(address: SlotAddress | null): void {
+    if (selectedSlotRef.current?.bank === address?.bank && selectedSlotRef.current?.slot === address?.slot) return;
+    selectedSlotRef.current = address;
+    setSelectedSlot(address);
+    if (address) setActiveBankValue(address.bank);
+  }
+
+  function setActiveBankValue(bank: BankIndex): void {
+    activeBankRef.current = bank;
+    setActiveBank(bank);
   }
 
   function clearSelection(): void {
     selectSlot(null);
   }
 
-  function deleteSlot(slot: number): void {
+  function deleteSlot(address: SlotAddress): void {
     const engine = engineRef.current!;
-    const current = projectRef.current.slots[slot]!;
-    const deleted = deletedSlotsRef.current.get(slot);
+    const id = engineSlot(address);
+    const current = slotAt(address);
+    const deleted = deletedSlotsRef.current.get(id);
     if (current.state === 'recording') {
-      cancelRecordingTail(slot);
-      engine.cancelRecording(slot);
+      cancelRecordingTail(address);
+      engine.cancelRecording(id);
     }
-    engine.clearSlotBuffer(slot);
+    engine.clearSlotBuffer(id);
     if (deleted) {
-      projectRef.current.slots[slot] = deleted;
-      if (deleted.samples) engine.loadSlotBuffer(slot, deleted.samples);
-      deletedSlotsRef.current.delete(slot);
-      selectSlot(slot);
+      projectRef.current.banks[address.bank][address.slot] = deleted;
+      if (deleted.samples) engine.loadSlotBuffer(id, deleted.samples);
+      deletedSlotsRef.current.delete(id);
+      selectSlot(address);
       scheduleAutoSave();
       return;
     }
-    if (current.samples) deletedSlotsRef.current.set(slot, { ...current, state: 'stopped' });
-    projectRef.current.slots[slot] = makeDefaultSlot();
-    if (selectedSlotRef.current === slot) clearSelection();
+    if (current.samples) deletedSlotsRef.current.set(id, { ...current, state: 'stopped' });
+    projectRef.current.banks[address.bank][address.slot] = makeDefaultSlot();
+    if (selectedSlotRef.current?.bank === address.bank && selectedSlotRef.current.slot === address.slot) clearSelection();
     scheduleAutoSave();
   }
 
   function checkDeleteAgainstSampleEvent(deleteTime: number): boolean {
     const last = lastSampleEventRef.current;
     if (!last || deleteTime - last.time > DELETE_WINDOW_MS) return false;
-    deleteSlot(last.slot);
+    deleteSlot(last.address);
     return true;
   }
 
   function stopPlayback(): void {
     const engine = engineRef.current!;
-    for (let slot = 0; slot < SLOT_COUNT; slot++) {
-      const current = projectRef.current.slots[slot]!;
-      engine.stop(slot);
-      if (current.state !== 'playing') continue;
-      current.state = 'stopped';
+    for (const bank of [BANK_A, BANK_B] as const) {
+      for (let slot = 0; slot < SLOT_COUNT; slot++) {
+        const address = { bank, slot };
+        const current = slotAt(address);
+        engine.stop(engineSlot(address));
+        if (current.state === 'playing') current.state = 'stopped';
+      }
     }
     playbackStartRef.current.clear();
   }
 
-  function handleSampleNoteOn(slot: number, time: number): void {
+  function stopInProgressRecordings(): void {
+    const engine = engineRef.current!;
+    for (const bank of [BANK_A, BANK_B] as const) {
+      for (let slot = 0; slot < SLOT_COUNT; slot++) {
+        const address = { bank, slot };
+        const current = slotAt(address);
+        if (current.state !== 'recording') continue;
+        const id = engineSlot(address);
+        cancelRecordingTail(address);
+        if (recordingWasEmptyRef.current.get(id)) {
+          void engine.stopRecording(id).then((samples) => {
+            if (slotAt(address) === current && current.state === 'recording') completeRecording(address, samples);
+          });
+          continue;
+        }
+        engine.cancelRecording(id);
+        recordingModeRef.current.delete(id);
+        recordingWasEmptyRef.current.delete(id);
+        current.recordingPeaks = [];
+        current.state = current.samples ? 'stopped' : 'empty';
+      }
+    }
+  }
+
+  function startRecording(address: SlotAddress, time: number): void {
+    const engine = engineRef.current!;
+    const current = slotAt(address);
+    const id = engineSlot(address);
+    lastSampleEventRef.current = { address, time };
+    recordingWasEmptyRef.current.set(id, current.samples === null);
+    recordingModeRef.current.set(id, settingsRef.current.recordingMode);
+    engine.startRecording(id);
+    current.state = 'recording';
+    current.recordingPeaks = [];
+    selectSlot(address);
+  }
+
+  function completeRecording(address: SlotAddress, samples: Slot['samples']): void {
+    if (!samples) return;
+    const engine = engineRef.current!;
+    const current = slotAt(address);
+    const id = engineSlot(address);
+    current.samples = samples;
+    current.sampleRate = engine.sampleRate;
+    current.peaks = computePeaks(samples);
+    current.recordingPeaks = [];
+    current.state = 'stopped';
+    current.takePending = recordingModeRef.current.get(id) === 'take';
+    recordingModeRef.current.delete(id);
+    recordingWasEmptyRef.current.delete(id);
+    engine.loadSlotBuffer(id, samples);
+    deletedSlotsRef.current.delete(id);
+    selectSlot(address);
+    scheduleAutoSave();
+  }
+
+  function handleSampleNoteOn(address: SlotAddress, time: number): void {
     const deleteTime = lastDeleteEventTimeRef.current;
     if (deleteTime !== null && time - deleteTime <= DELETE_WINDOW_MS) {
-      deleteSlot(slot);
+      deleteSlot(address);
       return;
     }
 
     const engine = engineRef.current!;
-    const current = projectRef.current.slots[slot]!;
+    const current = slotAt(address);
+    const id = engineSlot(address);
     if (current.state === 'empty') {
       if (!clockRunningRef.current) return;
-      lastSampleEventRef.current = { slot, time };
-      engine.startRecording(slot);
-      current.state = 'recording';
-      current.recordingPeaks = [];
-    } else if (current.state === 'recording' && recordingTailTimeoutRef.current.has(slot)) {
+      startRecording(address, time);
+    } else if (current.state === 'recording' && recordingTailTimeoutRef.current.has(id)) {
       // The following pattern cycle can start before the recording tail has
       // flushed. Play the capture so far while the worklet keeps recording.
-      lastSampleEventRef.current = { slot, time };
-      void engine.snapshotRecording(slot).then((samples) => {
-        if (projectRef.current.slots[slot] !== current || current.state !== 'recording') return;
-        engine.loadSlotBuffer(slot, samples);
-        engine.play(slot, current.mixer, settingsRef.current.recordingTailMs, settingsRef.current.recordingLatencyMs);
-      });
+      lastSampleEventRef.current = { address, time };
+      if (recordingModeRef.current.get(id) === 'take') {
+        // A new Take-mode note ends the prior take now, rather than waiting
+        // for its tail. Once flushed, immediately begin the new take.
+        cancelRecordingTail(address);
+        void engine.stopRecording(id).then((samples) => {
+          if (slotAt(address) !== current || current.state !== 'recording') return;
+          completeRecording(address, samples);
+          if (clockRunningRef.current && settingsRef.current.recordingMode === 'take') {
+            startRecording(address, time);
+          }
+        });
+      } else {
+        void engine.snapshotRecording(id).then((samples) => {
+          if (slotAt(address) !== current || current.state !== 'recording') return;
+          engine.loadSlotBuffer(id, samples);
+          engine.play(id, current.mixer, settingsRef.current.recordingTailMs, settingsRef.current.recordingLatencyMs);
+        });
+      }
     } else if (current.state === 'recording') {
       // Note On while the note that began this recording is still held: no-op.
+    } else if (settingsRef.current.recordingMode === 'take' && current.takePending && clockRunningRef.current) {
+      startRecording(address, time);
     } else {
-      lastSampleEventRef.current = { slot, time };
-      engine.play(slot, current.mixer, settingsRef.current.recordingTailMs, settingsRef.current.recordingLatencyMs);
+      lastSampleEventRef.current = { address, time };
+      if (clockRunningRef.current && current.takePending) return;
+      const mixer = settingsRef.current.channelMode
+        ? { level: 1, pan: address.bank === BANK_A ? -1 : 1, lpfCutoff: 1, hpfCutoff: 0 }
+        : current.mixer;
+      engine.play(id, mixer, settingsRef.current.recordingTailMs, settingsRef.current.recordingLatencyMs);
       current.state = 'playing';
-      if (!clockRunningRef.current) selectSlot(slot);
+      if (!clockRunningRef.current) selectSlot(address);
       const sampleDurationMs = current.samples ? (current.samples.left.length / current.sampleRate) * 1000 : 0;
       const durationMs = Math.max(0, sampleDurationMs - settingsRef.current.recordingLatencyMs);
-      playbackStartRef.current.set(slot, { startedAt: performance.now(), durationMs });
+      playbackStartRef.current.set(id, { startedAt: performance.now(), durationMs });
     }
   }
 
-  function handleSampleNoteOff(slot: number): void {
+  function handleSampleNoteOff(address: SlotAddress): void {
     const engine = engineRef.current!;
-    const current = projectRef.current.slots[slot]!;
+    const current = slotAt(address);
+    const id = engineSlot(address);
     if (current.state === 'recording') {
-      cancelRecordingTail(slot);
+      cancelRecordingTail(address);
       const tailMs = settingsRef.current.recordingTailMs;
       const finishRecording = () => {
-        if (projectRef.current.slots[slot] !== current || current.state !== 'recording') return;
-        void engine.stopRecording(slot).then((samples) => {
+        if (slotAt(address) !== current || current.state !== 'recording') return;
+        void engine.stopRecording(id).then((samples) => {
           // The slot may have been deleted while the flush was in flight.
-          if (projectRef.current.slots[slot] !== current) return;
-          current.samples = samples;
-          current.sampleRate = engine.sampleRate;
-          current.peaks = computePeaks(samples);
-          current.recordingPeaks = [];
-          current.state = 'stopped';
-          engine.loadSlotBuffer(slot, samples);
-          deletedSlotsRef.current.delete(slot);
-          selectSlot(slot);
-          scheduleAutoSave();
+          if (slotAt(address) !== current) return;
+          completeRecording(address, samples);
         });
       };
       if (tailMs === 0) {
@@ -222,16 +324,16 @@ export function useSampler() {
         return;
       }
       const timeout = setTimeout(() => {
-        recordingTailTimeoutRef.current.delete(slot);
+        recordingTailTimeoutRef.current.delete(id);
         finishRecording();
       }, tailMs);
-      recordingTailTimeoutRef.current.set(slot, timeout);
+      recordingTailTimeoutRef.current.set(id, timeout);
     } else if (current.state === 'playing') {
       // engine.stop() intentionally suppresses its own onended callback (to
       // avoid racing the natural-end path below), so flip state here instead.
-      engine.stop(slot);
+      engine.stop(id);
       current.state = 'stopped';
-      playbackStartRef.current.delete(slot);
+      playbackStartRef.current.delete(id);
     }
   }
 
@@ -324,22 +426,23 @@ export function useSampler() {
 
   function handleCc(controller: number, value: number): void {
     const s = settingsRef.current;
+    if (s.channelMode) return;
     if (controller === s.masterLevelCc) {
       const masterLevel = value / 127;
       engineRef.current?.setMasterLevel(masterLevel);
       updateSettings({ masterLevel });
       return;
     }
-    const slot = selectedSlotRef.current;
-    if (slot === null) return;
-    const current = projectRef.current.slots[slot]!;
+    const address = selectedSlotRef.current;
+    if (address === null) return;
+    const current = slotAt(address);
     if (controller === s.levelCc) current.mixer.level = value / 127;
     else if (controller === s.panCc) current.mixer.pan = (value / 127) * 2 - 1;
     else if (controller === s.lpfCc) current.mixer.lpfCutoff = value / 127;
     else if (controller === s.hpfCc) current.mixer.hpfCutoff = value / 127;
     else return;
-    engineRef.current?.updateMixer(slot, current.mixer);
-    selectSlot(slot);
+    engineRef.current?.updateMixer(engineSlot(address), current.mixer);
+    selectSlot(address);
     scheduleAutoSave();
   }
 
@@ -382,6 +485,7 @@ export function useSampler() {
       if (isExpectedTransportEcho('stop')) return;
       clockRunningRef.current = false;
       setClockRunning(false);
+      stopInProgressRecordings();
       stopPlayback();
       clockTimesRef.current = [];
       clocksSinceStartRef.current = 0;
@@ -390,11 +494,44 @@ export function useSampler() {
       return;
     }
     if (event.type === 'noteon') {
-      if (event.channel !== s.midiChannel) return;
+      const bank = s.channelMode
+        ? event.channel === s.channelAMidiChannel ? BANK_A : event.channel === s.channelBMidiChannel ? BANK_B : null
+        : event.channel === s.midiChannel ? BANK_A : null;
+      if (bank === null) return;
       const time = performance.now();
+      if (event.note === s.channelSwitchNote) {
+        if (s.channelMode) {
+          clearSelection();
+          setActiveBankValue(bank);
+        }
+        return;
+      }
       if (event.note === s.countInOnNote) { setCountInEnabled(true); return; }
       if (event.note === s.countInOffNote) { setCountInEnabled(false); return; }
       if (event.note === s.deleteNote) { handleDeleteNote(time); return; }
+      if (event.note === s.oneShotModeNote) { updateSettings({ recordingMode: 'one-shot' }); return; }
+      if (event.note === s.takeModeNote) {
+        const selected = selectedSlotRef.current;
+        if (s.recordingMode === 'take' && selected) {
+          const current = slotAt(selected);
+          if (current.state === 'recording') {
+            const id = engineSlot(selected);
+            cancelRecordingTail(selected);
+            void engineRef.current!.stopRecording(id).then((samples) => {
+              if (slotAt(selected) !== current || current.state !== 'recording') return;
+              completeRecording(selected, samples);
+              current.takePending = false;
+              scheduleAutoSave();
+            });
+          } else {
+            current.takePending = false;
+            scheduleAutoSave();
+          }
+        } else {
+          updateSettings({ recordingMode: 'take' });
+        }
+        return;
+      }
       if (countInStateRef.current !== 'idle') return;
       const slot = event.note - s.firstSampleNote;
       if (slot >= 0 && slot < SLOT_COUNT) {
@@ -402,18 +539,22 @@ export function useSampler() {
           if (standaloneDeleteTimeoutRef.current) clearTimeout(standaloneDeleteTimeoutRef.current);
           standaloneDeleteTimeoutRef.current = null;
         }
-        handleSampleNoteOn(slot, time);
+        handleSampleNoteOn({ bank, slot }, time);
       }
       return;
     }
     if (event.type === 'noteoff') {
-      if (event.channel !== s.midiChannel) return;
+      const bank = s.channelMode
+        ? event.channel === s.channelAMidiChannel ? BANK_A : event.channel === s.channelBMidiChannel ? BANK_B : null
+        : event.channel === s.midiChannel ? BANK_A : null;
+      if (bank === null) return;
       if (countInStateRef.current !== 'idle') return;
       const slot = event.note - s.firstSampleNote;
-      if (slot >= 0 && slot < SLOT_COUNT) handleSampleNoteOff(slot);
+      if (slot >= 0 && slot < SLOT_COUNT) handleSampleNoteOff({ bank, slot });
       return;
     }
     if (event.type === 'cc') {
+      if (s.channelMode) return;
       if (event.channel !== s.midiChannel) return;
       handleCc(event.controller, event.value);
     }
@@ -456,17 +597,17 @@ export function useSampler() {
       setSelectedAudioOutputChannelPairStart(engine.selectedOutputChannelPairStart);
       setInputLevelAnalysers(engine.inputLevelAnalysers);
       setMasterLevelAnalysers(engine.masterLevelAnalysers);
-      engine.onRecordingProgress((slot, peak) => {
-        const s = projectRef.current.slots[slot];
+      engine.onRecordingProgress((id, peak) => {
+        const s = slotAt({ bank: Math.floor(id / SLOT_COUNT) as BankIndex, slot: id % SLOT_COUNT });
         if (s && s.state === 'recording') {
           s.recordingPeaks.push(peak);
           if (s.recordingPeaks.length > 200) s.recordingPeaks.shift();
         }
       });
-      engine.onPlaybackEnded((slot) => {
-        const s = projectRef.current.slots[slot];
+      engine.onPlaybackEnded((id) => {
+        const s = slotAt({ bank: Math.floor(id / SLOT_COUNT) as BankIndex, slot: id % SLOT_COUNT });
         if (s && s.state === 'playing') s.state = 'stopped';
-        playbackStartRef.current.delete(slot);
+        playbackStartRef.current.delete(id);
       });
 
       const midi = new MidiEngine();
@@ -514,12 +655,15 @@ export function useSampler() {
       projectRef.current = loaded;
       deletedSlotsRef.current.clear();
       projectIndexRef.current = initialProjectIndex;
-      for (let slot = 0; slot < SLOT_COUNT; slot++) {
-        const s = loaded.slots[slot]!;
-        if (s.samples) engine.loadSlotBuffer(slot, s.samples);
+      for (const bank of [BANK_A, BANK_B] as const) {
+        for (let slot = 0; slot < SLOT_COUNT; slot++) {
+          const address = { bank, slot };
+          const s = slotAt(address);
+          if (s.samples) engine.loadSlotBuffer(engineSlot(address), s.samples);
+        }
       }
       setProjectIndex(initialProjectIndex);
-      setProject({ slots: [...loaded.slots] });
+      refreshProject();
       initErrorRef.current = null;
       setReady(true);
     } catch (e) {
@@ -543,11 +687,11 @@ export function useSampler() {
   useEffect(() => {
     if (!ready) return;
     const id = setInterval(() => {
-      setProject({ slots: [...projectRef.current.slots] });
+      refreshProject();
       const now = performance.now();
       setPlaybackProgress(
         Array.from({ length: SLOT_COUNT }, (_, slot) => {
-          const info = playbackStartRef.current.get(slot);
+          const info = playbackStartRef.current.get(engineSlot({ bank: activeBank, slot }));
           if (!info || info.durationMs <= 0) return null;
           return Math.min(1, (now - info.startedAt) / info.durationMs);
         }),
@@ -565,7 +709,7 @@ export function useSampler() {
       setTick((t) => t + 1);
     }, UI_TICK_MS);
     return () => clearInterval(id);
-  }, [ready]);
+  }, [ready, activeBank]);
 
   useEffect(() => () => {
     if (countInTimerRef.current) clearTimeout(countInTimerRef.current);
@@ -655,8 +799,12 @@ export function useSampler() {
     });
   }
 
+  useEffect(() => {
+    engineRef.current?.setMonitor(settings.channelMode, activeBank === BANK_A ? -1 : 1);
+  }, [ready, settings.channelMode, activeBank]);
+
   function isSlotPlaying(slot: number): boolean {
-    return engineRef.current?.isPlaying(slot) ?? false;
+    return engineRef.current?.isPlaying(engineSlot({ bank: activeBank, slot })) ?? false;
   }
 
   async function selectProject(index: number): Promise<void> {
@@ -665,13 +813,17 @@ export function useSampler() {
     if (autoSaveTimeoutRef.current) clearTimeout(autoSaveTimeoutRef.current);
     await saveProject(projectIndexRef.current, projectRef.current);
 
-    for (let slot = 0; slot < SLOT_COUNT; slot++) {
-      const s = projectRef.current.slots[slot]!;
-      if (s.state === 'recording') {
-        cancelRecordingTail(slot);
-        engine.cancelRecording(slot);
+    for (const bank of [BANK_A, BANK_B] as const) {
+      for (let slot = 0; slot < SLOT_COUNT; slot++) {
+        const address = { bank, slot };
+        const s = slotAt(address);
+        const id = engineSlot(address);
+        if (s.state === 'recording') {
+          cancelRecordingTail(address);
+          engine.cancelRecording(id);
+        }
+        if (s.state === 'playing') engine.stop(id);
       }
-      if (s.state === 'playing') engine.stop(slot);
     }
 
     const loaded = await loadProject(index);
@@ -680,13 +832,16 @@ export function useSampler() {
     projectIndexRef.current = index;
     updateSettings({ lastProjectIndex: index });
     clearSelection();
-    for (let slot = 0; slot < SLOT_COUNT; slot++) {
-      engine.clearSlotBuffer(slot);
-      const s = loaded.slots[slot]!;
-      if (s.samples) engine.loadSlotBuffer(slot, s.samples);
+    for (const bank of [BANK_A, BANK_B] as const) {
+      for (let slot = 0; slot < SLOT_COUNT; slot++) {
+        const address = { bank, slot };
+        engine.clearSlotBuffer(engineSlot(address));
+        const s = slotAt(address);
+        if (s.samples) engine.loadSlotBuffer(engineSlot(address), s.samples);
+      }
     }
     setProjectIndex(index);
-    setProject({ slots: [...loaded.slots] });
+    refreshProject();
   }
 
   async function initializeProject(): Promise<void> {
@@ -694,11 +849,15 @@ export function useSampler() {
     if (!engine) return;
     if (autoSaveTimeoutRef.current) clearTimeout(autoSaveTimeoutRef.current);
 
-    for (let slot = 0; slot < SLOT_COUNT; slot++) {
-      cancelRecordingTail(slot);
-      engine.cancelRecording(slot);
-      engine.stop(slot);
-      engine.clearSlotBuffer(slot);
+    for (const bank of [BANK_A, BANK_B] as const) {
+      for (let slot = 0; slot < SLOT_COUNT; slot++) {
+        const address = { bank, slot };
+        const id = engineSlot(address);
+        cancelRecordingTail(address);
+        engine.cancelRecording(id);
+        engine.stop(id);
+        engine.clearSlotBuffer(id);
+      }
     }
 
     const emptyProject = makeDefaultProject();
@@ -707,7 +866,7 @@ export function useSampler() {
     clearSelection();
     playbackStartRef.current.clear();
     await saveProject(projectIndexRef.current, emptyProject);
-    setProject({ slots: [...emptyProject.slots] });
+    refreshProject();
     setRestoreStatus('');
   }
 
@@ -737,12 +896,16 @@ export function useSampler() {
       const loaded = await loadProject(projectIndexRef.current);
       projectRef.current = loaded;
       deletedSlotsRef.current.clear();
-      for (let slot = 0; slot < SLOT_COUNT; slot++) {
-        engine.clearSlotBuffer(slot);
-        const s = loaded.slots[slot]!;
-        if (s.samples) engine.loadSlotBuffer(slot, s.samples);
+      for (const bank of [BANK_A, BANK_B] as const) {
+        for (let slot = 0; slot < SLOT_COUNT; slot++) {
+          const address = { bank, slot };
+          const id = engineSlot(address);
+          engine.clearSlotBuffer(id);
+          const s = slotAt(address);
+          if (s.samples) engine.loadSlotBuffer(id, s.samples);
+        }
       }
-      setProject({ slots: [...loaded.slots] });
+      refreshProject();
     } catch (e) {
       setRestoreStatus(e instanceof Error ? e.message : String(e));
     }
@@ -754,10 +917,13 @@ export function useSampler() {
 
     const engine = engineRef.current;
     if (engine) {
-      for (let slot = 0; slot < SLOT_COUNT; slot++) {
-        cancelRecordingTail(slot);
-        engine.cancelRecording(slot);
-        engine.clearSlotBuffer(slot);
+      for (const bank of [BANK_A, BANK_B] as const) {
+        for (let slot = 0; slot < SLOT_COUNT; slot++) {
+          const address = { bank, slot };
+          cancelRecordingTail(address);
+          engine.cancelRecording(engineSlot(address));
+          engine.clearSlotBuffer(engineSlot(address));
+        }
       }
     }
     const emptyProject = makeDefaultProject();
@@ -768,7 +934,7 @@ export function useSampler() {
     clearSelection();
     playbackStartRef.current.clear();
     setProjectIndex(1);
-    setProject({ slots: [...emptyProject.slots] });
+    refreshProject();
     setRestoreStatus('Project memory cleared');
     setError(null);
   }
@@ -785,7 +951,7 @@ export function useSampler() {
       settings, updateSettings,
       isSlotPlaying,
       projectIndex, selectProject, initializeProject, projectCount: PROJECT_COUNT,
-      project, bpm, clockRunning, countInCounting, playbackProgress, tick, selectedSlot,
+      project, activeBank, bpm, clockRunning, countInCounting, playbackProgress, tick, selectedSlot,
       downloadProjects, restoreFromFile, clearProjectMemory, restoreStatus, inputLevelAnalysers, masterLevelAnalysers,
       startCountIn,
       /** Test-only: drives MIDI handling directly, bypassing real hardware. */
@@ -799,7 +965,7 @@ export function useSampler() {
       audioOutputs, selectedAudioOutputId,
       audioOutputChannelCount, selectedAudioOutputChannelPairStart,
       midiInputs, selectedMidiInputId, midiOutputs, selectedMidiOutputId,
-      settings, projectIndex, project, bpm, clockRunning, countInCounting, playbackProgress, tick, selectedSlot, restoreStatus,
+      settings, projectIndex, project, activeBank, bpm, clockRunning, countInCounting, playbackProgress, tick, selectedSlot, restoreStatus,
       inputLevelAnalysers, masterLevelAnalysers,
     ],
   );
