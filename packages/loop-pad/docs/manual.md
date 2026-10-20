@@ -16,7 +16,7 @@ The sampler records and plays 16 audio clips from MIDI notes. It is designed for
    - **Output Channels** — a stereo pair on multi-output devices.
    - **MIDI Input** — the OP-Z or other controller sending notes and clock.
    - **MIDI Output** — the OP-Z, required only for count-in transport control.
-5. Set the **MIDI Channel**, **First Sample Note**, **Delete Note**, **Count-in On Note**, and **Count-in Off Note**. The notes must not overlap.
+5. Set the **MIDI Channel**, **First Sample Note**, **Delete Note**, **Count-in On Note**, **Count-in Off Note**, **Take Mode Note**, and **One-shot Mode Note**. The notes must not overlap.
 6. Assign the four per-slot mixer CCs: **HPF Cutoff**, **LPF Cutoff**, **Pan**, and **Level** (CC 1–4 by default), plus **Master Level** (CC 16 by default).
 7. Select **Project 1–10** from the project dropdown.
 
@@ -24,7 +24,10 @@ The app remembers the last selected Audio Input, Input Channels, Audio Output, A
 
 ## Sample notes
 
-The **First Sample Note** begins one contiguous range of 16 notes. For example, if it is C2, the slots use C2 through D#3. Each note always controls the same slot. Only notes on the configured MIDI channel are accepted, and MIDI velocity does not change recording or playback level.
+The **First Sample Note** begins one contiguous range of 16 notes. For example, if it is C2, the slots use C2 through D#3. Each note always controls the same slot. Normally, only notes on the configured MIDI channel are accepted, and MIDI
+velocity does not change recording or playback level. In Channel Mode, the same
+16-note range is available independently on the Channel A and Channel B MIDI
+channels.
 
 | Slot state | Sequencer state | Note On | Note Off |
 | --- | --- | --- | --- |
@@ -35,6 +38,39 @@ The **First Sample Note** begins one contiguous range of 16 notes. For example, 
 | Sample loaded, playing | Any | Restart playback from the beginning | Stop playback |
 
 Recording begins immediately. After Note Off, recording continues for the configurable recording-tail period (300 ms by default). If the next pattern cycle triggers that slot before the tail has finished, it plays the captured portion immediately while the tail continues recording. Playback fades the final recording-tail period to silence. When the same slot is retriggered before its playback ends, the outgoing playback fades out over the recording-tail period while the new playback starts from the beginning, crossfading the tail into the new attack. A slot records the selected audio input. Samples are one-shots and can overlap, so triggering other slots does not stop recording or playback. Stopping the sequencer stops all playback immediately.
+
+## One-shot and Take modes
+
+**One-shot** is the default recording mode. A completed recording immediately
+becomes the slot's playable sample, as described above.
+
+Send the configured **Take Mode Note** to enter **Take** mode. Send the
+**One-shot Mode Note** to switch back to One-shot mode.
+
+While in Take mode, recording into an empty slot produces sequential takes.
+Takes are silenced until they are finalized by sending the Take Mode Note again.
+
+When the sequencer is paused, triggering a slot plays its latest complete take,
+even if it is not finalized. If the sequencer stops in the middle of recording
+a take, that in-progress take is discarded, unless it is the first take
+recorded for an empty slot.
+
+## Channel Mode
+
+Enable **Channel Mode** in the configuration panel to use two independent
+16-slot banks. Channel A and Channel B use the same **First Sample Note**
+range, but each bank is triggered from its own MIDI channel. By default,
+Channel A uses MIDI channel 15 and Channel B uses MIDI channel 16.
+
+Sample notes on Channel A record and play only Channel A; sample notes on
+Channel B record and play only Channel B. The applicable control notes,
+including Delete, Count-in, and the One-shot and Take mode notes, are accepted
+on either bank channel. When selecting or recording a sample in either bank,
+the front panel automatically switches to that bank so its samples are shown.
+
+Channel Mode disables the per-slot **Level**, **Pan**, **LPF Cutoff**, and
+**HPF Cutoff** controls. Playback from Channel A is panned hard left and
+playback from Channel B is panned hard right.
 
 ## Selected sample
 
@@ -81,7 +117,7 @@ Use the project dropdown to select **Project 1–10**. Each project stores its 1
 
 **Initialize** permanently replaces the selected project with an empty project. It does not affect the other nine projects or app settings.
 
-Project playback and recording stop when switching projects. Device selections, MIDI and CC assignments, count-in settings, recording latency compensation, and global filter configuration are app settings and do not change with the project.
+Project playback and recording stop when switching projects. Device selections, MIDI and CC assignments, recording-mode and Channel Mode settings, count-in settings, recording latency compensation, and global filter configuration are app settings and do not change with the project.
 
 Browser storage belongs to the current browser profile and site. Clearing site data removes all projects, so use **Download Projects** for backup or transfer.
 
@@ -142,11 +178,16 @@ Select the gear button on the front panel to open the configuration panel. It co
 | Output Channels | Selects the stereo output pair for sample playback when the device exposes multiple pairs; the last selected pair is restored when available. | 1–2 |
 | MIDI Input | Selects the source of notes, clock, and transport; its device name is remembered and reconnected automatically. | — |
 | MIDI Output | Selects the destination for Stop and Start during count-in; its device name is remembered and reconnected automatically. | — |
-| MIDI Channel | Sets the channel used by sample notes, the Delete Note, Count-in On and Off Notes, and mixer CCs. | 16 |
+| MIDI Channel | Sets the channel used by sample notes, control notes, and mixer CCs when Channel Mode is off. | 16 |
+| Channel Mode | Enables two sample banks triggered from separate MIDI channels. Control notes are accepted on either bank channel; Channel A is hard left and Channel B is hard right. | Off |
+| Channel A MIDI Channel | Sets the MIDI channel that triggers Channel A while Channel Mode is on. | 15 |
+| Channel B MIDI Channel | Sets the MIDI channel that triggers Channel B while Channel Mode is on. | 16 |
 | First Sample Note | Sets the first note in the 16-note slot range. | 53 (F3) |
-| Delete Note | Sets the note used with a slot note to clear that slot. | 76 |
+| Delete Note | Sets the note used with a slot note to clear that slot. | 75 |
 | Count-in On Note | Sets the note that enables Count-in. | 74 |
 | Count-in Off Note | Sets the note that disables Count-in. | 72 |
+| Take Mode Note | Sends Tape into Take mode; sending it again finalizes the active take. | 76 |
+| One-shot Mode Note | Switches recording back to One-shot mode. | — |
 | HPF Cutoff CC | Sets the global CC number used for the selected slot's high-pass cutoff. | 1 |
 | LPF Cutoff CC | Sets the global CC number used for the selected slot's low-pass cutoff. | 2 |
 | Pan CC | Sets the global CC number used for the selected slot's pan. | 3 |
@@ -166,4 +207,3 @@ Select the gear button on the front panel to open the configuration panel. It co
 | Initialize | Permanently replaces the selected project with an empty project. |
 | Download Projects | Downloads all ten projects in one ZIP. |
 | Restore | Restores matching projects from a ZIP or replaces the current project from one project file. |
-
