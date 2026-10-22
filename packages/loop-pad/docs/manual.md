@@ -9,18 +9,12 @@ The sampler records and plays 16 audio clips from MIDI notes. It is designed for
 1. Connect the OP-Z and audio interface.
 2. Open the sampler in Chrome or Edge.
 3. Allow microphone and MIDI access when prompted.
-4. Open the configuration panel and select:
-   - **Audio Input** — the signal to sample, such as a Scarlett input or BlackHole.
-   - **Input Channels** — the stereo pair within the selected input used to record each sample.
-   - **Audio Output** — the listening destination, such as the Scarlett or BlackHole.
-   - **Output Channels** — a stereo pair on multi-output devices.
-   - **MIDI Input** — the OP-Z or other controller sending notes and clock.
-   - **MIDI Output** — the OP-Z, required only for count-in transport control.
+4. In the configuration panel, select the audio and MIDI devices and stereo channel pairs.
 5. Set the **MIDI Channel**, **First Sample Note**, **Delete Note**, **Count-in On Note**, **Count-in Off Note**, **Channel Switch Note**, **Take Mode Note**, and **One-shot Mode Note**. The notes must not overlap.
 6. Assign the four per-slot mixer CCs: **HPF Cutoff**, **LPF Cutoff**, **Pan**, and **Level** (CC 1–4 by default), plus **Master Level** (CC 16 by default).
 7. Select **Project 1–10** from the project dropdown.
 
-The app remembers the last selected Audio Input, Input Channels, Audio Output, Audio Output Channels, MIDI Input, MIDI Output, and project in browser storage. On later visits, it automatically reconnects each device selector when a device with the same name becomes available, then restores remembered stereo input and output pairs when the device exposes them. It also opens the last selected project. If a remembered device or channel selection is unavailable, the selector uses its default until it appears or another selection is made.
+The app remembers device, channel-pair, and project selections in browser storage. It reconnects devices by name, restores available channel pairs, and opens the last selected project. Unavailable selections use their defaults until they become available or another selection is made.
 
 ## Sample notes
 
@@ -138,7 +132,7 @@ Each slot has four controls:
 - **LPF Cutoff** — lowers the low-pass cutoff as the CC value decreases.
 - **HPF Cutoff** — raises the high-pass cutoff as the CC value increases.
 
-The four per-slot CC assignments control the **selected slot**. Completing a recording selects that slot, and subsequent CC adjustments continue to apply to it. The global **Master Level CC** controls the final playback level without requiring a selected slot.
+The four per-slot CC assignments control the **selected slot**. The global **Master Level CC** controls the final playback level without requiring a selected slot.
 
 CCs are accepted only on the configured MIDI channel. Until a slot is selected, mixer CCs do nothing. The filters have no resonance control. Filter slope and other advanced filter behavior are global settings in the configuration panel.
 
@@ -154,7 +148,7 @@ Project playback and recording stop when switching projects. Device selections, 
 
 Browser storage belongs to the current browser profile and site. Clearing site data removes all projects, so use **Download Projects** for backup or transfer.
 
-If the app reports that a locally stored project is invalid, select **Clear Project Memory** from the error screen or configuration panel. This permanently removes all ten local projects but keeps device and MIDI settings.
+If the app reports that a locally stored project is invalid, select **Clear Project Memory** from the error screen or configuration panel.
 
 ### Download and restore
 
@@ -201,7 +195,7 @@ The BPM indicator shows the tempo estimated from recent MIDI Clock pulses. It re
 
 ## Configuration panel
 
-Select the gear button on the front panel to open the configuration panel. It contains device selection, numeric MIDI assignments, a filter-slope selector, and **Clear Project Memory**. **Input Channels** selects the stereo pair recorded into each sample. On devices with more than two output channels, **Output Channels** selects the stereo pair used for sample playback. The last user-selected input and output pairs are remembered and restored whenever a selected or automatically reconnected device exposes them. **Clear Project Memory** permanently removes all local projects while retaining device and MIDI settings. Project selection, download, restore, MIDI Clock state, BPM, and Count-in state remain on the front panel.
+Select the gear button on the front panel to open the configuration panel. It contains device selection, numeric MIDI assignments, a filter-slope selector, and **Clear Project Memory**. Project selection, download, restore, MIDI Clock state, BPM, and Count-in state remain on the front panel.
 
 | Option | Function | Default |
 | --- | --- | --- |
@@ -232,12 +226,3 @@ Select the gear button on the front panel to open the configuration panel. It co
 | Recording Latency | Skips this amount from the start of every sample when it is triggered, compensating for recording latency without modifying the stored sample. Changes apply to the next trigger. | 20 ms |
 | Filter Slope | Sets the global LPF and HPF slope in the configuration panel. | 24 dB/oct |
 | Clear Project Memory | Permanently removes all ten locally stored projects without changing device or MIDI settings. | — |
-
-## Front-panel settings
-
-| Setting | Function |
-| --- | --- |
-| Project | Selects Project 1–10, saving the current project before loading another. Defaults to Project 1. |
-| Initialize | Permanently replaces the selected project with an empty project. |
-| Download Projects | Downloads all ten projects in one ZIP. |
-| Restore | Restores matching projects from a ZIP or replaces the current project from one project file. |
