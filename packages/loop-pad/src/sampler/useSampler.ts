@@ -135,7 +135,15 @@ export function useSampler() {
   }
 
   function selectSlot(address: SlotAddress | null): void {
-    if (selectedSlotRef.current?.bank === address?.bank && selectedSlotRef.current?.slot === address?.slot) return;
+    const previous = selectedSlotRef.current;
+    if (previous?.bank === address?.bank && previous?.slot === address?.slot) return;
+    if (previous && address) {
+      const previousSlot = slotAt(previous);
+      const previousId = engineSlot(previous);
+      const isUnfinalizedTake = previousSlot.takePending
+        || (previousSlot.state === 'recording' && recordingModeRef.current.get(previousId) === 'take');
+      if (isUnfinalizedTake) discardSlot(previous);
+    }
     selectedSlotRef.current = address;
     setSelectedSlot(address);
     if (address) setActiveBankValue(address.bank);
@@ -148,6 +156,22 @@ export function useSampler() {
 
   function clearSelection(): void {
     selectSlot(null);
+  }
+
+  function discardSlot(address: SlotAddress): void {
+    const engine = engineRef.current!;
+    const id = engineSlot(address);
+    const current = slotAt(address);
+    if (current.state === 'recording') {
+      cancelRecordingTail(address);
+      engine.cancelRecording(id);
+    }
+    recordingModeRef.current.delete(id);
+    recordingWasEmptyRef.current.delete(id);
+    engine.clearSlotBuffer(id);
+    projectRef.current.banks[address.bank][address.slot] = makeDefaultSlot();
+    deletedSlotsRef.current.delete(id);
+    scheduleAutoSave();
   }
 
   function deleteSlot(address: SlotAddress): void {
@@ -250,7 +274,7 @@ export function useSampler() {
     scheduleAutoSave();
   }
 
-  function handleSampleNoteOn(address: SlotAddress, time: number): void {
+  function handleSampleNoteOn(address: SlotAddress, time: number, playbackOffsetMs?: number): void {
     const deleteTime = lastDeleteEventTimeRef.current;
     if (deleteTime !== null && time - deleteTime <= DELETE_WINDOW_MS) {
       deleteSlot(address);
@@ -295,11 +319,12 @@ export function useSampler() {
       const mixer = settingsRef.current.channelMode
         ? { level: 1, pan: address.bank === BANK_A ? -1 : 1, lpfCutoff: 1, hpfCutoff: 0 }
         : current.mixer;
-      engine.play(id, mixer, settingsRef.current.recordingTailMs, settingsRef.current.recordingLatencyMs);
+      const startOffsetMs = playbackOffsetMs ?? settingsRef.current.recordingLatencyMs;
+      engine.play(id, mixer, settingsRef.current.recordingTailMs, startOffsetMs);
       current.state = 'playing';
       if (!clockRunningRef.current) selectSlot(address);
       const sampleDurationMs = current.samples ? (current.samples.left.length / current.sampleRate) * 1000 : 0;
-      const durationMs = Math.max(0, sampleDurationMs - settingsRef.current.recordingLatencyMs);
+      const durationMs = Math.max(0, sampleDurationMs - startOffsetMs);
       playbackStartRef.current.set(id, { startedAt: performance.now(), durationMs });
     }
   }
@@ -514,18 +539,39 @@ export function useSampler() {
         const selected = selectedSlotRef.current;
         if (s.recordingMode === 'take' && selected) {
           const current = slotAt(selected);
+          const lastSampleEvent = lastSampleEventRef.current;
+          const elapsedSinceTriggerMs = lastSampleEvent
+            && lastSampleEvent.address.bank === selected.bank
+            && lastSampleEvent.address.slot === selected.slot
+            ? Math.max(0, time - lastSampleEvent.time)
+            : 0;
+          const playbackOffsetMs = settingsRef.current.recordingLatencyMs + elapsedSinceTriggerMs;
           if (current.state === 'recording') {
             const id = engineSlot(selected);
             cancelRecordingTail(selected);
+            if (current.samples) {
+              engineRef.current!.cancelRecording(id);
+              recordingModeRef.current.delete(id);
+              recordingWasEmptyRef.current.delete(id);
+              current.recordingPeaks = [];
+              current.state = 'stopped';
+              current.takePending = false;
+              scheduleAutoSave();
+              handleSampleNoteOn(selected, time, playbackOffsetMs);
+              return;
+            }
             void engineRef.current!.stopRecording(id).then((samples) => {
               if (slotAt(selected) !== current || current.state !== 'recording') return;
               completeRecording(selected, samples);
               current.takePending = false;
               scheduleAutoSave();
+              handleSampleNoteOn(selected, time, playbackOffsetMs);
             });
           } else {
+            const wasPending = current.takePending;
             current.takePending = false;
             scheduleAutoSave();
+            if (wasPending) handleSampleNoteOn(selected, time, playbackOffsetMs);
           }
         } else {
           updateSettings({ recordingMode: 'take' });

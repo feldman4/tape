@@ -252,14 +252,14 @@ function assertEq(actual, expected, label) {
     }, TIMEOUT_MS, 'second take recording after previous tail is interrupted');
     assertEq(state.slots[2].state, 'recording', 'Second take starts on the following sequencer pass');
     assertEq(state.selectedSlot, 2, 'First take completes before the second take records');
+    const precedingTakeDurationSecs = state.slots[2].durationSecs;
     await page.evaluate((note) => window.__loopPadTest.noteOn(note), takeModeNote);
-    await waitFor(page, () => window.__loopPadTest.getState().slots[2].state === 'stopped', TIMEOUT_MS, 'active take finalized by MIDI');
-    await page.evaluate((note) => window.__loopPadTest.noteOn(note), firstNote + 2);
     state = await waitFor(page, () => {
       const st = window.__loopPadTest.getState();
       return st.slots[2].state === 'playing' ? st : null;
-    }, TIMEOUT_MS, 'finalized take playing');
-    assertEq(state.slots[2].state, 'playing', 'Finalized Take-mode slot plays instead of recording over its sample');
+    }, TIMEOUT_MS, 'active take finalized and playing');
+    assertEq(state.slots[2].state, 'playing', 'Finalizing a Take-mode slot immediately plays its sample');
+    assertEq(state.slots[2].durationSecs, precedingTakeDurationSecs, 'Finalization keeps the preceding completed take');
     await page.evaluate((note) => window.__loopPadTest.noteOff(note), firstNote + 2);
     await page.evaluate((note) => window.__loopPadTest.noteOn(note), firstNote + 2);
     state = await page.evaluate(() => window.__loopPadTest.getState());
@@ -276,14 +276,28 @@ function assertEq(actual, expected, label) {
     }, TIMEOUT_MS, 'new take recording after deletion');
     assertEq(state.slots[2].state, 'recording', 'Deleted slot starts a new take on the next sequencer pass');
     await page.evaluate((note) => window.__loopPadTest.noteOn(note), takeModeNote);
-    await waitFor(page, () => window.__loopPadTest.getState().slots[2].state === 'stopped', TIMEOUT_MS, 'first replacement take finalized');
-    await page.evaluate((note) => window.__loopPadTest.noteOn(note), firstNote + 2);
     state = await waitFor(page, () => {
       const st = window.__loopPadTest.getState();
       return st.slots[2].state === 'playing' ? st : null;
-    }, TIMEOUT_MS, 'first finalized take playing');
-    assertEq(state.slots[2].state, 'playing', 'Take Mode note finalizes an active first take');
+    }, TIMEOUT_MS, 'first replacement take finalized and playing');
+    assertEq(state.slots[2].state, 'playing', 'Take Mode note immediately plays a finalized active first take');
     await page.evaluate((note) => window.__loopPadTest.noteOff(note), firstNote + 2);
+    await page.evaluate(([sampleNote, resetNote]) => {
+      window.__loopPadTest.noteOn(sampleNote);
+      window.__loopPadTest.noteOn(resetNote);
+    }, [firstNote + 2, deleteNote]);
+    await waitFor(page, () => window.__loopPadTest.getState().slots[2].state === 'empty', TIMEOUT_MS, 'replacement take deleted before new recording');
+    await page.evaluate((note) => window.__loopPadTest.noteOn(note), firstNote + 2);
+    await waitFor(page, () => {
+      const st = window.__loopPadTest.getState();
+      return st.slots[2].state === 'recording' && st.selectedSlot === 2 ? st : null;
+    }, TIMEOUT_MS, 'replacement take recording before selecting another slot');
+    await page.evaluate((note) => window.__loopPadTest.noteOn(note), firstNote + 4);
+    state = await waitFor(page, () => {
+      const st = window.__loopPadTest.getState();
+      return st.slots[2].state === 'empty' && st.slots[4].state === 'recording' && st.selectedSlot === 4 ? st : null;
+    }, TIMEOUT_MS, 'unfinalized take discarded when selecting another slot');
+    assertEq(state.slots[2].state, 'empty', 'Selecting another slot clears the previous unfinalized take');
     await page.evaluate(() => window.__loopPadTest.updateSettings({ recordingTailMs: 0 }));
     await page.evaluate((note) => window.__loopPadTest.noteOn(note), oneShotModeNote);
     await waitFor(page, () => {

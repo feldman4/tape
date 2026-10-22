@@ -55,21 +55,26 @@ The front panel displays the active recording mode beside the Count-in status.
    running. This begins the first take.
 2. Each subsequent sequencer pass for that slot finishes the preceding take
    and immediately begins the next one. The slot remains an unfinalized take.
-3. Send the Take Mode Note again to stop and finalize the current take. Its
-   ring changes from amber to blue, and later sequencer passes play its sample
-   instead of recording over it.
+3. Send the Take Mode Note again to finalize the preceding completed take
+   (unless there is none, in which case it finalizes the current take). The
+   finalized take's ring changes from amber to blue and it immediately starts
+   playing from that point. Later sequencer passes play its sample instead of
+   recording over it.
 
-Take recording can begin only from an empty slot. While the sequencer is
-running, triggering an unfinalized take does nothing; triggering a finalized
-slot plays it. When the sequencer is stopped, either type of loaded slot plays
-its latest complete take. Delete a slot first to begin a new Take sequence. An
-unfinalized take has an amber slot ring; finalized samples use blue and
-recording slots use red.
+Take sequences can begin only from an empty slot. While the sequencer is
+running, triggering a completed unfinalized take begins the next take;
+triggering a slot while its current take is recording does nothing. Triggering
+a finalized slot plays it. When the sequencer is stopped, either type of loaded
+slot plays its latest complete take. An unfinalized take has an amber slot ring;
+finalized samples use blue and recording slots use red.
 
 When the sequencer is paused, triggering a slot plays its latest complete take,
 even if it is not finalized. If the sequencer stops in the middle of recording
 a take, that in-progress take is discarded, unless it is the first take
 recorded for an empty slot.
+
+Selecting a different slot discards any unfinalized take in the previously
+selected slot.
 
 ## Channel Mode
 
@@ -211,7 +216,7 @@ Select the gear button on the front panel to open the configuration panel. It co
 | Count-in On Note | Sets the note that enables Count-in. | 72 |
 | Count-in Off Note | Sets the note that disables Count-in. | 71 |
 | Channel Switch Note | In Channel Mode, selects the channel (bank) mapped to the MIDI channel that sends it; ignored when Channel Mode is off. | 73 |
-| Take Mode Note | Sends Tape into Take mode; sending it again finalizes the active take. | 76 |
+| Take Mode Note | Sends Tape into Take mode; sending it again finalizes the preceding completed take, or the active take when there is no preceding take. | 76 |
 | One-shot Mode Note | Switches recording back to One-shot mode. | 74 |
 | HPF Cutoff CC | Sets the global CC number used for the selected slot's high-pass cutoff. | 1 |
 | LPF Cutoff CC | Sets the global CC number used for the selected slot's low-pass cutoff. | 2 |
