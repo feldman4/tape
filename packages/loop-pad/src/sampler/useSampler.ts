@@ -10,7 +10,7 @@ import { SamplerEngine } from '../audio/samplerEngine';
 import { MidiEngine, type MidiDeviceRef, type MidiEvent } from '../midi/midiEngine';
 import {
   computePeaks, makeDefaultProject, makeDefaultSlot, SLOT_COUNT,
-  type BankIndex, type Project, type Slot,
+  type BankIndex, type Project, type RecordingMode, type Slot, type StereoSamples,
 } from './model';
 import {
   clearAllProjects, loadProject, saveProject, downloadAllProjects,
@@ -111,8 +111,6 @@ export function useSampler() {
   const autoSaveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const playbackStartRef = useRef<Map<number, { startedAt: number; durationMs: number; startProgress: number }>>(new Map());
   const recordingTailTimeoutRef = useRef<Map<number, ReturnType<typeof setTimeout>>>(new Map());
-  const recordingWasEmptyRef = useRef<Map<number, boolean>>(new Map());
-  const recordingModeRef = useRef<Map<number, 'one-shot' | 'take'>>(new Map());
   const noteFlashTimeoutRef = useRef<Map<number, ReturnType<typeof setTimeout>>>(new Map());
 
   useEffect(() => () => {
@@ -146,9 +144,8 @@ export function useSampler() {
     if (previous?.bank === address?.bank && previous?.slot === address?.slot) return;
     if (previous && address) {
       const previousSlot = slotAt(previous);
-      const previousId = engineSlot(previous);
-      const isUnfinalizedTake = previousSlot.takePending
-        || (previousSlot.state === 'recording' && recordingModeRef.current.get(previousId) === 'take');
+      const isUnfinalizedTake = previousSlot.sample?.takeStatus === 'unfinalized'
+        || (previousSlot.activity.kind === 'recording' && previousSlot.activity.mode === 'take');
       if (isUnfinalizedTake) discardSlot(previous);
     }
     selectedSlotRef.current = address;
@@ -184,12 +181,10 @@ export function useSampler() {
     const engine = engineRef.current!;
     const id = engineSlot(address);
     const current = slotAt(address);
-    if (current.state === 'recording') {
+    if (current.activity.kind === 'recording') {
       cancelRecordingTail(address);
       engine.cancelRecording(id);
     }
-    recordingModeRef.current.delete(id);
-    recordingWasEmptyRef.current.delete(id);
     engine.clearSlotBuffer(id);
     projectRef.current.banks[address.bank][address.slot] = makeDefaultSlot();
     deletedSlotsRef.current.delete(id);
@@ -201,20 +196,20 @@ export function useSampler() {
     const id = engineSlot(address);
     const current = slotAt(address);
     const deleted = deletedSlotsRef.current.get(id);
-    if (current.state === 'recording') {
+    if (current.activity.kind === 'recording') {
       cancelRecordingTail(address);
       engine.cancelRecording(id);
     }
     engine.clearSlotBuffer(id);
     if (deleted) {
       projectRef.current.banks[address.bank][address.slot] = deleted;
-      if (deleted.samples) engine.loadSlotBuffer(id, deleted.samples);
+      if (deleted.sample) engine.loadSlotBuffer(id, deleted.sample.samples);
       deletedSlotsRef.current.delete(id);
       selectSlot(address);
       scheduleAutoSave();
       return;
     }
-    if (current.samples) deletedSlotsRef.current.set(id, { ...current, state: 'stopped' });
+    if (current.sample) deletedSlotsRef.current.set(id, { ...current, activity: { kind: 'idle' } });
     projectRef.current.banks[address.bank][address.slot] = makeDefaultSlot();
     if (selectedSlotRef.current?.bank === address.bank && selectedSlotRef.current.slot === address.slot) clearSelection();
     scheduleAutoSave();
@@ -241,7 +236,7 @@ export function useSampler() {
         const address = { bank, slot };
         const current = slotAt(address);
         engine.stop(engineSlot(address));
-        if (current.state === 'playing') current.state = 'stopped';
+        if (current.activity.kind === 'playing') current.activity = { kind: 'idle' };
       }
     }
     playbackStartRef.current.clear();
@@ -253,20 +248,21 @@ export function useSampler() {
       for (let slot = 0; slot < SLOT_COUNT; slot++) {
         const address = { bank, slot };
         const current = slotAt(address);
-        if (current.state !== 'recording') continue;
+        if (current.activity.kind !== 'recording') continue;
+        const recording = current.activity;
         const id = engineSlot(address);
         cancelRecordingTail(address);
-        if (recordingWasEmptyRef.current.get(id)) {
+        if (recording.startedEmpty) {
           void engine.stopRecording(id).then((samples) => {
-            if (slotAt(address) === current && current.state === 'recording') completeRecording(address, samples);
+            if (slotAt(address) === current && current.activity.kind === 'recording') {
+              completeRecording(address, samples, recording.mode);
+            }
           });
           continue;
         }
         engine.cancelRecording(id);
-        recordingModeRef.current.delete(id);
-        recordingWasEmptyRef.current.delete(id);
         current.recordingPeaks = [];
-        current.state = current.samples ? 'stopped' : 'empty';
+        current.activity = { kind: 'idle' };
       }
     }
   }
@@ -276,27 +272,29 @@ export function useSampler() {
     const current = slotAt(address);
     const id = engineSlot(address);
     lastSampleEventRef.current = { address, time };
-    recordingWasEmptyRef.current.set(id, current.samples === null);
-    recordingModeRef.current.set(id, settingsRef.current.recordingMode);
+    current.activity = {
+      kind: 'recording',
+      mode: settingsRef.current.recordingMode,
+      startedEmpty: current.sample === null,
+    };
     engine.startRecording(id);
-    current.state = 'recording';
     current.recordingPeaks = [];
     selectSlot(address);
   }
 
-  function completeRecording(address: SlotAddress, samples: Slot['samples']): void {
+  function completeRecording(address: SlotAddress, samples: StereoSamples | null, mode: RecordingMode): void {
     if (!samples) return;
     const engine = engineRef.current!;
     const current = slotAt(address);
     const id = engineSlot(address);
-    current.samples = samples;
-    current.sampleRate = engine.sampleRate;
-    current.peaks = computePeaks(samples);
+    current.sample = {
+      samples,
+      sampleRate: engine.sampleRate,
+      peaks: computePeaks(samples),
+      takeStatus: mode === 'take' ? 'unfinalized' : 'finalized',
+    };
     current.recordingPeaks = [];
-    current.state = 'stopped';
-    current.takePending = recordingModeRef.current.get(id) === 'take';
-    recordingModeRef.current.delete(id);
-    recordingWasEmptyRef.current.delete(id);
+    current.activity = { kind: 'idle' };
     engine.loadSlotBuffer(id, samples);
     deletedSlotsRef.current.delete(id);
     selectSlot(address);
@@ -313,46 +311,50 @@ export function useSampler() {
     const engine = engineRef.current!;
     const current = slotAt(address);
     const id = engineSlot(address);
-    if (current.state === 'empty') {
+    if (current.activity.kind === 'idle' && !current.sample) {
       if (!clockRunningRef.current) return;
       startRecording(address, time);
-    } else if (current.state === 'recording' && recordingTailTimeoutRef.current.has(id)) {
+    } else if (current.activity.kind === 'recording' && recordingTailTimeoutRef.current.has(id)) {
+      const recording = current.activity;
       // The following pattern cycle can start before the recording tail has
       // flushed. Play the capture so far while the worklet keeps recording.
       lastSampleEventRef.current = { address, time };
-      if (recordingModeRef.current.get(id) === 'take') {
+      if (recording.mode === 'take') {
         // A new Take-mode note ends the prior take now, rather than waiting
         // for its tail. Once flushed, immediately begin the new take.
         cancelRecordingTail(address);
         void engine.stopRecording(id).then((samples) => {
-          if (slotAt(address) !== current || current.state !== 'recording') return;
-          completeRecording(address, samples);
+          if (slotAt(address) !== current || current.activity.kind !== 'recording') return;
+          completeRecording(address, samples, recording.mode);
           if (clockRunningRef.current && settingsRef.current.recordingMode === 'take') {
             startRecording(address, time);
           }
         });
       } else {
         void engine.snapshotRecording(id).then((samples) => {
-          if (slotAt(address) !== current || current.state !== 'recording') return;
+          if (slotAt(address) !== current || current.activity.kind !== 'recording') return;
           engine.loadSlotBuffer(id, samples);
           engine.play(id, current.mixer, settingsRef.current.recordingTailMs, settingsRef.current.recordingLatencyMs);
         });
       }
-    } else if (current.state === 'recording') {
+    } else if (current.activity.kind === 'recording') {
       // Note On while the note that began this recording is still held: no-op.
-    } else if (settingsRef.current.recordingMode === 'take' && current.takePending && clockRunningRef.current) {
+    } else if (settingsRef.current.recordingMode === 'take'
+      && current.sample?.takeStatus === 'unfinalized' && clockRunningRef.current) {
       startRecording(address, time);
     } else {
       lastSampleEventRef.current = { address, time };
-      if (clockRunningRef.current && current.takePending) return;
+      if (clockRunningRef.current && current.sample?.takeStatus === 'unfinalized') return;
       const mixer = settingsRef.current.channelMode
         ? { level: 1, pan: address.bank === BANK_A ? -1 : 1, lpfCutoff: 1, hpfCutoff: 0 }
         : current.mixer;
       const startOffsetMs = playbackOffsetMs ?? settingsRef.current.recordingLatencyMs;
       engine.play(id, mixer, settingsRef.current.recordingTailMs, startOffsetMs);
-      current.state = 'playing';
+      current.activity = { kind: 'playing' };
       if (!clockRunningRef.current) selectSlot(address);
-      const sampleDurationMs = current.samples ? (current.samples.left.length / current.sampleRate) * 1000 : 0;
+      const sampleDurationMs = current.sample
+        ? (current.sample.samples.left.length / current.sample.sampleRate) * 1000
+        : 0;
       const durationMs = Math.max(0, sampleDurationMs - startOffsetMs);
       const startProgress = sampleDurationMs > 0 ? Math.min(1, startOffsetMs / sampleDurationMs) : 0;
       playbackStartRef.current.set(id, { startedAt: performance.now(), durationMs, startProgress });
@@ -363,15 +365,16 @@ export function useSampler() {
     const engine = engineRef.current!;
     const current = slotAt(address);
     const id = engineSlot(address);
-    if (current.state === 'recording') {
+    if (current.activity.kind === 'recording') {
       cancelRecordingTail(address);
       const tailMs = settingsRef.current.recordingTailMs;
+      const recording = current.activity;
       const finishRecording = () => {
-        if (slotAt(address) !== current || current.state !== 'recording') return;
+        if (slotAt(address) !== current || current.activity.kind !== 'recording') return;
         void engine.stopRecording(id).then((samples) => {
           // The slot may have been deleted while the flush was in flight.
           if (slotAt(address) !== current) return;
-          completeRecording(address, samples);
+          completeRecording(address, samples, recording.mode);
         });
       };
       if (tailMs === 0) {
@@ -383,11 +386,11 @@ export function useSampler() {
         finishRecording();
       }, tailMs);
       recordingTailTimeoutRef.current.set(id, timeout);
-    } else if (current.state === 'playing') {
+    } else if (current.activity.kind === 'playing') {
       // engine.stop() intentionally suppresses its own onended callback (to
       // avoid racing the natural-end path below), so flip state here instead.
       engine.stop(id);
-      current.state = 'stopped';
+      current.activity = { kind: 'idle' };
       playbackStartRef.current.delete(id);
     }
   }
@@ -579,31 +582,32 @@ export function useSampler() {
             ? Math.max(0, time - lastSampleEvent.time)
             : 0;
           const playbackOffsetMs = settingsRef.current.recordingLatencyMs + elapsedSinceTriggerMs;
-          if (current.state === 'recording') {
+          if (current.activity.kind === 'recording') {
+            const recording = current.activity;
             const id = engineSlot(selected);
             cancelRecordingTail(selected);
-            if (current.samples) {
+            if (current.sample) {
               engineRef.current!.cancelRecording(id);
-              recordingModeRef.current.delete(id);
-              recordingWasEmptyRef.current.delete(id);
               current.recordingPeaks = [];
-              current.state = 'stopped';
-              current.takePending = false;
+              current.activity = { kind: 'idle' };
+              current.sample.takeStatus = 'finalized';
               scheduleAutoSave();
               handleSampleNoteOn(selected, time, playbackOffsetMs);
               return;
             }
             void engineRef.current!.stopRecording(id).then((samples) => {
-              if (slotAt(selected) !== current || current.state !== 'recording') return;
-              completeRecording(selected, samples);
-              current.takePending = false;
+              if (slotAt(selected) !== current || current.activity.kind !== 'recording') return;
+              completeRecording(selected, samples, recording.mode);
+              if (current.sample) current.sample.takeStatus = 'finalized';
               scheduleAutoSave();
               handleSampleNoteOn(selected, time, playbackOffsetMs);
             });
           } else {
-            const wasPending = current.takePending;
-            current.takePending = false;
-            scheduleAutoSave();
+            const wasPending = current.sample?.takeStatus === 'unfinalized';
+            if (wasPending && current.sample) {
+              current.sample.takeStatus = 'finalized';
+              scheduleAutoSave();
+            }
             if (wasPending) handleSampleNoteOn(selected, time, playbackOffsetMs);
           }
         } else {
@@ -677,14 +681,14 @@ export function useSampler() {
       setMasterLevelAnalysers(engine.masterLevelAnalysers);
       engine.onRecordingProgress((id, peak) => {
         const s = slotAt({ bank: Math.floor(id / SLOT_COUNT) as BankIndex, slot: id % SLOT_COUNT });
-        if (s && s.state === 'recording') {
+        if (s && s.activity.kind === 'recording') {
           s.recordingPeaks.push(peak);
           if (s.recordingPeaks.length > 200) s.recordingPeaks.shift();
         }
       });
       engine.onPlaybackEnded((id) => {
         const s = slotAt({ bank: Math.floor(id / SLOT_COUNT) as BankIndex, slot: id % SLOT_COUNT });
-        if (s && s.state === 'playing') s.state = 'stopped';
+        if (s && s.activity.kind === 'playing') s.activity = { kind: 'idle' };
         playbackStartRef.current.delete(id);
       });
 
@@ -737,7 +741,7 @@ export function useSampler() {
         for (let slot = 0; slot < SLOT_COUNT; slot++) {
           const address = { bank, slot };
           const s = slotAt(address);
-          if (s.samples) engine.loadSlotBuffer(engineSlot(address), s.samples);
+          if (s.sample) engine.loadSlotBuffer(engineSlot(address), s.sample.samples);
         }
       }
       setProjectIndex(initialProjectIndex);
@@ -896,11 +900,11 @@ export function useSampler() {
         const address = { bank, slot };
         const s = slotAt(address);
         const id = engineSlot(address);
-        if (s.state === 'recording') {
+        if (s.activity.kind === 'recording') {
           cancelRecordingTail(address);
           engine.cancelRecording(id);
         }
-        if (s.state === 'playing') engine.stop(id);
+        if (s.activity.kind === 'playing') engine.stop(id);
       }
     }
 
@@ -915,7 +919,7 @@ export function useSampler() {
         const address = { bank, slot };
         engine.clearSlotBuffer(engineSlot(address));
         const s = slotAt(address);
-        if (s.samples) engine.loadSlotBuffer(engineSlot(address), s.samples);
+        if (s.sample) engine.loadSlotBuffer(engineSlot(address), s.sample.samples);
       }
     }
     setProjectIndex(index);
@@ -980,7 +984,7 @@ export function useSampler() {
           const id = engineSlot(address);
           engine.clearSlotBuffer(id);
           const s = slotAt(address);
-          if (s.samples) engine.loadSlotBuffer(id, s.samples);
+          if (s.sample) engine.loadSlotBuffer(id, s.sample.samples);
         }
       }
       refreshProject();

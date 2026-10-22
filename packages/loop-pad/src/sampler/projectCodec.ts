@@ -7,7 +7,7 @@
 //   magic: 4 bytes "LPP3"
 //   for each of 32 slots (Channel A, then Channel B), in order:
 //     hasSample: uint8 (0 or 1)
-//     takePending: uint8 (0 or 1)
+//     sampleTakeStatus: uint8 (0 = finalized, 1 = unfinalized)
 //     sampleRate: float32
 //     level, pan, lpfCutoff, hpfCutoff: float32 each
 //     if hasSample: frameCount: uint32, then left and right float32 channels
@@ -24,7 +24,9 @@ export function encodeProject(project: Project): Uint8Array {
   for (const bank of project.banks) {
     for (const slot of bank) {
       totalLength += 2 + 4 + 16; // flags + sampleRate + 4 mixer floats
-      if (slot.samples && slot.samples.left.length > 0) totalLength += 4 + slot.samples.left.length * 8;
+      if (slot.sample && slot.sample.samples.left.length > 0) {
+        totalLength += 4 + slot.sample.samples.left.length * 8;
+      }
     }
   }
 
@@ -36,18 +38,18 @@ export function encodeProject(project: Project): Uint8Array {
 
   for (const bank of project.banks) {
     for (const slot of bank) {
-      const hasSample = slot.samples !== null && slot.samples.left.length > 0;
+      const hasSample = slot.sample !== null && slot.sample.samples.left.length > 0;
       out[offset] = hasSample ? 1 : 0;
       offset += 1;
-      out[offset] = slot.takePending ? 1 : 0;
+      out[offset] = slot.sample?.takeStatus === 'unfinalized' ? 1 : 0;
       offset += 1;
-      view.setFloat32(offset, slot.sampleRate, true); offset += 4;
+      view.setFloat32(offset, slot.sample?.sampleRate ?? 48000, true); offset += 4;
       view.setFloat32(offset, slot.mixer.level, true); offset += 4;
       view.setFloat32(offset, slot.mixer.pan, true); offset += 4;
       view.setFloat32(offset, slot.mixer.lpfCutoff, true); offset += 4;
       view.setFloat32(offset, slot.mixer.hpfCutoff, true); offset += 4;
       if (hasSample) {
-        const samples = slot.samples!;
+        const samples = slot.sample!.samples;
         view.setUint32(offset, samples.left.length, true); offset += 4;
         out.set(new Uint8Array(samples.left.buffer, samples.left.byteOffset, samples.left.byteLength), offset);
         offset += samples.left.byteLength;
@@ -70,7 +72,7 @@ export function decodeProject(bytes: Uint8Array): Project {
   for (let i = 0; i < slotCount; i++) {
     const hasSample = bytes[offset] === 1;
     offset += 1;
-    const takePending = bytes[offset] === 1;
+    const sampleUnfinalized = bytes[offset] === 1;
     offset += 1;
     const sampleRate = view.getFloat32(offset, true); offset += 4;
     const level = view.getFloat32(offset, true); offset += 4;
@@ -89,12 +91,16 @@ export function decodeProject(bytes: Uint8Array): Project {
     }
 
     const slot = makeDefaultSlot();
-    slot.samples = samples;
-    slot.sampleRate = sampleRate;
     slot.mixer = { level, pan, lpfCutoff, hpfCutoff };
-    slot.state = samples ? 'stopped' : 'empty';
-    slot.peaks = samples ? computePeaks(samples) : [];
-    slot.takePending = takePending && samples !== null;
+    slot.activity = { kind: 'idle' };
+    slot.sample = samples
+      ? {
+          samples,
+          sampleRate,
+          peaks: computePeaks(samples),
+          takeStatus: sampleUnfinalized ? 'unfinalized' : 'finalized',
+        }
+      : null;
     slots.push(slot);
   }
   return { banks: [slots.slice(0, SLOT_COUNT), slots.slice(SLOT_COUNT)] };

@@ -5,7 +5,15 @@ export const SLOT_COUNT = 16;
 export const BANK_COUNT = 2;
 export type BankIndex = 0 | 1;
 
-export type SlotState = 'empty' | 'recording' | 'stopped' | 'playing';
+export type RecordingMode = 'one-shot' | 'take';
+
+export type SlotActivity =
+  | { kind: 'idle' }
+  | { kind: 'recording'; mode: RecordingMode; startedEmpty: boolean }
+  | { kind: 'playing' };
+
+export type SlotDisplayState = 'empty' | 'recording' | 'stopped' | 'playing';
+export type SampleTakeStatus = 'finalized' | 'unfinalized';
 
 export interface SlotMixer {
   level: number;      // 0..1
@@ -19,16 +27,19 @@ export interface StereoSamples {
   right: Float32Array;
 }
 
-export interface Slot {
-  state: SlotState;
-  samples: StereoSamples | null;
+export interface StoredSample {
+  samples: StereoSamples;
   sampleRate: number;
-  /** Downsampled peak envelope of the stored sample, for the ready-state ring. */
   peaks: number[];
+  takeStatus: SampleTakeStatus;
+}
+
+export interface Slot {
+  activity: SlotActivity;
+  sample: StoredSample | null;
   /** Live peak envelope accumulated while recording, for the recording-state ring. */
   recordingPeaks: number[];
   mixer: SlotMixer;
-  takePending: boolean;
 }
 
 export interface Project {
@@ -41,14 +52,17 @@ export function makeDefaultMixer(): SlotMixer {
 
 export function makeDefaultSlot(): Slot {
   return {
-    state: 'empty',
-    samples: null,
-    sampleRate: 48000,
-    peaks: [],
+    activity: { kind: 'idle' },
+    sample: null,
     recordingPeaks: [],
     mixer: makeDefaultMixer(),
-    takePending: false,
   };
+}
+
+export function getSlotDisplayState(slot: Slot): SlotDisplayState {
+  if (slot.activity.kind === 'recording') return 'recording';
+  if (slot.activity.kind === 'playing') return 'playing';
+  return slot.sample ? 'stopped' : 'empty';
 }
 
 export function makeDefaultProject(): Project {

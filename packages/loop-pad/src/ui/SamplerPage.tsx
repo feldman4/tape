@@ -1,7 +1,7 @@
 // Loop Pad — 16-slot MIDI sampler. See docs/manual.md for full behavior.
 import { useEffect, useRef, useState } from 'react';
 import { useSampler } from '../sampler/useSampler';
-import { SLOT_COUNT } from '../sampler/model';
+import { getSlotDisplayState, SLOT_COUNT } from '../sampler/model';
 import { SlotView } from './SlotView';
 import { SettingsPanel } from './SettingsPanel';
 import { InputLevelMeter } from './InputLevelMeter';
@@ -30,11 +30,11 @@ export function SamplerPage() {
         selectedSlot: s.selectedSlot?.slot ?? null,
         slots: s.project.banks[s.activeBank].map((slot, index) => ({
           index,
-          state: slot.state,
+          state: getSlotDisplayState(slot),
           isPlaying: s.isSlotPlaying(index),
-          hasSample: slot.samples !== null,
-          sampleChannels: slot.samples ? 2 : 0,
-          durationSecs: slot.samples ? slot.samples.left.length / slot.sampleRate : 0,
+          hasSample: slot.sample !== null,
+          sampleChannels: slot.sample ? 2 : 0,
+          durationSecs: slot.sample ? slot.sample.samples.left.length / slot.sample.sampleRate : 0,
           playbackProgress: s.playbackProgress[index],
           mixer: slot.mixer,
         })),
@@ -155,7 +155,7 @@ export function SamplerPage() {
               firstNote={s.settings.firstSampleNote}
               progress={s.playbackProgress[i] ?? null}
               tick={s.tick}
-              active={s.project.banks[s.activeBank][i]!.state !== 'empty'}
+              active={getSlotDisplayState(s.project.banks[s.activeBank][i]!) !== 'empty'}
               selected={s.selectedSlot?.bank === s.activeBank && s.selectedSlot.slot === i}
               flashing={s.flashingSlots.has(s.activeBank * SLOT_COUNT + i)}
               mixerEnabled={!s.settings.channelMode}

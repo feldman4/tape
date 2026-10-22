@@ -5,7 +5,7 @@
 // Purely a display — no pointer handlers, per docs/manual.md "Display".
 
 import { useEffect, useRef } from 'react';
-import type { Slot } from '../sampler/model';
+import { getSlotDisplayState, type Slot } from '../sampler/model';
 
 interface SlotRingProps {
   slot: Slot;
@@ -33,7 +33,8 @@ function draw(canvas: HTMLCanvasElement, slot: Slot, progress: number | null, si
   const tickLen = 4;
 
   ctx.lineWidth = 1.5;
-  ctx.strokeStyle = slot.state === 'empty' ? '#27272a' : '#3f3f46';
+  const state = getSlotDisplayState(slot);
+  ctx.strokeStyle = state === 'empty' ? '#27272a' : '#3f3f46';
   for (let i = 0; i < BAR_COUNT; i++) {
     const angle = (i / BAR_COUNT) * Math.PI * 2 - Math.PI / 2;
     const x0 = cx + Math.cos(angle) * innerR;
@@ -46,11 +47,11 @@ function draw(canvas: HTMLCanvasElement, slot: Slot, progress: number | null, si
     ctx.stroke();
   }
 
-  const isRecording = slot.state === 'recording';
-  const peaks = isRecording ? slot.recordingPeaks : slot.peaks;
+  const isRecording = state === 'recording';
+  const peaks = isRecording ? slot.recordingPeaks : slot.sample?.peaks ?? [];
   if (peaks.length > 0) {
     const peakScale = Math.max(DISPLAY_NORMALIZATION_FLOOR, ...peaks);
-    const color = isRecording ? '#ef4444' : slot.takePending ? '#f59e0b' : '#3b82f6';
+    const color = isRecording ? '#ef4444' : slot.sample?.takeStatus === 'unfinalized' ? '#f59e0b' : '#3b82f6';
     ctx.strokeStyle = color;
     ctx.lineWidth = 2;
     for (let i = 0; i < BAR_COUNT; i++) {
