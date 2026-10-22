@@ -32,6 +32,7 @@ const CLOCK_STALE_MULTIPLIER = 4; // no-pulse gap, in multiples of the recent av
 const TRANSPORT_ECHO_WINDOW_MS = 250;
 const MAX_RECORDING_TAIL_MS = 5000;
 const MAX_RECORDING_LATENCY_MS = 5000;
+const NOTE_FLASH_MS = 150;
 const BANK_A: BankIndex = 0;
 const BANK_B: BankIndex = 1;
 
@@ -82,6 +83,7 @@ export function useSampler() {
   const [masterLevelAnalysers, setMasterLevelAnalysers] = useState<{ left: AnalyserNode; right: AnalyserNode } | null>(null);
   const [selectedSlot, setSelectedSlot] = useState<SlotAddress | null>(null);
   const [activeBank, setActiveBank] = useState<BankIndex>(BANK_A);
+  const [flashingSlots, setFlashingSlots] = useState<Set<number>>(() => new Set());
 
   const activeBankRef = useRef<BankIndex>(BANK_A);
   const engineRef = useRef<SamplerEngine | null>(null);
@@ -107,10 +109,15 @@ export function useSampler() {
   const initPromiseRef = useRef<Promise<void> | null>(null);
   const initErrorRef = useRef<string | null>(null);
   const autoSaveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const playbackStartRef = useRef<Map<number, { startedAt: number; durationMs: number }>>(new Map());
+  const playbackStartRef = useRef<Map<number, { startedAt: number; durationMs: number; startProgress: number }>>(new Map());
   const recordingTailTimeoutRef = useRef<Map<number, ReturnType<typeof setTimeout>>>(new Map());
   const recordingWasEmptyRef = useRef<Map<number, boolean>>(new Map());
   const recordingModeRef = useRef<Map<number, 'one-shot' | 'take'>>(new Map());
+  const noteFlashTimeoutRef = useRef<Map<number, ReturnType<typeof setTimeout>>>(new Map());
+
+  useEffect(() => () => {
+    for (const timeout of noteFlashTimeoutRef.current.values()) clearTimeout(timeout);
+  }, []);
 
   function slotAt(address: SlotAddress): Slot {
     return projectRef.current.banks[address.bank][address.slot]!;
@@ -158,6 +165,21 @@ export function useSampler() {
     selectSlot(null);
   }
 
+  function flashSlot(address: SlotAddress): void {
+    const id = engineSlot(address);
+    const existingTimeout = noteFlashTimeoutRef.current.get(id);
+    if (existingTimeout) clearTimeout(existingTimeout);
+    setFlashingSlots((slots) => new Set(slots).add(id));
+    noteFlashTimeoutRef.current.set(id, setTimeout(() => {
+      noteFlashTimeoutRef.current.delete(id);
+      setFlashingSlots((slots) => {
+        const next = new Set(slots);
+        next.delete(id);
+        return next;
+      });
+    }, NOTE_FLASH_MS));
+  }
+
   function discardSlot(address: SlotAddress): void {
     const engine = engineRef.current!;
     const id = engineSlot(address);
@@ -203,6 +225,13 @@ export function useSampler() {
     if (!last || deleteTime - last.time > DELETE_WINDOW_MS) return false;
     deleteSlot(last.address);
     return true;
+  }
+
+  function clearDeleteGesture(): void {
+    if (standaloneDeleteTimeoutRef.current) clearTimeout(standaloneDeleteTimeoutRef.current);
+    standaloneDeleteTimeoutRef.current = null;
+    lastDeleteEventTimeRef.current = null;
+    lastSampleEventRef.current = null;
   }
 
   function stopPlayback(): void {
@@ -325,7 +354,8 @@ export function useSampler() {
       if (!clockRunningRef.current) selectSlot(address);
       const sampleDurationMs = current.samples ? (current.samples.left.length / current.sampleRate) * 1000 : 0;
       const durationMs = Math.max(0, sampleDurationMs - startOffsetMs);
-      playbackStartRef.current.set(id, { startedAt: performance.now(), durationMs });
+      const startProgress = sampleDurationMs > 0 ? Math.min(1, startOffsetMs / sampleDurationMs) : 0;
+      playbackStartRef.current.set(id, { startedAt: performance.now(), durationMs, startProgress });
     }
   }
 
@@ -524,8 +554,11 @@ export function useSampler() {
         : event.channel === s.midiChannel ? BANK_A : null;
       if (bank === null) return;
       const time = performance.now();
+      const slot = event.note - s.firstSampleNote;
+      if (slot >= 0 && slot < SLOT_COUNT) flashSlot({ bank, slot });
       if (event.note === s.channelSwitchNote) {
         if (s.channelMode) {
+          clearDeleteGesture();
           clearSelection();
           setActiveBankValue(bank);
         }
@@ -579,7 +612,6 @@ export function useSampler() {
         return;
       }
       if (countInStateRef.current !== 'idle') return;
-      const slot = event.note - s.firstSampleNote;
       if (slot >= 0 && slot < SLOT_COUNT) {
         if (lastDeleteEventTimeRef.current !== null && time - lastDeleteEventTimeRef.current <= DELETE_WINDOW_MS) {
           if (standaloneDeleteTimeoutRef.current) clearTimeout(standaloneDeleteTimeoutRef.current);
@@ -739,7 +771,7 @@ export function useSampler() {
         Array.from({ length: SLOT_COUNT }, (_, slot) => {
           const info = playbackStartRef.current.get(engineSlot({ bank: activeBank, slot }));
           if (!info || info.durationMs <= 0) return null;
-          return Math.min(1, (now - info.startedAt) / info.durationMs);
+          return Math.min(1, info.startProgress + ((now - info.startedAt) / info.durationMs) * (1 - info.startProgress));
         }),
       );
       const times = clockTimesRef.current;
@@ -997,7 +1029,7 @@ export function useSampler() {
       settings, updateSettings,
       isSlotPlaying,
       projectIndex, selectProject, initializeProject, projectCount: PROJECT_COUNT,
-      project, activeBank, bpm, clockRunning, countInCounting, playbackProgress, tick, selectedSlot,
+      project, activeBank, bpm, clockRunning, countInCounting, playbackProgress, tick, selectedSlot, flashingSlots,
       downloadProjects, restoreFromFile, clearProjectMemory, restoreStatus, inputLevelAnalysers, masterLevelAnalysers,
       startCountIn,
       /** Test-only: drives MIDI handling directly, bypassing real hardware. */
@@ -1011,7 +1043,7 @@ export function useSampler() {
       audioOutputs, selectedAudioOutputId,
       audioOutputChannelCount, selectedAudioOutputChannelPairStart,
       midiInputs, selectedMidiInputId, midiOutputs, selectedMidiOutputId,
-      settings, projectIndex, project, activeBank, bpm, clockRunning, countInCounting, playbackProgress, tick, selectedSlot, restoreStatus,
+      settings, projectIndex, project, activeBank, bpm, clockRunning, countInCounting, playbackProgress, tick, selectedSlot, flashingSlots, restoreStatus,
       inputLevelAnalysers, masterLevelAnalysers,
     ],
   );

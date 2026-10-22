@@ -100,10 +100,17 @@ function assertEq(actual, expected, label) {
     assertEq(initState.settings.recordingTailMs, 300, 'Recording tail defaults to 300 ms');
     assertEq(initState.settings.recordingLatencyMs, 20, 'Recording latency defaults to 20 ms');
 
-    console.log('\n2. Empty slots ignore Note On while stopped…');
+    console.log('\n2. Empty slots flash on Note On while stopped…');
     await page.evaluate((note) => window.__loopPadTest.noteOn(note), firstNote);
+    assertEq(
+      await page.locator('[data-note-flashing="true"]').count(),
+      1,
+      'Slot outline flashes on Note On even when no action is taken',
+    );
     let state = await page.evaluate(() => window.__loopPadTest.getState());
     assertEq(state.slots[0].state, 'empty', 'Slot 0 remains empty while stopped');
+    await page.waitForTimeout(200);
+    assertEq(await page.locator('[data-note-flashing="true"]').count(), 0, 'Slot outline flash clears promptly');
 
     console.log('\n3. Record into slot 0 while running…');
     await page.evaluate(() => window.__loopPadTest.start());
@@ -167,6 +174,20 @@ function assertEq(actual, expected, label) {
     }, TIMEOUT_MS, 'Channel B Switch note selects Channel B and clears selection');
     assertEq(state.activeBank, 1, 'Channel Switch activates the bank mapped to its MIDI channel');
     assertEq(state.selectedSlot, null, 'Channel Switch clears the selected slot');
+    await page.evaluate(([note, channel]) => window.__loopPadTest.noteOn(note, 100, channel), [deleteNote, 15]);
+    await page.waitForTimeout(600);
+    await page.evaluate(([note, channel]) => window.__loopPadTest.noteOn(note, 100, channel), [channelSwitchNote, 14]);
+    state = await waitFor(page, () => {
+      const st = window.__loopPadTest.getState();
+      return st.activeBank === 0 ? st : null;
+    }, TIMEOUT_MS, 'Channel A Switch note returns to Channel A');
+    assert(state.slots[0].hasSample, 'Channel Switch cancels the prior bank’s pending sample-delete gesture');
+    await page.evaluate(([note, channel]) => window.__loopPadTest.noteOn(note, 100, channel), [channelSwitchNote, 15]);
+    state = await waitFor(page, () => {
+      const st = window.__loopPadTest.getState();
+      return st.activeBank === 1 ? st : null;
+    }, TIMEOUT_MS, 'Channel B Switch note returns to Channel B');
+    assertEq(state.activeBank, 1, 'Channel Switch selects the requested bank after changing channels');
     await page.evaluate(([note, channel]) => window.__loopPadTest.noteOn(note, 100, channel), [channelSwitchNote, 15]);
     state = await page.evaluate(() => window.__loopPadTest.getState());
     assertEq(state.activeBank, 1, 'Repeated Channel B Switch note does not toggle to Channel A');
@@ -242,7 +263,7 @@ function assertEq(actual, expected, label) {
       return st.settings.recordingMode === 'take' && st.settings.recordingTailMs === 300 ? st : null;
     }, TIMEOUT_MS, 'Take mode enabled by MIDI with recording tail enabled');
     await page.evaluate((note) => window.__loopPadTest.noteOn(note), firstNote + 2);
-    await page.waitForTimeout(100);
+    await page.waitForTimeout(400);
     await page.evaluate((note) => window.__loopPadTest.noteOff(note), firstNote + 2);
     await page.waitForTimeout(100);
     await page.evaluate((note) => window.__loopPadTest.noteOn(note), firstNote + 2);
@@ -253,13 +274,19 @@ function assertEq(actual, expected, label) {
     assertEq(state.slots[2].state, 'recording', 'Second take starts on the following sequencer pass');
     assertEq(state.selectedSlot, 2, 'First take completes before the second take records');
     const precedingTakeDurationSecs = state.slots[2].durationSecs;
+    const finalizationDelayMs = 100;
+    await page.waitForTimeout(finalizationDelayMs);
     await page.evaluate((note) => window.__loopPadTest.noteOn(note), takeModeNote);
     state = await waitFor(page, () => {
       const st = window.__loopPadTest.getState();
-      return st.slots[2].state === 'playing' ? st : null;
+      return st.slots[2].state === 'playing' && st.slots[2].playbackProgress !== null ? st : null;
     }, TIMEOUT_MS, 'active take finalized and playing');
     assertEq(state.slots[2].state, 'playing', 'Finalizing a Take-mode slot immediately plays its sample');
     assertEq(state.slots[2].durationSecs, precedingTakeDurationSecs, 'Finalization keeps the preceding completed take');
+    assert(
+      state.slots[2].playbackProgress >= finalizationDelayMs / (precedingTakeDurationSecs * 1000),
+      'Finalized take playback and ring resume at the elapsed timeline position',
+    );
     await page.evaluate((note) => window.__loopPadTest.noteOff(note), firstNote + 2);
     await page.evaluate((note) => window.__loopPadTest.noteOn(note), firstNote + 2);
     state = await page.evaluate(() => window.__loopPadTest.getState());

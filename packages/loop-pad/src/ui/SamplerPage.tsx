@@ -35,6 +35,7 @@ export function SamplerPage() {
           hasSample: slot.samples !== null,
           sampleChannels: slot.samples ? 2 : 0,
           durationSecs: slot.samples ? slot.samples.left.length / slot.sampleRate : 0,
+          playbackProgress: s.playbackProgress[index],
           mixer: slot.mixer,
         })),
       }),
@@ -156,6 +157,7 @@ export function SamplerPage() {
               tick={s.tick}
               active={s.project.banks[s.activeBank][i]!.state !== 'empty'}
               selected={s.selectedSlot?.bank === s.activeBank && s.selectedSlot.slot === i}
+              flashing={s.flashingSlots.has(s.activeBank * SLOT_COUNT + i)}
               mixerEnabled={!s.settings.channelMode}
             />
           ))}

@@ -10,6 +10,7 @@ interface SlotViewProps {
   tick: number;
   active: boolean;
   selected: boolean;
+  flashing: boolean;
   mixerEnabled: boolean;
 }
 
@@ -19,7 +20,7 @@ function noteName(note: number): string {
   return `${NOTE_NAMES[note % 12]}${Math.floor(note / 12) - 1}`;
 }
 
-export function SlotView({ slot, index, firstNote, progress, tick, active, selected, mixerEnabled }: SlotViewProps) {
+export function SlotView({ slot, index, firstNote, progress, tick, active, selected, flashing, mixerEnabled }: SlotViewProps) {
   return (
     <div
       style={{
@@ -31,7 +32,10 @@ export function SlotView({ slot, index, firstNote, progress, tick, active, selec
         background: '#1c1c1f',
         border: selected ? '1px solid #facc15' : active ? '1px solid #52525b' : '1px solid #27272a',
         borderRadius: 8,
+        outline: flashing ? '2px solid #71717a' : undefined,
+        outlineOffset: 1,
       }}
+      data-note-flashing={flashing || undefined}
     >
       <span style={{ fontSize: 10, color: '#52525b' }}>{noteName(firstNote + index)}</span>
       <SlotRing slot={slot} progress={progress} tick={tick} />

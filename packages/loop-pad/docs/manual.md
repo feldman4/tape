@@ -29,6 +29,10 @@ velocity does not change recording or playback level. In Channel Mode, the same
 16-note range is available independently on the Channel A and Channel B MIDI
 channels.
 
+Every received Note On in the 16-note sample range briefly flashes the
+corresponding slot outline in muted gray, including when the note does not
+change the slot (for example, an empty slot while stopped).
+
 | Slot state | Sequencer state | Note On | Note Off |
 | --- | --- | --- | --- |
 | Empty, idle | Running | Start recording | Do nothing |
@@ -87,8 +91,8 @@ Sample notes on Channel A record and play only Channel A; sample notes on
 Channel B record and play only Channel B. The applicable control notes,
 including Delete, Count-in, and the One-shot and Take mode notes, are accepted
 on either bank channel. The **Channel Switch Note** selects the bank mapped to
-the MIDI channel that sends it and clears the selection. When selecting or
-recording a sample in either bank, the front panel
+the MIDI channel that sends it, clears the selection, and cancels any pending
+Delete Note pairing. When selecting or recording a sample in either bank, the front panel
 automatically switches to that bank so its samples are shown.
 
 Channel Mode disables the per-slot **Level**, **Pan**, **LPF Cutoff**, and
