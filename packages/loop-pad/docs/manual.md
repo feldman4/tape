@@ -9,7 +9,7 @@ The sampler records and plays 16 audio clips from MIDI notes. It is designed for
 1. Connect the OP-Z and audio interface.
 2. Open the sampler in Chrome or Edge.
 3. Allow microphone and MIDI access when prompted.
-4. In the configuration panel, select the audio and MIDI devices and stereo channel pairs.
+4. In the configuration panel, select the audio and MIDI devices, input channel or stereo pair, and output stereo pair.
 5. Set the **MIDI Channel**, **First Sample Note**, **Delete Note**, **Count-in On Note**, **Count-in Off Note**, **Channel Switch Note**, **Take Mode Note**, and **One-shot Mode Note**. The notes must not overlap.
 6. Assign the four per-slot mixer CCs: **HPF Cutoff**, **LPF Cutoff**, **Pan**, and **Level** (CC 1–4 by default), plus **Master Level** (CC 16 by default).
 7. Select **Project 1–10** from the project dropdown.
@@ -94,7 +94,9 @@ Channel Mode disables the per-slot **Level**, **Pan**, **LPF Cutoff**, and
 playback from Channel B is panned hard right.
 
 The selected audio input is monitored live through the speakers, panned hard to
-the active channel's side.
+the active channel's side. A mono input is monitored at its original level.
+For a stereo pair, the left and right channels are summed, as on playback;
+correlated signals can therefore be louder and may clip.
 
 ## Selected sample
 
@@ -164,7 +166,7 @@ To restore one project, upload a single project file. Its contents overwrite the
 
 The app name appears in the browser tab, not on the front panel. The panel contains 16 circular waveforms in note order, left to right and top to bottom. Their heights are peak-normalized for display, with a fixed floor that keeps near-silent recordings visibly small. Four tiny knobs beside each waveform display Level, Pan, LPF Cutoff, and HPF Cutoff. The circles and knobs are displays, not mouse controls.
 
-A narrow stereo input level meter runs down the left edge of the screen, showing the live L/R input signal (independent of any slot's recording/playback state). Each column is green under normal levels, orange as it approaches saturation, and red at/near saturation.
+A narrow input level meter sits to the left of the slots, showing the selected live input (independent of any slot's recording/playback state). It displays one column for a mono selection and two for a stereo pair. Each column is green under normal levels, orange as it approaches saturation, and red at/near saturation.
 
 A matching stereo master meter runs down the right edge, showing the post-master playback signal. Its thin gray horizontal line indicates the current master level.
 
@@ -200,7 +202,7 @@ Select the gear button on the front panel to open the configuration panel. It co
 | Option | Function | Default |
 | --- | --- | --- |
 | Audio Input | Selects the signal recorded into slots; its device name is remembered and reconnected automatically. | — |
-| Input Channels | Selects the stereo pair from the audio input recorded into each sample; the last selected pair is restored when available. | 1–2 |
+| Input Channels | Selects an individual mono input or stereo pair for monitoring, metering, and recording. The last selection is restored when available. The selector shows how many channels the browser exposes; unavailable channels cannot be selected. | 1–2, or 1 for a mono device |
 | Audio Output | Selects where sample playback is sent; its device name is remembered and reconnected automatically. | System default |
 | Output Channels | Selects the stereo output pair for sample playback when the device exposes multiple pairs; the last selected pair is restored when available. | 1–2 |
 | MIDI Input | Selects the source of notes, clock, and transport; its device name is remembered and reconnected automatically. | — |

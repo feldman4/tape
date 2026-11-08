@@ -33,7 +33,7 @@ export function SamplerPage() {
           state: getSlotDisplayState(slot),
           isPlaying: s.isSlotPlaying(index),
           hasSample: slot.sample !== null,
-          sampleChannels: slot.sample ? 2 : 0,
+          sampleChannels: slot.sample ? (slot.sample.samples.mono ? 1 : 2) : 0,
           durationSecs: slot.sample ? slot.sample.samples.left.length / slot.sample.sampleRate : 0,
           playbackProgress: s.playbackProgress[index],
           mixer: slot.mixer,
@@ -79,8 +79,7 @@ export function SamplerPage() {
 
   return (
     <>
-      <InputLevelMeter analysers={s.inputLevelAnalysers} />
-      <div style={{ padding: '16px 16px 16px 28px', display: 'flex', flexDirection: 'column', gap: 16 }}>
+      <div style={{ padding: 16, display: 'flex', flexDirection: 'column', gap: 16 }}>
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 16, alignItems: 'center' }}>
         <label style={{ fontSize: 13, color: '#a1a1aa', display: 'flex', gap: 6, alignItems: 'center' }}>
           Project
@@ -140,6 +139,7 @@ export function SamplerPage() {
       {s.restoreStatus && <div style={{ fontSize: 12, color: '#a1a1aa' }}>{s.restoreStatus}</div>}
 
       <div style={{ display: 'flex', gap: 12, alignItems: 'stretch', width: 'fit-content' }}>
+        <InputLevelMeter analysers={s.inputLevelAnalysers} mono={s.selectedAudioInputChannel % 2 === 1} contained />
         <div>
           {s.settings.channelMode && (
             <div style={{ marginBottom: 8, color: '#a1a1aa', fontSize: 13 }}>
@@ -174,8 +174,8 @@ export function SamplerPage() {
           selectedAudioInputId={s.selectedAudioInputId}
           onSelectAudioInput={(deviceId) => void s.selectAudioInput(deviceId)}
           audioInputChannelCount={s.audioInputChannelCount}
-          selectedAudioInputChannelPairStart={s.selectedAudioInputChannelPairStart}
-          onSelectAudioInputChannelPair={s.selectAudioInputChannelPair}
+          selectedAudioInputChannel={s.selectedAudioInputChannel}
+          onSelectAudioInputChannel={s.selectAudioInputChannel}
           audioOutputs={s.audioOutputs}
           selectedAudioOutputId={s.selectedAudioOutputId}
           onSelectAudioOutput={(deviceId) => void s.selectAudioOutput(deviceId)}

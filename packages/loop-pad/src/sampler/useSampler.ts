@@ -60,7 +60,7 @@ export function useSampler() {
   const [audioInputs, setAudioInputs] = useState<MediaDeviceInfo[]>([]);
   const [selectedAudioInputId, setSelectedAudioInputId] = useState<string | null>(null);
   const [audioInputChannelCount, setAudioInputChannelCount] = useState(1);
-  const [selectedAudioInputChannelPairStart, setSelectedAudioInputChannelPairStart] = useState(0);
+  const [selectedAudioInputChannel, setSelectedAudioInputChannel] = useState(1);
   const [audioOutputs, setAudioOutputs] = useState<MediaDeviceInfo[]>([]);
   const [selectedAudioOutputId, setSelectedAudioOutputId] = useState<string>('');
   const [audioOutputChannelCount, setAudioOutputChannelCount] = useState(2);
@@ -334,7 +334,10 @@ export function useSampler() {
         void engine.snapshotRecording(id).then((samples) => {
           if (slotAt(address) !== current || current.activity.kind !== 'recording') return;
           engine.loadSlotBuffer(id, samples);
-          engine.play(id, current.mixer, settingsRef.current.recordingTailMs, settingsRef.current.recordingLatencyMs);
+          const mixer = settingsRef.current.channelMode
+            ? { level: 1, pan: address.bank === BANK_A ? -1 : 1, lpfCutoff: 1, hpfCutoff: 0 }
+            : current.mixer;
+          engine.play(id, mixer, settingsRef.current.recordingTailMs, settingsRef.current.recordingLatencyMs);
         });
       }
     } else if (current.activity.kind === 'recording') {
@@ -674,7 +677,7 @@ export function useSampler() {
       engine.setFilterSlope(settingsRef.current.filterSlopeStages);
       engine.setMasterLevel(settingsRef.current.masterLevel);
       setAudioInputChannelCount(engine.inputChannels);
-      setSelectedAudioInputChannelPairStart(engine.selectedInputChannelPairStart);
+      setSelectedAudioInputChannel(engine.selectedInputChannel);
       setAudioOutputChannelCount(engine.outputChannels);
       setSelectedAudioOutputChannelPairStart(engine.selectedOutputChannelPairStart);
       setInputLevelAnalysers(engine.inputLevelAnalysers);
@@ -711,7 +714,7 @@ export function useSampler() {
       if (rememberedIn && rememberedIn.deviceId !== engine.inputDeviceId) {
         await engine.setInputDevice(rememberedIn.deviceId);
       }
-      restoreRememberedInputChannelPair(engine);
+      restoreRememberedInputChannel(engine);
 
       const rememberedOut = findRememberedDevice(outputs, 'audio-out');
       if (rememberedOut) {
@@ -806,24 +809,32 @@ export function useSampler() {
     if (!engine) return;
     await engine.setInputDevice(deviceId);
     setSelectedAudioInputId(deviceId);
-    restoreRememberedInputChannelPair(engine);
+    restoreRememberedInputChannel(engine);
     const device = audioInputs.find((d) => d.deviceId === deviceId);
     rememberDeviceName('audio-in', device?.label);
   }
 
-  function restoreRememberedInputChannelPair(engine: SamplerEngine): void {
+  function restoreRememberedInputChannel(engine: SamplerEngine): void {
+    const selection = getRememberedDeviceNumber('audio-in-channel');
     const pairStart = getRememberedDeviceNumber('audio-in-channel-pair');
-    if (pairStart !== null && pairStart + 1 < engine.inputChannels) engine.setInputChannelPair(pairStart);
+    const remembered = selection ?? (pairStart === null ? null : pairStart * 2);
+    if (remembered !== null) {
+      const channel = Math.floor(remembered / 2);
+      const mono = remembered % 2 === 1;
+      if (channel < engine.inputChannels && (mono || (channel % 2 === 0 && channel + 1 < engine.inputChannels))) {
+        engine.setInputChannel(remembered);
+      }
+    }
     setAudioInputChannelCount(engine.inputChannels);
-    setSelectedAudioInputChannelPairStart(engine.selectedInputChannelPairStart);
+    setSelectedAudioInputChannel(engine.selectedInputChannel);
   }
 
-  function selectAudioInputChannelPair(start: number): void {
+  function selectAudioInputChannel(selection: number): void {
     const engine = engineRef.current;
     if (!engine) return;
-    engine.setInputChannelPair(start);
-    setSelectedAudioInputChannelPairStart(engine.selectedInputChannelPairStart);
-    rememberDeviceNumber('audio-in-channel-pair', engine.selectedInputChannelPairStart);
+    engine.setInputChannel(selection);
+    setSelectedAudioInputChannel(engine.selectedInputChannel);
+    rememberDeviceNumber('audio-in-channel', engine.selectedInputChannel);
   }
 
   async function selectAudioOutput(deviceId: string): Promise<void> {
@@ -958,7 +969,8 @@ export function useSampler() {
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = 'loop-pad-projects.zip';
+    const timestamp = new Date().toISOString().replace('T', '_').replace(/:/g, '-').replace(/\.\d{3}/, '');
+    a.download = `loop-pad-projects_${timestamp}.zip`;
     a.click();
     URL.revokeObjectURL(url);
   }
@@ -1025,7 +1037,7 @@ export function useSampler() {
     () => ({
       ready, error, init,
       audioInputs, selectedAudioInputId, selectAudioInput,
-      audioInputChannelCount, selectedAudioInputChannelPairStart, selectAudioInputChannelPair,
+      audioInputChannelCount, selectedAudioInputChannel, selectAudioInputChannel,
       audioOutputs, selectedAudioOutputId, selectAudioOutput,
       audioOutputChannelCount, selectedAudioOutputChannelPairStart, selectAudioOutputChannelPair,
       midiInputs, selectedMidiInputId, selectMidiInput,
@@ -1043,7 +1055,7 @@ export function useSampler() {
     // Re-derive whenever any piece of exposed state changes.
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [
-      ready, error, audioInputs, selectedAudioInputId, audioInputChannelCount, selectedAudioInputChannelPairStart,
+      ready, error, audioInputs, selectedAudioInputId, audioInputChannelCount, selectedAudioInputChannel,
       audioOutputs, selectedAudioOutputId,
       audioOutputChannelCount, selectedAudioOutputChannelPairStart,
       midiInputs, selectedMidiInputId, midiOutputs, selectedMidiOutputId,

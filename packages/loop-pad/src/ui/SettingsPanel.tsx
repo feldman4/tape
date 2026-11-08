@@ -9,8 +9,8 @@ interface SettingsPanelProps {
   selectedAudioInputId: string | null;
   onSelectAudioInput: (deviceId: string) => void;
   audioInputChannelCount: number;
-  selectedAudioInputChannelPairStart: number;
-  onSelectAudioInputChannelPair: (start: number) => void;
+  selectedAudioInputChannel: number;
+  onSelectAudioInputChannel: (selection: number) => void;
   audioOutputs: MediaDeviceInfo[];
   selectedAudioOutputId: string;
   onSelectAudioOutput: (deviceId: string) => void;
@@ -51,13 +51,14 @@ function numberField(
 
 export function SettingsPanel({
   settings, onChange, audioInputs, selectedAudioInputId, onSelectAudioInput,
-  audioInputChannelCount, selectedAudioInputChannelPairStart, onSelectAudioInputChannelPair,
+  audioInputChannelCount, selectedAudioInputChannel, onSelectAudioInputChannel,
   audioOutputs, selectedAudioOutputId, onSelectAudioOutput,
   audioOutputChannelCount, selectedAudioOutputChannelPairStart, onSelectAudioOutputChannelPair,
   midiInputs, selectedMidiInputId, onSelectMidiInput,
   midiOutputs, selectedMidiOutputId, onSelectMidiOutput, onClearProjectMemory, onClose,
 }: SettingsPanelProps) {
   const stereoPairs = Array.from({ length: Math.floor(audioOutputChannelCount / 2) }, (_, index) => index * 2);
+  const inputChannels = Array.from({ length: audioInputChannelCount }, (_, index) => index);
   const inputPairs = Array.from({ length: Math.floor(audioInputChannelCount / 2) }, (_, index) => index * 2);
 
   return (
@@ -89,9 +90,13 @@ export function SettingsPanel({
         </label>
         <label style={{ display: 'flex', justifyContent: 'space-between', gap: 12, fontSize: 13, color: '#a1a1aa' }}>
           Input Channels
-          <select value={selectedAudioInputChannelPairStart} onChange={(e) => onSelectAudioInputChannelPair(Number(e.target.value))} disabled={inputPairs.length <= 1}>
-            {inputPairs.map((start) => <option key={start} value={start}>{start + 1}-{start + 2}</option>)}
-          </select>
+          <div>
+            <select value={selectedAudioInputChannel} onChange={(e) => onSelectAudioInputChannel(Number(e.target.value))}>
+              {inputChannels.map((channel) => <option key={`mono-${channel}`} value={channel * 2 + 1}>{channel + 1} (mono)</option>)}
+              {inputPairs.map((start) => <option key={`stereo-${start}`} value={start * 2}>{start + 1}-{start + 2} (stereo)</option>)}
+            </select>
+            <div style={{ fontSize: 11 }}>Browser exposes {audioInputChannelCount} input channel{audioInputChannelCount === 1 ? '' : 's'}</div>
+          </div>
         </label>
         <label style={{ display: 'flex', justifyContent: 'space-between', gap: 12, fontSize: 13, color: '#a1a1aa' }}>
           Audio Output

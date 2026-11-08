@@ -4,10 +4,11 @@
 // Restore ZIP (see docs/manual.md "Download and restore").
 //
 // Format (little-endian):
-//   magic: 4 bytes "LPP3"
+//   magic: 4 bytes "LPP4" (LPP3 projects are also accepted)
 //   for each of 32 slots (Channel A, then Channel B), in order:
 //     hasSample: uint8 (0 or 1)
 //     sampleTakeStatus: uint8 (0 = finalized, 1 = unfinalized)
+//     mono: uint8 (0 = stereo, 1 = mono)
 //     sampleRate: float32
 //     level, pan, lpfCutoff, hpfCutoff: float32 each
 //     if hasSample: frameCount: uint32, then left and right float32 channels
@@ -17,13 +18,14 @@ import {
   type Project, type Slot, type StereoSamples,
 } from './model';
 
-const MAGIC = 'LPP3';
+const MAGIC = 'LPP4';
+const LEGACY_MAGIC = 'LPP3';
 
 export function encodeProject(project: Project): Uint8Array {
   let totalLength = MAGIC.length;
   for (const bank of project.banks) {
     for (const slot of bank) {
-      totalLength += 2 + 4 + 16; // flags + sampleRate + 4 mixer floats
+      totalLength += 3 + 4 + 16; // flags + sampleRate + 4 mixer floats
       if (slot.sample && slot.sample.samples.left.length > 0) {
         totalLength += 4 + slot.sample.samples.left.length * 8;
       }
@@ -42,6 +44,8 @@ export function encodeProject(project: Project): Uint8Array {
       out[offset] = hasSample ? 1 : 0;
       offset += 1;
       out[offset] = slot.sample?.takeStatus === 'unfinalized' ? 1 : 0;
+      offset += 1;
+      out[offset] = slot.sample?.samples.mono ? 1 : 0;
       offset += 1;
       view.setFloat32(offset, slot.sample?.sampleRate ?? 48000, true); offset += 4;
       view.setFloat32(offset, slot.mixer.level, true); offset += 4;
@@ -64,7 +68,7 @@ export function encodeProject(project: Project): Uint8Array {
 export function decodeProject(bytes: Uint8Array): Project {
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
   const magic = new TextDecoder().decode(bytes.subarray(0, 4));
-  if (magic !== MAGIC) throw new Error('Not a valid Loop Pad project file');
+  if (magic !== MAGIC && magic !== LEGACY_MAGIC) throw new Error('Not a valid Loop Pad project file');
 
   let offset = 4;
   const slotCount = SLOT_COUNT * BANK_COUNT;
@@ -74,6 +78,7 @@ export function decodeProject(bytes: Uint8Array): Project {
     offset += 1;
     const sampleUnfinalized = bytes[offset] === 1;
     offset += 1;
+    const mono = magic === MAGIC && bytes[offset++] === 1;
     const sampleRate = view.getFloat32(offset, true); offset += 4;
     const level = view.getFloat32(offset, true); offset += 4;
     const pan = view.getFloat32(offset, true); offset += 4;
@@ -87,7 +92,7 @@ export function decodeProject(bytes: Uint8Array): Project {
       offset += count * 4;
       const right = new Float32Array(bytes.buffer.slice(bytes.byteOffset + offset, bytes.byteOffset + offset + count * 4));
       offset += count * 4;
-      samples = { left, right };
+      samples = { left, right, mono };
     }
 
     const slot = makeDefaultSlot();

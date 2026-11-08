@@ -1,5 +1,4 @@
-// Stereo input level meter — a narrow two-column bar fixed to the left edge
-// of the screen. Reads L/R peak level each animation frame directly from the
+// Input or master level meter. Reads L/R peak level each animation frame from the
 // engine's analyser nodes (bypassing React state for smooth ~60fps motion),
 // with a slow release so peaks are visible instead of flickering.
 
@@ -10,6 +9,7 @@ interface InputLevelMeterProps {
   side?: 'left' | 'right';
   level?: number;
   contained?: boolean;
+  mono?: boolean;
 }
 
 const RELEASE = 0.85; // per-frame decay once below the current peak
@@ -28,7 +28,7 @@ function peakOf(buffer: Float32Array): number {
   return peak;
 }
 
-export function InputLevelMeter({ analysers, side = 'left', level, contained = false }: InputLevelMeterProps) {
+export function InputLevelMeter({ analysers, side = 'left', level, contained = false, mono = false }: InputLevelMeterProps) {
   const leftBarRef = useRef<HTMLDivElement | null>(null);
   const rightBarRef = useRef<HTMLDivElement | null>(null);
   const displayRef = useRef({ left: 0, right: 0 });
@@ -60,7 +60,7 @@ export function InputLevelMeter({ analysers, side = 'left', level, contained = f
     };
     raf = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(raf);
-  }, [analysers]);
+  }, [analysers, mono]);
 
   return (
     <div
@@ -76,12 +76,14 @@ export function InputLevelMeter({ analysers, side = 'left', level, contained = f
       {level !== undefined && (
         <div style={{ position: 'absolute', left: 2, right: 2, bottom: `calc(8px + ${Math.max(0, Math.min(1, level)) * 100}% - ${Math.max(0, Math.min(1, level)) * 16}px)`, height: 1, background: '#a1a1aa', pointerEvents: 'none' }} />
       )}
-      <div style={{ flex: 1, display: 'flex', flexDirection: 'column-reverse', background: '#18181b', borderRadius: 2, overflow: 'hidden' }}>
+      <div style={{ flex: mono ? '0 0 calc((100% - 2px) / 2)' : 1, display: 'flex', flexDirection: 'column-reverse', background: '#18181b', borderRadius: 2, overflow: 'hidden' }}>
         <div ref={leftBarRef} style={{ width: '100%', height: '0%' }} />
       </div>
-      <div style={{ flex: 1, display: 'flex', flexDirection: 'column-reverse', background: '#18181b', borderRadius: 2, overflow: 'hidden' }}>
-        <div ref={rightBarRef} style={{ width: '100%', height: '0%' }} />
-      </div>
+      {!mono && (
+        <div style={{ flex: 1, display: 'flex', flexDirection: 'column-reverse', background: '#18181b', borderRadius: 2, overflow: 'hidden' }}>
+          <div ref={rightBarRef} style={{ width: '100%', height: '0%' }} />
+        </div>
+      )}
     </div>
   );
 }

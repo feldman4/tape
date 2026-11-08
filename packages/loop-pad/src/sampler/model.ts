@@ -25,6 +25,7 @@ export interface SlotMixer {
 export interface StereoSamples {
   left: Float32Array;
   right: Float32Array;
+  mono?: boolean;
 }
 
 export interface StoredSample {

@@ -7,6 +7,7 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "lint": "oxlint",
+    "test:audio-routing": "node scripts/audio-routing-test.mjs",
     "test:workflow": "node scripts/workflow-test.mjs",
     "render:front-panel": "node scripts/render-front-panel.mjs"
   },

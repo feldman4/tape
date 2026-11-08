@@ -67,7 +67,7 @@ export class SamplerEngine {
   private masterLevelAnalyserR: AnalyserNode | null = null;
   private currentDeviceId: string | null = null;
   private inputChannelCount = 1;
-  private inputChannelPairStart = 0;
+  private inputChannelSelection = 0;
   private currentOutputDeviceId = ''; // '' = system default
   private outputChannelPairStart = 0;
   private outputChannelCount = 2;
@@ -84,6 +84,7 @@ export class SamplerEngine {
   private endedListeners = new Set<(slot: number) => void>();
   private pendingRecordings = new Map<number, (samples: StereoSamples) => void>();
   private pendingSnapshots = new Map<number, (samples: StereoSamples) => void>();
+  private recordingMono = new Map<number, boolean>();
 
   get audioContext(): AudioContext {
     if (!this.ctx) throw new Error('SamplerEngine not initialized: call init() first');
@@ -106,8 +107,8 @@ export class SamplerEngine {
     return this.inputChannelCount;
   }
 
-  get selectedInputChannelPairStart(): number {
-    return this.inputChannelPairStart;
+  get selectedInputChannel(): number {
+    return this.inputChannelSelection;
   }
 
   get outputChannels(): number {
@@ -138,7 +139,7 @@ export class SamplerEngine {
     if (this.masterGain) this.masterGain.gain.value = Math.max(0, Math.min(1, level));
   }
 
-  /** Live-monitors the selected input pair, summed to mono and hard-panned (-1..1); disabled when off. */
+  /** Live-monitors the selected input, hard-panned (-1..1); disabled when off. */
   setMonitor(enabled: boolean, pan: number): void {
     if (this.monitorGain) this.monitorGain.gain.value = enabled ? 1 : 0;
     if (this.monitorPanner) this.monitorPanner.pan.value = Math.max(-1, Math.min(1, pan));
@@ -169,8 +170,6 @@ export class SamplerEngine {
 
     this.monitorGain = this.ctx.createGain();
     this.monitorGain.gain.value = 0;
-    this.monitorGain.channelCount = 1;
-    this.monitorGain.channelCountMode = 'explicit';
     this.monitorPanner = this.ctx.createStereoPanner();
     this.monitorSplitter = this.ctx.createChannelSplitter(2);
     this.monitorGain.connect(this.monitorPanner);
@@ -187,14 +186,13 @@ export class SamplerEngine {
     this.masterGain.connect(this.ctx.destination);
     this.connectMonitorToOutput();
 
-    this.masterLevelSplitter = this.ctx.createChannelSplitter(2);
+    this.masterLevelSplitter = this.ctx.createChannelSplitter(this.outputChannelCount);
     this.masterLevelAnalyserL = this.ctx.createAnalyser();
     this.masterLevelAnalyserL.fftSize = 256;
     this.masterLevelAnalyserR = this.ctx.createAnalyser();
     this.masterLevelAnalyserR.fftSize = 256;
     this.masterGain.connect(this.masterLevelSplitter);
-    this.masterLevelSplitter.connect(this.masterLevelAnalyserL, 0);
-    this.masterLevelSplitter.connect(this.masterLevelAnalyserR, 1);
+    this.connectMasterMeters();
 
     // The recorder node produces no audible output; route through a silent
     // gain to the output bus so the graph keeps pulling it for processing.
@@ -224,8 +222,17 @@ export class SamplerEngine {
     this.configureInputRouting();
   }
 
-  setInputChannelPair(start: number): void {
-    this.inputChannelPairStart = Math.max(0, Math.min(this.inputChannelCount - 2, start));
+  setInputChannel(selection: number): void {
+    const channel = Math.floor(selection / 2);
+    const mono = selection % 2 === 1;
+    if (!Number.isInteger(selection) || channel < 0 || channel >= this.inputChannelCount
+      || (!mono && (channel % 2 !== 0 || channel + 1 >= this.inputChannelCount))) {
+      throw new Error(`Invalid input channel selection: ${selection}`);
+    }
+    this.inputChannelSelection = selection;
+    if (!mono) {
+      for (const slot of this.recordingMono.keys()) this.recordingMono.set(slot, false);
+    }
     this.connectInputChannelPair();
   }
 
@@ -242,6 +249,14 @@ export class SamplerEngine {
       for (const voice of voices) this.connectVoiceToOutput(voice);
     }
     this.connectMonitorToOutput();
+    this.connectMasterMeters();
+  }
+
+  private connectMasterMeters(): void {
+    if (!this.masterLevelSplitter || !this.masterLevelAnalyserL || !this.masterLevelAnalyserR) return;
+    this.masterLevelSplitter.disconnect();
+    this.masterLevelSplitter.connect(this.masterLevelAnalyserL, this.outputChannelPairStart);
+    this.masterLevelSplitter.connect(this.masterLevelAnalyserR, this.outputChannelPairStart + 1);
   }
 
   private connectMonitorToOutput(): void {
@@ -278,11 +293,11 @@ export class SamplerEngine {
 
   private configureInputRouting(): void {
     const channelCount = this.stream?.getAudioTracks()[0]?.getSettings().channelCount ?? 1;
-    // A mono input still needs the default 1-2 pair; Web Audio upmixes that
-    // single source channel into the pair while multichannel devices retain
-    // all their physical channel pairs.
-    this.inputChannelCount = Math.max(2, channelCount);
-    this.inputChannelPairStart = Math.min(this.inputChannelPairStart, Math.max(0, this.inputChannelCount - 2));
+    this.inputChannelCount = channelCount;
+    this.inputChannelSelection = channelCount >= 2 ? 0 : 1;
+    if (channelCount >= 2) {
+      for (const slot of this.recordingMono.keys()) this.recordingMono.set(slot, false);
+    }
     this.inputSplitter?.disconnect();
     this.inputSplitter = this.audioContext.createChannelSplitter(this.inputChannelCount);
     this.inputPairMerger?.disconnect();
@@ -301,16 +316,20 @@ export class SamplerEngine {
     } catch {
       // The initial pair connection has no existing route to remove.
     }
-    this.inputSplitter.connect(this.inputPairMerger, this.inputChannelPairStart, 0);
-    this.inputSplitter.connect(this.inputPairMerger, this.inputChannelPairStart + 1, 1);
+    const channel = Math.floor(this.inputChannelSelection / 2);
+    this.inputSplitter.connect(this.inputPairMerger, channel, 0);
+    if (this.inputChannelSelection % 2 === 0) {
+      this.inputSplitter.connect(this.inputPairMerger, channel + 1, 1);
+    }
   }
 
   private handleMessage(msg: FromProcessorMessage): void {
     if (msg.type === 'recorded') {
-      this.pendingRecordings.get(msg.slot)?.(msg.samples);
+      this.pendingRecordings.get(msg.slot)?.({ ...msg.samples, mono: this.recordingMono.get(msg.slot) === true });
       this.pendingRecordings.delete(msg.slot);
+      this.recordingMono.delete(msg.slot);
     } else if (msg.type === 'snapshot') {
-      this.pendingSnapshots.get(msg.slot)?.(msg.samples);
+      this.pendingSnapshots.get(msg.slot)?.({ ...msg.samples, mono: this.recordingMono.get(msg.slot) === true });
       this.pendingSnapshots.delete(msg.slot);
     } else {
       for (const listener of this.progressListeners) listener(msg.slot, msg.peak);
@@ -328,6 +347,7 @@ export class SamplerEngine {
   }
 
   startRecording(slot: number): void {
+    this.recordingMono.set(slot, this.inputChannelSelection % 2 === 1);
     this.recorderNode!.port.postMessage({ type: 'arm', slot });
   }
 
@@ -350,14 +370,15 @@ export class SamplerEngine {
   cancelRecording(slot: number): void {
     this.pendingRecordings.delete(slot);
     this.pendingSnapshots.delete(slot);
+    this.recordingMono.delete(slot);
     this.recorderNode!.port.postMessage({ type: 'discard', slot });
   }
 
-  /** Loads a recorded stereo buffer into an AudioBuffer ready for playback. */
+  /** Loads a recorded buffer into an AudioBuffer ready for playback. */
   loadSlotBuffer(slot: number, samples: StereoSamples): void {
-    const buffer = this.audioContext.createBuffer(2, Math.max(1, samples.left.length), this.sampleRate);
+    const buffer = this.audioContext.createBuffer(samples.mono ? 1 : 2, Math.max(1, samples.left.length), this.sampleRate);
     buffer.copyToChannel(samples.left as Float32Array<ArrayBuffer>, 0);
-    buffer.copyToChannel(samples.right as Float32Array<ArrayBuffer>, 1);
+    if (!samples.mono) buffer.copyToChannel(samples.right as Float32Array<ArrayBuffer>, 1);
     this.buffers.set(slot, buffer);
   }
 
@@ -576,7 +597,7 @@ export class SamplerEngine {
     this.ctx = null;
     this.currentDeviceId = null;
     this.inputChannelCount = 1;
-    this.inputChannelPairStart = 0;
+    this.inputChannelSelection = 0;
     this.currentOutputDeviceId = '';
     this.outputChannelPairStart = 0;
     this.outputChannelCount = 2;
@@ -585,6 +606,8 @@ export class SamplerEngine {
     this.progressListeners.clear();
     this.endedListeners.clear();
     this.pendingRecordings.clear();
+    this.pendingSnapshots.clear();
+    this.recordingMono.clear();
 
     if (context && context.state !== 'closed') await context.close();
   }
