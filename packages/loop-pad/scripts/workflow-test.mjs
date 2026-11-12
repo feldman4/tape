@@ -15,6 +15,7 @@
 //   npm run test:workflow --workspace=loop-pad
 
 import { chromium } from 'playwright';
+import { readFile } from 'node:fs/promises';
 
 const APP_URL = process.env.LOOP_PAD_URL ?? 'http://localhost:5173/tape/loop-pad/';
 const TIMEOUT_MS = 20_000;
@@ -83,6 +84,115 @@ function assertEq(actual, expected, label) {
       }, TIMEOUT_MS, 'app ready after startup project recovery');
     }
     assert(initState.ready, 'App initialised');
+    const projectButton = page.getByRole('button', { name: 'Project 01' });
+    assertEq(await page.getByRole('button', { name: 'Count-in', exact: true }).count(), 0, 'Count-in is a MIDI-controlled status, not a button');
+    assertEq(await page.getByRole('dialog', { name: 'Project options' }).count(), 0, 'Project pane is initially closed');
+    await projectButton.click();
+    const projectPane = page.getByRole('dialog', { name: 'Project options' });
+    assert(await projectPane.isVisible(), 'Project button opens the project pane');
+    assertEq(await projectPane.getByLabel('Project').locator('option').count(), 10, 'Project pane provides all ten projects');
+    assertEq(await projectPane.getByRole('button').count(), 3, 'Project pane contains initialize, download and restore');
+    page.once('dialog', (dialog) => void dialog.dismiss());
+    await projectPane.getByRole('button', { name: 'Initialize' }).click();
+    assert(await projectPane.isVisible(), 'Canceling initialization leaves the project pane open');
+    await page.keyboard.press('Escape');
+    assertEq(await projectPane.count(), 0, 'Escape closes the project pane');
+    assert(await projectButton.evaluate((button) => document.activeElement === button), 'Escape returns focus to the project button');
+    await projectButton.click();
+    await page.locator('.sample-waveform').click({ position: { x: 5, y: 5 } });
+    assertEq(await projectPane.count(), 0, 'Clicking outside closes the project pane');
+    assertEq(await page.locator('.slots [data-slot-index]').count(), 16, 'Front panel displays all 16 slots');
+    assertEq(await page.locator('.key-position-white').count(), 14, 'Keyboard displays 14 white keys');
+    assertEq(await page.locator('.key-position-black').count(), 10, 'Keyboard displays 10 black keys');
+    assertEq(await page.locator('.filter-meter span').textContent(), 'FILTER', 'Filter display uses its compact label');
+    assertEq(await page.locator('.mixer-meter').first().locator('span').textContent(), 'LEVEL', 'Level display uses its full label');
+    assertEq(
+      await page.locator('.slot-black[data-slot-index]').evaluateAll((slots) => slots.map((slot) => Number(slot.dataset.slotIndex)).join(',')),
+      '1,3,5,8,10,13,15',
+      'Sample slots follow chromatic order across white and black keys',
+    );
+    assertEq(
+      await page.locator('.key-callout-label').evaluateAll((labels) => labels.map((label) => Number(label.dataset.roleNote)).sort((a, b) => a - b).join(',')),
+      '71,72,73,74,75,76',
+      'Callouts identify the six configured control notes',
+    );
+    await page.evaluate(() => window.__loopPadTest.updateSettings({ channelSwitchNote: 69 }));
+    await page.locator('.key-callouts-bottom [data-role-note="69"]').waitFor();
+    assertEq(await page.locator('.key-callouts-top [data-role-note="73"]').count(), 0, 'Reassigned control moves to its configured white key');
+    await page.evaluate(() => window.__loopPadTest.updateSettings({ channelSwitchNote: 77 }));
+    await page.getByText('CHANNEL: MIDI 77 (outside shown keys)').waitFor();
+    assertEq(await page.locator('[data-role-note="77"]').count(), 0, 'An off-keyboard assignment is not attached to the wrong key');
+    await page.evaluate(() => window.__loopPadTest.updateSettings({ channelSwitchNote: 73 }));
+    await page.locator('.key-callouts-top [data-role-note="73"]').waitFor();
+    assertEq(await page.locator('[aria-label="No selected sample waveform"]').count(), 1, 'No waveform is selected at startup');
+    const originalViewport = page.viewportSize();
+    await page.setViewportSize({ width: 700, height: 940 });
+    await page.waitForFunction(() => [...document.querySelectorAll('.key-callouts')].every((group) => {
+      const svg = group.querySelector('svg');
+      return svg && Math.abs(svg.viewBox.baseVal.width - group.getBoundingClientRect().width) < 1;
+    }));
+    const compactLayout = await page.evaluate(() => {
+      const visible = (element) => {
+        const rect = element.getBoundingClientRect();
+        return rect.left >= 0 && rect.right <= innerWidth && rect.top >= 0 && rect.bottom <= innerHeight;
+      };
+      return {
+        fits: document.documentElement.scrollWidth <= innerWidth && document.documentElement.scrollHeight <= innerHeight,
+        slots: [...document.querySelectorAll('.slots .slot')].every(visible),
+        meters: [...document.querySelectorAll('.level-meter')].every(visible),
+        toolbar: [...document.querySelectorAll('.panel-toolbar button, .panel-toolbar select, .panel-toolbar .toolbar-status')].every(visible),
+        toolbarRows: new Set([...document.querySelectorAll('.panel-toolbar button, .panel-toolbar select, .panel-toolbar .toolbar-status')].map((element) => element.getBoundingClientRect().top)).size,
+        centeredMeters: [...document.querySelectorAll('.level-meter')].every((meter) => {
+          const outer = meter.getBoundingClientRect();
+          const bars = meter.querySelector('.meter-bars').getBoundingClientRect();
+          return Math.abs((outer.left + outer.right) / 2 - (bars.left + bars.right) / 2) < 1;
+        }),
+        alignedCallouts: [...document.querySelectorAll('.key-callouts')].every((group) => {
+          const boxes = [...group.querySelectorAll('.key-callout-label')].map((label) => label.getBoundingClientRect());
+          return new Set(boxes.map((box) => box.top)).size <= 1
+            && boxes.every((box, index) => box.left >= 0 && box.right <= innerWidth
+              && (index === 0 || boxes[index - 1].right <= box.left));
+        }),
+        equalMixerWidths: new Set([...document.querySelectorAll('.mixer-meter')].map((meter) => meter.getBoundingClientRect().width)).size === 1,
+        inverseMixerLabels: [...document.querySelectorAll('.mixer-meter')].every((meter) => {
+          const label = meter.querySelector('span');
+          const fill = meter.querySelector('i');
+          const rect = meter.getBoundingClientRect();
+          const text = label.getBoundingClientRect();
+          return getComputedStyle(label).mixBlendMode === 'difference'
+            && getComputedStyle(meter).backgroundColor === 'rgb(0, 0, 0)'
+            && getComputedStyle(fill).backgroundColor === 'rgb(255, 255, 255)'
+            && Math.abs((rect.left + rect.right - text.left - text.right) / 2) < 1;
+        }),
+        keyFacesFit: [...document.querySelectorAll('.key-position .slot')].every((slot) => {
+          const face = slot.querySelector('.slot-face').getBoundingClientRect();
+          return Math.abs(face.width / slot.getBoundingClientRect().width - 0.5) < 0.01;
+        }),
+        flatHeader: [...document.querySelectorAll('.panel-toolbar, .panel-toolbar button, .panel-toolbar select, .panel-toolbar .toolbar-status, .clock-light')].every((element) => {
+          const style = getComputedStyle(element);
+          return style.backgroundImage === 'none' && style.boxShadow === 'none';
+        }),
+      };
+    });
+    assert(compactLayout.fits, '700px panel fits without scrolling');
+    assert(compactLayout.slots && compactLayout.meters && compactLayout.toolbar, 'All slots, meters, and toolbar items fit at 700px');
+    assertEq(compactLayout.toolbarRows, 1, 'Toolbar fits in one row at 700px');
+    assert(compactLayout.centeredMeters, 'Both meters are centered in their side margins');
+    assert(compactLayout.alignedCallouts, 'Callouts share a baseline without overlapping at 700px');
+    assert(compactLayout.equalMixerWidths, 'Level, pan and filter displays have equal widths');
+    assert(compactLayout.inverseMixerLabels, 'Mixer labels are centered and invert over black-and-white fills');
+    assert(compactLayout.keyFacesFit, 'Key faces leave room for their waveform rings');
+    assert(compactLayout.flatHeader, 'Header controls and indicators use flat styling');
+    await projectButton.click();
+    const paneBox = await projectPane.boundingBox();
+    assert(paneBox && paneBox.x >= 0 && paneBox.x + paneBox.width <= 700, 'Project pane fits the 700px viewport');
+    await page.keyboard.press('Escape');
+    if (originalViewport) await page.setViewportSize(originalViewport);
+    assertEq(
+      await page.locator('.mixer-meter').evaluateAll((meters) => new Set(meters.map((meter) => meter.getBoundingClientRect().width)).size),
+      1,
+      'Mixer displays also have equal widths at the standard viewport',
+    );
     const firstNote = initState.settings.firstSampleNote;
     const deleteNote = initState.settings.deleteNote;
     const countInOnNote = initState.settings.countInOnNote;
@@ -101,12 +211,23 @@ function assertEq(actual, expected, label) {
     assertEq(initState.settings.recordingLatencyMs, 20, 'Recording latency defaults to 20 ms');
 
     console.log('\n2. Empty slots flash on Note On while stopped…');
-    await page.evaluate((note) => window.__loopPadTest.noteOn(note), firstNote);
-    assertEq(
-      await page.locator('[data-note-flashing="true"]').count(),
-      1,
-      'Slot outline flashes on Note On even when no action is taken',
-    );
+    const flashedSlots = await page.evaluate((note) => new Promise((resolve) => {
+      const observer = new MutationObserver(() => {
+        const count = document.querySelectorAll('[data-note-flashing="true"]').length;
+        if (count > 0) {
+          clearTimeout(timeout);
+          observer.disconnect();
+          resolve(count);
+        }
+      });
+      const timeout = setTimeout(() => {
+        observer.disconnect();
+        resolve(0);
+      }, 1000);
+      observer.observe(document.querySelector('.slots'), { attributes: true, attributeFilter: ['data-note-flashing'], subtree: true });
+      window.__loopPadTest.noteOn(note);
+    }), firstNote);
+    assertEq(flashedSlots, 1, 'Slot outline flashes on Note On even when no action is taken');
     let state = await page.evaluate(() => window.__loopPadTest.getState());
     assertEq(state.slots[0].state, 'empty', 'Slot 0 remains empty while stopped');
     await page.waitForTimeout(200);
@@ -143,6 +264,60 @@ function assertEq(actual, expected, label) {
 
     console.log('\n4. Recording selects the slot and mixer CC keeps that selection…');
     assertEq(state.selectedSlot, 0, 'Completed recording selects slot 0');
+    assertEq(await page.locator('.slot-selected').count(), 1, 'Selected slot is highlighted');
+    assertEq(await page.locator('[aria-label="Selected sample waveform"]').count(), 1, 'Selected sample waveform is displayed');
+    const ringExtent = await page.locator('[data-slot-index="0"] canvas').evaluate((canvas) => {
+      const { width, height } = canvas;
+      const pixels = canvas.getContext('2d').getImageData(0, 0, width, height).data;
+      const radii = [];
+      for (let y = 0; y < height; y++) {
+        for (let x = 0; x < width; x++) {
+          if (pixels[(y * width + x) * 4 + 3] > 0) radii.push(Math.hypot(x + 0.5 - width / 2, y + 0.5 - height / 2));
+        }
+      }
+      return { min: Math.min(...radii) / width, max: Math.max(...radii) / width };
+    });
+    assert(ringExtent.min < 0.34 && ringExtent.max > 0.4, 'Sample waveform occupies the larger ring around each smaller key');
+    const stripBox = await page.locator('.slot-strip').boundingBox();
+    const waveformBox = await page.locator('.sample-waveform').boundingBox();
+    assert(stripBox && waveformBox && waveformBox.y >= stripBox.y + stripBox.height, 'Selected waveform appears below the slot strip');
+    await page.evaluate((cc) => window.__loopPadTest.cc(cc, 64), state.settings.levelCc);
+    await waitFor(page, () => window.__loopPadTest.getState().slots[0].mixer.level === 64 / 127, TIMEOUT_MS, 'half-level mixer display');
+    const levelScreenshot = await page.locator('.mixer-meter').first().screenshot();
+    const inversePixels = await page.evaluate(async (png) => {
+      const image = new Image();
+      image.src = `data:image/png;base64,${png}`;
+      await image.decode();
+      const canvas = document.createElement('canvas');
+      canvas.width = image.width;
+      canvas.height = image.height;
+      const ctx = canvas.getContext('2d');
+      ctx.drawImage(image, 0, 0);
+      const pixels = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
+      let darkText = 0;
+      let lightText = 0;
+      for (let y = 3; y < canvas.height - 3; y++) {
+        for (let x = 3; x < canvas.width - 3; x++) {
+          const index = (y * canvas.width + x) * 4;
+          const brightness = pixels[index] + pixels[index + 1] + pixels[index + 2];
+          if (x < canvas.width * 0.48 && brightness < 120) darkText++;
+          if (x > canvas.width * 0.52 && brightness > 600) lightText++;
+        }
+      }
+      return darkText > 0 && lightText > 0;
+    }, levelScreenshot.toString('base64'));
+    assert(inversePixels, 'A partially filled mixer display renders dark and light text on opposite sides');
+    await page.evaluate((cc) => window.__loopPadTest.cc(cc, 127), state.settings.levelCc);
+    const panFill = page.locator('.mixer-meter').nth(1).locator('i');
+    assertEq(await panFill.evaluate((fill) => fill.style.width), '0%', 'Centered pan has no fill');
+    for (const [value, expectedLeft, expectedWidth] of [[0, 0, 50], [32, 32 / 127 * 100, 50 - 32 / 127 * 100], [96, 50, 96 / 127 * 100 - 50], [127, 50, 50]]) {
+      await page.evaluate(([cc, value]) => window.__loopPadTest.cc(cc, value), [state.settings.panCc, value]);
+      await page.waitForFunction(({ expectedLeft, expectedWidth }) => {
+        const fill = document.querySelectorAll('.mixer-meter')[1].querySelector('i');
+        return Math.abs(parseFloat(fill.style.left) - expectedLeft) < 0.01 && Math.abs(parseFloat(fill.style.width) - expectedWidth) < 0.01;
+      }, { expectedLeft, expectedWidth }, { timeout: TIMEOUT_MS });
+      assert(true, `Pan CC ${value} fills between center and the selected side`);
+    }
     await page.evaluate((cc) => window.__loopPadTest.cc(cc, 64), state.settings.panCc);
     state = await page.evaluate(() => window.__loopPadTest.getState());
     assertEq(Math.round(state.slots[0].mixer.pan * 100) / 100, Math.round(((64 / 127) * 2 - 1) * 100) / 100, 'Slot 0 pan updated by CC');
@@ -351,7 +526,8 @@ function assertEq(actual, expected, label) {
     assertEq(state.selectedSlot, null, 'Reset clears the selection after deleting its slot');
 
     console.log('\n13. Project switch resets the visible slots and persists across reload…');
-    await page.evaluate(() => window.__loopPadTest.selectProject(2));
+    await page.getByRole('button', { name: 'Project 01' }).click();
+    await page.getByRole('dialog', { name: 'Project options' }).getByLabel('Project').selectOption('2');
     state = await waitFor(page, () => {
       const st = window.__loopPadTest.getState();
       return st.projectIndex === 2 ? st : null;
@@ -364,20 +540,36 @@ function assertEq(actual, expected, label) {
       return st?.ready && st.projectIndex === 2 ? st : null;
     }, TIMEOUT_MS, 'last selected project restored after reload');
     assertEq(state.projectIndex, 2, 'Reload restores the last selected project');
-    await page.evaluate(() => window.__loopPadTest.selectProject(1));
+    await page.getByRole('button', { name: 'Project 02' }).click();
+    await page.getByRole('dialog', { name: 'Project options' }).getByLabel('Project').selectOption('1');
     await waitFor(page, () => {
       const st = window.__loopPadTest.getState();
       return st.projectIndex === 1 ? st : null;
     }, TIMEOUT_MS, 'project switched back to 1');
 
     console.log('\n13. Initialize clears the current project…');
-    await page.evaluate(() => window.__loopPadTest.initializeProject());
+    await page.getByRole('button', { name: 'Project 01' }).click();
+    page.once('dialog', (dialog) => void dialog.accept());
+    await page.getByRole('dialog', { name: 'Project options' }).getByRole('button', { name: 'Initialize' }).click();
     state = await waitFor(page, () => {
       const st = window.__loopPadTest.getState();
       return st.slots.every((slot) => slot.state === 'empty') && st.selectedSlot === null ? st : null;
     }, TIMEOUT_MS, 'current project initialized');
     assert(state.slots.every((slot) => slot.state === 'empty'), 'Initialize clears every slot in the current project');
     assertEq(state.selectedSlot, null, 'Initialize clears the selection');
+    await page.getByRole('button', { name: 'Project 01' }).click();
+    const downloadPromise = page.waitForEvent('download');
+    await page.getByRole('dialog', { name: 'Project options' }).getByRole('button', { name: 'Download' }).click();
+    const download = await downloadPromise;
+    assert(download.suggestedFilename().endsWith('.zip'), 'Project pane downloads the project archive');
+    const archive = await readFile(await download.path());
+    await page.getByRole('button', { name: 'Project 01' }).click();
+    const chooserPromise = page.waitForEvent('filechooser');
+    await page.getByRole('dialog', { name: 'Project options' }).getByRole('button', { name: 'Restore' }).click();
+    const chooser = await chooserPromise;
+    await chooser.setFiles({ name: 'projects.zip', mimeType: 'application/zip', buffer: archive });
+    await page.getByText(/^Restored /).waitFor();
+    assert(true, 'Project pane restores a downloaded archive');
 
     console.log('\n14. Count-in turns on and off from dedicated channel-16 MIDI notes…');
     await page.evaluate(([note, channel]) => window.__loopPadTest.noteOn(note, 100, channel), [countInOnNote, 14]);
@@ -389,12 +581,14 @@ function assertEq(actual, expected, label) {
       return st.settings.countInEnabled ? st : null;
     }, TIMEOUT_MS, 'count-in enabled by MIDI On note');
     assert(state.settings.countInEnabled, 'Count-in enabled by MIDI On note');
+    assertEq(await page.locator('.count-in-status').textContent(), 'Count-in On', 'Count-in status reflects the MIDI On note');
     await page.evaluate((note) => window.__loopPadTest.noteOn(note), countInOffNote);
     state = await waitFor(page, () => {
       const st = window.__loopPadTest.getState();
       return !st.settings.countInEnabled ? st : null;
     }, TIMEOUT_MS, 'count-in disabled by MIDI Off note');
     assertEq(state.settings.countInEnabled, false, 'Count-in disabled by MIDI Off note');
+    assertEq(await page.locator('.count-in-status').textContent(), 'Count-in Off', 'Count-in status reflects the MIDI Off note');
     await page.evaluate((note) => window.__loopPadTest.noteOn(note), countInOnNote);
 
     console.log('\n15. Count-in: Start intercepted, then re-Start after N beats of clock…');
@@ -455,25 +649,69 @@ function assertEq(actual, expected, label) {
       return st.bpm === 120 ? st : null;
     }, TIMEOUT_MS, '120 BPM after stable MIDI Clock');
     assertEq(state.bpm, bpm, 'BPM derives from MIDI timestamps');
-    const countInButton = page.getByRole('button', { name: 'Count-in' });
-    assert(await countInButton.isEnabled(), 'Front-panel Count-in button enables after tempo is measured');
-    await countInButton.click();
+    await page.evaluate((note) => window.__loopPadTest.noteOn(note), firstNote + 2);
+    await page.waitForTimeout(2200);
+    await page.evaluate((note) => window.__loopPadTest.noteOff(note), firstNote + 2);
+    state = await waitFor(page, () => {
+      const st = window.__loopPadTest.getState();
+      return st.selectedSlot === 2 && st.slots[2].state === 'stopped' ? st : null;
+    }, TIMEOUT_MS, 'long sample for waveform beat grid');
+    await page.evaluate((note) => window.__loopPadTest.noteOn(note), firstNote + 2);
+    await waitFor(page, () => {
+      const st = window.__loopPadTest.getState();
+      return st.slots[2].playbackProgress > 0.05 ? st : null;
+    }, TIMEOUT_MS, 'waveform playhead advances');
+    const waveformGuides = await page.evaluate((duration) => {
+      const canvas = document.querySelector('.sample-waveform');
+      const ctx = canvas.getContext('2d');
+      const { width, height } = canvas;
+      const image = ctx.getImageData(0, 0, width, height).data;
+      const pixel = (x, y) => Array.from(image.slice((y * width + x) * 4, (y * width + x) * 4 + 3)).join(',');
+      const xAt = (seconds) => Math.round((width - 1) * seconds / duration);
+      const spans = (x, color) => pixel(x, 0) === color && pixel(x, height - 1) === color;
+      const playheadX = Array.from({ length: width }, (_, x) => x).find((x) => spans(x, '255,255,255'));
+      return {
+        weakBeat: spans(xAt(0.5), '82,90,92'),
+        strongBeat: spans(xAt(2), '120,129,131'),
+        start: spans(0, '244,233,0'),
+        end: spans(width - 1, '244,233,0'),
+        playhead: playheadX !== undefined,
+        noMarkerHeads: pixel(4, 5) === '0,0,0' && pixel(width - 5, 5) === '0,0,0'
+          && playheadX !== undefined && pixel(playheadX + 4, 5) !== '255,255,255',
+      };
+    }, state.slots[2].durationSecs);
+    assert(waveformGuides.weakBeat && waveformGuides.strongBeat, 'Solid beat lines span the waveform and every fourth is lighter');
+    assert(waveformGuides.start && waveformGuides.end && waveformGuides.playhead, 'Start, tail end, and playhead span the full waveform height');
+    assert(waveformGuides.noMarkerHeads, 'Waveform markers have no circular heads');
+    await page.evaluate((note) => window.__loopPadTest.noteOff(note), firstNote + 2);
+    assertEq(await page.getByRole('button', { name: 'Count-in', exact: true }).count(), 0, 'Count-in remains a status after tempo is measured');
+    await page.evaluate(() => window.__loopPadTest.start());
     state = await waitFor(page, () => {
       const st = window.__loopPadTest.getState();
       return st.countInCounting ? st : null;
-    }, TIMEOUT_MS, 'manual count-in started');
-    assert(state.countInCounting, 'Front-panel Count-in starts the transport procedure');
+    }, TIMEOUT_MS, 'MIDI count-in started with measured tempo');
+    assert(state.countInCounting, 'MIDI Start initiates count-in with measured tempo');
     state = await waitFor(page, () => {
       const st = window.__loopPadTest.getState();
       return !st.countInCounting ? st : null;
-    }, TIMEOUT_MS, 'manual count-in finished without incoming Clock');
-    assert(!state.countInCounting, 'Manual count-in restarts transport using the measured tempo');
+    }, TIMEOUT_MS, 'MIDI count-in finished without incoming Clock');
+    assert(!state.countInCounting, 'MIDI count-in restarts transport using the measured tempo');
     await page.evaluate(() => window.__loopPadTest.stop());
     state = await waitFor(page, () => {
       const st = window.__loopPadTest.getState();
       return st.bpm === null ? st : null;
     }, TIMEOUT_MS, 'BPM cleared on Stop');
     assertEq(state.bpm, null, 'BPM clears on Stop');
+    await page.waitForFunction((duration) => {
+      const canvas = document.querySelector('.sample-waveform');
+      const ctx = canvas.getContext('2d');
+      return [0.5, 2].every((seconds) => {
+        const x = Math.round((canvas.width - 1) * seconds / duration);
+        const pixel = ctx.getImageData(x, 0, 1, 1).data;
+        return pixel[0] === 0 && pixel[1] === 0 && pixel[2] === 0;
+      });
+    }, state.slots[2].durationSecs);
+    assert(true, 'Beat guides disappear when MIDI Clock tempo is unknown');
 
     console.log('\n17. Invalid project recovery clears only project memory…');
     await page.waitForTimeout(1000); // let the preceding recording autosave settle

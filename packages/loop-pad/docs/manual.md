@@ -12,7 +12,7 @@ The sampler records and plays 16 audio clips from MIDI notes. It is designed for
 4. In the configuration panel, select the audio and MIDI devices, input channel or stereo pair, and output stereo pair.
 5. Set the **MIDI Channel**, **First Sample Note**, **Delete Note**, **Count-in On Note**, **Count-in Off Note**, **Channel Switch Note**, **Take Mode Note**, and **One-shot Mode Note**. The notes must not overlap.
 6. Assign the four per-slot mixer CCs: **HPF Cutoff**, **LPF Cutoff**, **Pan**, and **Level** (CC 1–4 by default), plus **Master Level** (CC 16 by default).
-7. Select **Project 1–10** from the project dropdown.
+7. Open the **Project** pane and select **Project 1–10**.
 
 The app remembers device, channel-pair, and project selections in browser storage. It reconnects devices by name, restores available channel pairs, and opens the last selected project. Unavailable selections use their defaults until they become available or another selection is made.
 
@@ -140,7 +140,8 @@ CCs are accepted only on the configured MIDI channel. Until a slot is selected, 
 
 ## Projects
 
-Use the project dropdown to select **Project 1–10**. Each project stores its
+Open the **Project** button to select **Project 1–10**, initialize the current
+project, or download and restore projects. Each project stores its
 16 samples and all per-sample mixer settings, or both 16-slot banks when
 Channel Mode is enabled. Changes are saved automatically in the browser.
 
@@ -164,11 +165,13 @@ To restore one project, upload a single project file. Its contents overwrite the
 
 ## Display
 
-The app name appears in the browser tab, not on the front panel. The panel contains 16 circular waveforms in note order, left to right and top to bottom. Their heights are peak-normalized for display, with a fixed floor that keeps near-silent recordings visibly small. Four tiny knobs beside each waveform display Level, Pan, LPF Cutoff, and HPF Cutoff. The circles and knobs are displays, not mouse controls.
+The app name appears in the browser tab, not on the front panel. The panel shows the OP-Z keys, with the 16 sample slots in sequential note order across both white and black keys, beginning at the configured First Sample Note. Colored rings show the slot waveforms. Callouts identify the configured control notes on the displayed keys; assignments outside the depicted keys are listed separately by MIDI note. The selected sample's larger waveform appears below the keys, with its Level, Pan, and Filter (HPF/LPF) displays underneath. Their centered labels invert against the black-and-white fill. The Pan fill extends from the center toward the selected side; centered pan has no fill. Waveforms are peak-normalized for display, with a fixed floor that keeps near-silent recordings visibly small. The slots, waveform, and mixer displays are not mouse controls.
+
+When MIDI Clock tempo is known, the selected waveform shows beat lines measured from the beginning of the sample, with every fourth beat emphasized. These are sample-relative guides, not an indication of the sequencer's current beat phase. No beat grid is shown while the tempo is unknown. The yellow lines mark the sample's start and tail end; the white line shows playback position.
 
 A narrow input level meter sits to the left of the slots, showing the selected live input (independent of any slot's recording/playback state). It displays one column for a mono selection and two for a stereo pair. Each column is green under normal levels, orange as it approaches saturation, and red at/near saturation.
 
-A matching stereo master meter runs down the right edge, showing the post-master playback signal. Its thin gray horizontal line indicates the current master level.
+A matching stereo master meter sits to the right of the slots, showing the post-master playback signal. Its thin gray horizontal line indicates the current master level.
 
 Their appearance shows each slot's state:
 
@@ -180,7 +183,7 @@ Their appearance shows each slot's state:
 
 ## Count-in
 
-The OP-Z has no built-in count-in for recording, so **Count-in** stops it, counts the configured beats, then restarts it. It affects transport start only and does not delay an individual sample recording. Once the BPM indicator has a value, the front-panel **Count-in** button manually runs the same Stop, count, and Start procedure. The app plays an audible click for each count-in beat through the selected audio output.
+The OP-Z has no built-in count-in for recording, so **Count-in** stops it, counts the configured beats, then restarts it. It affects transport start only and does not delay an individual sample recording. The app plays an audible click for each count-in beat through the selected audio output.
 
 Send a Note On for the **Count-in On Note** on the configured MIDI channel to enable Count-in, or the **Count-in Off Note** to disable it. Its state is displayed on the front panel and cannot be changed there.
 
@@ -197,7 +200,7 @@ The BPM indicator shows the tempo estimated from recent MIDI Clock pulses. It re
 
 ## Configuration panel
 
-Select the gear button on the front panel to open the configuration panel. It contains device selection, numeric MIDI assignments, a filter-slope selector, and **Clear Project Memory**. Project selection, download, restore, MIDI Clock state, BPM, and Count-in state remain on the front panel.
+Select the settings button on the front panel to open the configuration panel. It contains device selection, numeric MIDI assignments, a filter-slope selector, and **Clear Project Memory**. The project pane, MIDI Clock state, BPM, and Count-in state remain on the front panel.
 
 | Option | Function | Default |
 | --- | --- | --- |

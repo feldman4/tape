@@ -25,6 +25,9 @@ npm run render:front-panel
 ```
 
 Set `LOOP_PAD_URL` to capture an app running at a different URL.
+The renderer uses a 700 × 940 browser viewport and supplies a generated test
+signal to the fake microphone so the image shows actual recordings without
+requiring audio hardware.
 
 ```sh
 npm run build:loop-pad   # tsc -b && vite build
@@ -65,11 +68,15 @@ npm run lint:loop-pad    # oxlint
   selected audio/MIDI device by name in `localStorage` and reconnects it
   automatically when a device with that name is available again.
 - [src/ui/SamplerPage.tsx](src/ui/SamplerPage.tsx),
+  [src/ui/Keyboard.tsx](src/ui/Keyboard.tsx),
   [src/ui/SlotView.tsx](src/ui/SlotView.tsx),
-  [src/ui/SlotRing.tsx](src/ui/SlotRing.tsx) — the 16-slot grid; each slot
-  is a canvas-drawn circular waveform ring (display-only, not a control)
-  plus four mini dial displays for level/pan/LPF/HPF.
-- [src/ui/InputLevelMeter.tsx](src/ui/InputLevelMeter.tsx) — narrow stereo
-  input meter fixed to the left edge, read each frame straight from a pair
+  [src/ui/SlotRing.tsx](src/ui/SlotRing.tsx) — the OP-Z key layout and its
+  16 sample slots with canvas-drawn circular waveform rings.
+- [src/ui/SampleDisplay.tsx](src/ui/SampleDisplay.tsx) — the selected sample's
+  waveform and mixer displays. These displays are not controls.
+- [src/ui/ProjectMenu.tsx](src/ui/ProjectMenu.tsx) — project selection and
+  initialize, download, and restore actions.
+- [src/ui/InputLevelMeter.tsx](src/ui/InputLevelMeter.tsx) — stereo
+  input and master meters, read each frame straight from a pair
   of `AnalyserNode`s (`SamplerEngine.inputLevelAnalysers`, split off the
   input via a `ChannelSplitterNode` independent of the mono recording path).

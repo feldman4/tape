@@ -1047,7 +1047,6 @@ export function useSampler() {
       projectIndex, selectProject, initializeProject, projectCount: PROJECT_COUNT,
       project, activeBank, bpm, clockRunning, countInCounting, playbackProgress, tick, selectedSlot, flashingSlots,
       downloadProjects, restoreFromFile, clearProjectMemory, restoreStatus, inputLevelAnalysers, masterLevelAnalysers,
-      startCountIn,
       /** Test-only: drives MIDI handling directly, bypassing real hardware. */
       simulateMidiEvent: handleMidiEvent,
       getSentTransportEvents: () => [...sentTransportEventsRef.current],

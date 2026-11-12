@@ -8,7 +8,6 @@ interface InputLevelMeterProps {
   analysers: { left: AnalyserNode; right: AnalyserNode } | null;
   side?: 'left' | 'right';
   level?: number;
-  contained?: boolean;
   mono?: boolean;
 }
 
@@ -28,7 +27,7 @@ function peakOf(buffer: Float32Array): number {
   return peak;
 }
 
-export function InputLevelMeter({ analysers, side = 'left', level, contained = false, mono = false }: InputLevelMeterProps) {
+export function InputLevelMeter({ analysers, side = 'left', level, mono = false }: InputLevelMeterProps) {
   const leftBarRef = useRef<HTMLDivElement | null>(null);
   const rightBarRef = useRef<HTMLDivElement | null>(null);
   const displayRef = useRef({ left: 0, right: 0 });
@@ -63,27 +62,20 @@ export function InputLevelMeter({ analysers, side = 'left', level, contained = f
   }, [analysers, mono]);
 
   return (
-    <div
-      style={{
-        position: contained ? 'relative' : 'fixed',
-        ...(contained ? {} : { [side]: 0, top: 0, bottom: 0 }),
-        width: 16, flex: '0 0 16px',
-        display: 'flex', gap: 2, padding: '8px 3px', background: '#0a0a0b',
-        boxSizing: 'border-box', zIndex: 5,
-      }}
-      aria-label={`${side === 'left' ? 'Input' : 'Master'} level`}
-    >
-      {level !== undefined && (
-        <div style={{ position: 'absolute', left: 2, right: 2, bottom: `calc(8px + ${Math.max(0, Math.min(1, level)) * 100}% - ${Math.max(0, Math.min(1, level)) * 16}px)`, height: 1, background: '#a1a1aa', pointerEvents: 'none' }} />
-      )}
-      <div style={{ flex: mono ? '0 0 calc((100% - 2px) / 2)' : 1, display: 'flex', flexDirection: 'column-reverse', background: '#18181b', borderRadius: 2, overflow: 'hidden' }}>
-        <div ref={leftBarRef} style={{ width: '100%', height: '0%' }} />
-      </div>
-      {!mono && (
-        <div style={{ flex: 1, display: 'flex', flexDirection: 'column-reverse', background: '#18181b', borderRadius: 2, overflow: 'hidden' }}>
-          <div ref={rightBarRef} style={{ width: '100%', height: '0%' }} />
+    <div className="level-meter" aria-label={`${side === 'left' ? 'Input' : 'Master'} level`}>
+      <div className="meter-bars">
+        {level !== undefined && (
+          <div style={{ position: 'absolute', left: 0, right: 0, bottom: `${Math.max(0, Math.min(1, level)) * 100}%`, height: 1, background: '#a1a1aa', pointerEvents: 'none', zIndex: 1 }} />
+        )}
+        <div className="meter-channel">
+          <div ref={leftBarRef} style={{ width: '100%', height: '0%' }} />
         </div>
-      )}
+        {!mono && (
+          <div className="meter-channel">
+            <div ref={rightBarRef} style={{ width: '100%', height: '0%' }} />
+          </div>
+        )}
+      </div>
     </div>
   );
 }

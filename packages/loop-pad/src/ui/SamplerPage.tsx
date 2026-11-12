@@ -1,16 +1,17 @@
 // Loop Pad — 16-slot MIDI sampler. See docs/manual.md for full behavior.
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useSampler } from '../sampler/useSampler';
-import { getSlotDisplayState, SLOT_COUNT } from '../sampler/model';
-import { SlotView } from './SlotView';
+import { getSlotDisplayState } from '../sampler/model';
+import { Keyboard } from './Keyboard';
 import { SettingsPanel } from './SettingsPanel';
 import { InputLevelMeter } from './InputLevelMeter';
-import { btnStyle, selectStyle } from './btnStyle';
+import { SampleDisplay } from './SampleDisplay';
+import { ProjectMenu } from './ProjectMenu';
+import { btnStyle } from './btnStyle';
 
 export function SamplerPage() {
   const s = useSampler();
   const [showSettings, setShowSettings] = useState(false);
-  const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   // window.__loopPadTest hook — lets scripts/workflow-test.mjs simulate MIDI
   // note/CC/clock events without real MIDI or audio hardware (see its
@@ -48,7 +49,6 @@ export function SamplerPage() {
       clock: (timeStamp: number = performance.now()) => s.simulateMidiEvent({ type: 'clock', timeStamp }),
       start: () => s.simulateMidiEvent({ type: 'start' }),
       stop: () => s.simulateMidiEvent({ type: 'stop' }),
-      startCountIn: () => s.startCountIn(),
       sentTransportEvents: () => s.getSentTransportEvents(),
       selectProject: (index: number) => s.selectProject(index),
       initializeProject: () => s.initializeProject(),
@@ -79,92 +79,63 @@ export function SamplerPage() {
 
   return (
     <>
-      <div style={{ padding: 16, display: 'flex', flexDirection: 'column', gap: 16 }}>
-      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 16, alignItems: 'center' }}>
-        <label style={{ fontSize: 13, color: '#a1a1aa', display: 'flex', gap: 6, alignItems: 'center' }}>
-          Project
-          <select style={selectStyle} value={s.projectIndex} onChange={(e) => void s.selectProject(Number(e.target.value))}>
-            {Array.from({ length: s.projectCount }, (_, i) => i + 1).map((n) => (
-              <option key={n} value={n}>{String(n).padStart(2, '0')}</option>
-            ))}
-          </select>
-        </label>
-        <button
-          style={btnStyle}
-          onClick={() => {
-            if (window.confirm(`Initialize Project ${s.projectIndex}? This cannot be undone.`)) {
-              void s.initializeProject();
-            }
-          }}
-        >
-          Initialize
-        </button>
-        <button style={btnStyle} onClick={() => void s.downloadProjects()}>Download</button>
-        <button style={btnStyle} onClick={() => fileInputRef.current?.click()}>Restore</button>
-        <input
-          ref={fileInputRef}
-          type="file"
-          accept=".zip,application/zip"
-          style={{ display: 'none' }}
-          onChange={(e) => {
-            const file = e.target.files?.[0];
-            if (file) void s.restoreFromFile(file);
-            e.target.value = '';
-          }}
+      <div className="front-panel">
+      <div className="panel-toolbar">
+        <ProjectMenu
+          projectIndex={s.projectIndex}
+          projectCount={s.projectCount}
+          onSelect={s.selectProject}
+          onInitialize={s.initializeProject}
+          onDownload={s.downloadProjects}
+          onRestore={s.restoreFromFile}
         />
-        <span style={{ fontSize: 13, color: '#a1a1aa', display: 'flex', gap: 6, alignItems: 'center' }}>
-          MIDI Clock
-          <span style={{ width: 8, height: 8, borderRadius: '50%', background: s.clockRunning ? '#22c55e' : '#3f3f46', display: 'inline-block' }} />
-          {s.clockRunning ? (s.countInCounting ? 'Count-in' : 'Sync') : 'Idle'}
+        <span className="toolbar-status clock-status">
+          <span className={`clock-light ${s.clockRunning ? 'clock-running' : ''}`} />
+          MIDI Clock {s.clockRunning ? (s.countInCounting ? 'Count-in' : 'Sync') : 'Idle'}
         </span>
-        <span style={{ fontSize: 13, color: '#a1a1aa' }}>BPM {s.bpm ?? '?'}</span>
-        <span style={{ fontSize: 13, color: s.settings.countInEnabled ? '#22c55e' : '#a1a1aa' }}>
+        <span className="toolbar-status bpm-status">BPM&nbsp; {s.bpm ?? '?'}</span>
+        <span className="toolbar-status count-in-status">
           Count-in {s.settings.countInEnabled ? 'On' : 'Off'}
         </span>
-        <span style={{ fontSize: 13, color: s.settings.recordingMode === 'take' ? '#fbbf24' : '#a1a1aa' }}>
+        <span className="toolbar-status mode-status">
           Mode {s.settings.recordingMode === 'take' ? 'Take' : 'One-shot'}
         </span>
-        <button
-          style={btnStyle}
-          onClick={s.startCountIn}
-          disabled={s.countInCounting || s.bpm === null}
-          title={s.bpm === null ? 'Wait for MIDI Clock tempo' : 'Send Stop, count in, then send Start'}
-        >
-          Count-in
+        <button className="toolbar-button settings-button" onClick={() => setShowSettings(true)} aria-label="Settings">
+          <svg aria-hidden="true" viewBox="0 0 24 24">
+            <path d="M4 6h16M4 12h16M4 18h16M8 3v6M16 9v6M10 15v6" />
+          </svg>
         </button>
-
-        <button style={btnStyle} onClick={() => setShowSettings(true)} aria-label="Settings">⚙</button>
       </div>
 
       {s.restoreStatus && <div style={{ fontSize: 12, color: '#a1a1aa' }}>{s.restoreStatus}</div>}
 
-      <div style={{ display: 'flex', gap: 12, alignItems: 'stretch', width: 'fit-content' }}>
-        <InputLevelMeter analysers={s.inputLevelAnalysers} mono={s.selectedAudioInputChannel % 2 === 1} contained />
-        <div>
+      <div className="instrument-row">
+        <InputLevelMeter analysers={s.inputLevelAnalysers} mono={s.selectedAudioInputChannel % 2 === 1} />
+        <div className="instrument">
           {s.settings.channelMode && (
-            <div style={{ marginBottom: 8, color: '#a1a1aa', fontSize: 13 }}>
+            <div className="bank-label">
               Bank {s.activeBank === 0 ? `A (MIDI ${s.settings.channelAMidiChannel + 1})` : `B (MIDI ${s.settings.channelBMidiChannel + 1})`}
             </div>
           )}
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, maxWidth: 640 }}>
-          {Array.from({ length: SLOT_COUNT }, (_, i) => (
-            <SlotView
-              key={i}
-              index={i}
-              slot={s.project.banks[s.activeBank][i]!}
-              firstNote={s.settings.firstSampleNote}
-              progress={s.playbackProgress[i] ?? null}
-              tick={s.tick}
-              active={getSlotDisplayState(s.project.banks[s.activeBank][i]!) !== 'empty'}
-              selected={s.selectedSlot?.bank === s.activeBank && s.selectedSlot.slot === i}
-              flashing={s.flashingSlots.has(s.activeBank * SLOT_COUNT + i)}
-              mixerEnabled={!s.settings.channelMode}
-            />
-          ))}
-          </div>
+          <Keyboard
+            slots={s.project.banks[s.activeBank]}
+            settings={s.settings}
+            progress={s.playbackProgress}
+            tick={s.tick}
+            selectedSlot={s.selectedSlot?.bank === s.activeBank ? s.selectedSlot.slot : null}
+            flashingSlots={s.flashingSlots}
+            bank={s.activeBank}
+          />
         </div>
-        <InputLevelMeter analysers={s.masterLevelAnalysers} side="right" level={s.settings.masterLevel} contained />
+        <InputLevelMeter analysers={s.masterLevelAnalysers} side="right" level={s.settings.masterLevel} />
       </div>
+      <SampleDisplay
+        slot={s.selectedSlot?.bank === s.activeBank ? s.project.banks[s.activeBank][s.selectedSlot.slot]! : null}
+        progress={s.selectedSlot?.bank === s.activeBank ? s.playbackProgress[s.selectedSlot.slot] ?? null : null}
+        tick={s.tick}
+        mixerEnabled={!s.settings.channelMode}
+        bpm={s.bpm}
+      />
 
       {showSettings && (
         <SettingsPanel
