@@ -85,8 +85,8 @@ Sample notes on Channel A record and play only Channel A; sample notes on
 Channel B record and play only Channel B. The applicable control notes,
 including Delete, Count-in, and the One-shot and Take mode notes, are accepted
 on either bank channel. The **Channel Switch Note** selects the bank mapped to
-the MIDI channel that sends it, clears the selection, and cancels any pending
-Delete Note pairing. When selecting or recording a sample in either bank, the front panel
+the MIDI channel that sends it, clears the selection, cancels any pending
+Delete Note pairing, and disables Count-in if active. When selecting or recording a sample in either bank, the front panel
 automatically switches to that bank so its samples are shown.
 
 Channel Mode disables the per-slot **Level**, **Pan**, **LPF Cutoff**, and
@@ -165,9 +165,9 @@ To restore one project, upload a single project file. Its contents overwrite the
 
 ## Display
 
-The app name appears in the browser tab, not on the front panel. The panel shows the OP-Z keys, with the 16 sample slots in sequential note order across both white and black keys, beginning at the configured First Sample Note. Colored rings show the slot waveforms. Callouts identify the configured control notes on the displayed keys; assignments outside the depicted keys are listed separately by MIDI note. The selected sample's larger waveform appears below the keys, with its Level, Pan, and Filter (HPF/LPF) displays underneath. Their centered labels invert against the black-and-white fill. The Pan fill extends from the center toward the selected side; centered pan has no fill. Waveforms are peak-normalized for display, with a fixed floor that keeps near-silent recordings visibly small. The slots, waveform, and mixer displays are not mouse controls.
+The panel shows the OP-Z keys, with the 16 sample slots in sequential note order across both white and black keys, beginning at the configured First Sample Note. Colored rings show the slot waveforms. Callouts identify the configured control notes on the displayed keys; assignments outside the depicted keys are listed separately by MIDI note. The selected sample's larger waveform appears below the keys, with its Level, Pan, and Filter (HPF/LPF) displays underneath. If no sample is selected while the sequencer is running, the waveform shows the playing sample in the current channel with the lowest-numbered slot. Waveforms are peak-normalized for display, with a fixed floor that keeps near-silent recordings visibly small.
 
-When MIDI Clock tempo is known, the selected waveform shows beat lines measured from the beginning of the sample, with every fourth beat emphasized. These are sample-relative guides, not an indication of the sequencer's current beat phase. No beat grid is shown while the tempo is unknown. The yellow lines mark the sample's start and tail end; the white line shows playback position.
+When MIDI Clock tempo is known, the large waveform shows beat lines measured from the beginning of the sample, with every fourth beat emphasized. These are sample-relative guides, not an indication of the sequencer's current beat phase. The yellow lines mark the sample's start and tail end; the white line shows playback position.
 
 A narrow input level meter sits to the left of the slots, showing the selected live input (independent of any slot's recording/playback state). It displays one column for a mono selection and two for a stereo pair. Each column is green under normal levels, orange as it approaches saturation, and red at/near saturation.
 
@@ -186,6 +186,8 @@ Their appearance shows each slot's state:
 The OP-Z has no built-in count-in for recording, so **Count-in** stops it, counts the configured beats, then restarts it. It affects transport start only and does not delay an individual sample recording. The app plays an audible click for each count-in beat through the selected audio output.
 
 Send a Note On for the **Count-in On Note** on the configured MIDI channel to enable Count-in, or the **Count-in Off Note** to disable it. Its state is displayed on the front panel and cannot be changed there.
+In Channel Mode, switching to the other bank also disables Count-in. A count-in
+already underway completes normally.
 
 When Count-in is off, OP-Z Start passes through normally. When it is on:
 
@@ -211,6 +213,7 @@ Select the settings button on the front panel to open the configuration panel. I
 | MIDI Input | Selects the source of notes, clock, and transport; its device name is remembered and reconnected automatically. | — |
 | MIDI Output | Selects the destination for Stop and Start during count-in; its device name is remembered and reconnected automatically. | — |
 | MIDI Channel | Sets the channel used by sample notes, control notes, and mixer CCs when Channel Mode is off. | 16 |
+| Program Change Project Switch | Selects project N when a Program Change arrives on MIDI channel N (1–10). | On |
 | Channel Mode | See [Channel Mode](#channel-mode). | Off |
 | Channel A MIDI Channel | Sets the MIDI channel that triggers Channel A while Channel Mode is on. | 15 |
 | Channel B MIDI Channel | Sets the MIDI channel that triggers Channel B while Channel Mode is on. | 16 |

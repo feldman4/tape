@@ -15,6 +15,7 @@ export interface SamplerSettings {
   takeModeNote: number;      // 0-127
   recordingMode: 'one-shot' | 'take';
   channelMode: boolean;
+  programChangeProjectSwitch: boolean;
   channelAMidiChannel: number; // 0-based
   channelBMidiChannel: number; // 0-based
   hpfCc: number;
@@ -45,6 +46,7 @@ export function defaultSettings(): SamplerSettings {
     takeModeNote: 76,
     recordingMode: 'one-shot',
     channelMode: false,
+    programChangeProjectSwitch: true,
     channelAMidiChannel: 14, // MIDI channel 15 (0-based)
     channelBMidiChannel: 15, // MIDI channel 16 (0-based)
     hpfCc: 1,

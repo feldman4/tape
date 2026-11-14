@@ -1,4 +1,4 @@
-// MIDI I/O for the sampler: decodes Note On/Off, Control Change, and
+// MIDI I/O for the sampler: decodes Note On/Off, Control Change, Program Change, and
 // realtime Clock/Start/Stop messages from a single selected input, and can
 // send Start/Stop to a single selected output (used for count-in transport
 // control). Deliberately simpler than Tape's SyncEngine — the sampler needs
@@ -7,6 +7,7 @@
 const STATUS_NOTE_OFF = 0x80;
 const STATUS_NOTE_ON = 0x90;
 const STATUS_CONTROL_CHANGE = 0xb0;
+const STATUS_PROGRAM_CHANGE = 0xc0;
 const STATUS_CLOCK = 0xf8;
 const STATUS_START = 0xfa;
 const STATUS_CONTINUE = 0xfb;
@@ -16,6 +17,7 @@ export type MidiEvent =
   | { type: 'noteon'; note: number; velocity: number; channel: number }
   | { type: 'noteoff'; note: number; channel: number }
   | { type: 'cc'; controller: number; value: number; channel: number }
+  | { type: 'programchange'; channel: number }
   | { type: 'clock'; timeStamp: number }
   | { type: 'start' }
   | { type: 'stop' };
@@ -122,6 +124,10 @@ export class MidiEngine {
     }
     if (kind === STATUS_CONTROL_CHANGE) {
       this.emit({ type: 'cc', controller: data[1] ?? 0, value: data[2] ?? 0, channel });
+      return;
+    }
+    if (kind === STATUS_PROGRAM_CHANGE && data.length >= 2) {
+      this.emit({ type: 'programchange', channel });
     }
   }
 

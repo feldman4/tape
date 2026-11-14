@@ -3,13 +3,15 @@ import type { Slot } from '../sampler/model';
 
 interface SampleDisplayProps {
   slot: Slot | null;
+  mixerSlot: Slot | null;
+  playingSlotNumber: number | null;
   progress: number | null;
   tick: number;
   mixerEnabled: boolean;
   bpm: number | null;
 }
 
-export function SampleDisplay({ slot, progress, tick, mixerEnabled, bpm }: SampleDisplayProps) {
+export function SampleDisplay({ slot, mixerSlot, playingSlotNumber, progress, tick, mixerEnabled, bpm }: SampleDisplayProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const sample = slot?.sample;
   const samplePeaks = useMemo(() => {
@@ -99,11 +101,11 @@ export function SampleDisplay({ slot, progress, tick, mixerEnabled, bpm }: Sampl
     return () => observer.disconnect();
   }, [slot, sample, progress, tick, samplePeaks, bpm]);
 
-  const mixer = slot?.mixer;
+  const mixer = mixerSlot?.mixer;
   const pan = mixer?.pan ?? 0;
   return (
-    <section className="sample-display" aria-label="Selected sample">
-      <canvas ref={canvasRef} className="sample-waveform" aria-label={slot?.sample ? 'Selected sample waveform' : 'No selected sample waveform'} />
+    <section className="sample-display" aria-label="Sample display">
+      <canvas ref={canvasRef} className="sample-waveform" aria-label={playingSlotNumber !== null ? `Playing sample ${playingSlotNumber} waveform` : slot?.sample ? 'Selected sample waveform' : 'No selected sample waveform'} />
       <div className="mixer-displays" style={{ opacity: mixer && mixerEnabled ? 1 : 0.35 }} aria-label="Selected sample mixer">
         <div className="mixer-meter" aria-label={`Level ${Math.round((mixer?.level ?? 0) * 100)}%`}><span>LEVEL</span><i style={{ width: `${(mixer?.level ?? 0) * 100}%` }} /></div>
         <div className="mixer-meter" aria-label={`Pan ${Math.round(pan * 100)}%`}><span>PAN</span><i style={{ left: `${50 + Math.min(0, pan) * 50}%`, width: `${Math.abs(pan) * 50}%` }} /></div>

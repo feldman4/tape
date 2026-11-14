@@ -57,9 +57,10 @@ function assertEq(actual, expected, label) {
   const context = await browser.newContext();
   await context.grantPermissions(['microphone'], { origin: new URL(APP_URL).origin });
   await context.addInitScript(() => {
+    window.__testMidiInput = { id: 'test-midi', name: 'Test MIDI', onmidimessage: null };
     Object.defineProperty(navigator, 'requestMIDIAccess', {
       configurable: true,
-      value: async () => ({ inputs: new Map(), outputs: new Map() }),
+      value: async () => ({ inputs: new Map([['test-midi', window.__testMidiInput]]), outputs: new Map() }),
     });
   });
   const page = await context.newPage();
@@ -342,13 +343,23 @@ function assertEq(actual, expected, label) {
     }, TIMEOUT_MS, 'Channel A sample selected');
     assertEq(state.activeBank, 0, 'Channel A note selects Channel A');
     assertEq(state.selectedSlot, 0, 'Channel A note selects its slot');
-    await page.evaluate(([note, channel]) => window.__loopPadTest.noteOn(note, 100, channel), [channelSwitchNote, 15]);
+    await page.evaluate((note) => window.__loopPadTest.noteOn(note, 100, 14), countInOnNote);
+    await waitFor(page, () => window.__loopPadTest.getState().settings.countInEnabled, TIMEOUT_MS, 'count-in enabled before switching');
+    const transportBeforeSwitch = await page.evaluate(() => window.__loopPadTest.sentTransportEvents().length);
+    await page.evaluate((note) => {
+      window.__loopPadTest.noteOn(note, 100, 15);
+      window.__loopPadTest.start();
+    }, channelSwitchNote);
     state = await waitFor(page, () => {
       const st = window.__loopPadTest.getState();
-      return st.activeBank === 1 && st.selectedSlot === null ? st : null;
+      return st.activeBank === 1 && st.selectedSlot === null && !st.settings.countInEnabled ? st : null;
     }, TIMEOUT_MS, 'Channel B Switch note selects Channel B and clears selection');
     assertEq(state.activeBank, 1, 'Channel Switch activates the bank mapped to its MIDI channel');
     assertEq(state.selectedSlot, null, 'Channel Switch clears the selected slot');
+    assertEq(await page.locator('.count-in-status').textContent(), 'Count-in Off', 'Switching banks turns Count-in off');
+    assertEq(await page.evaluate(() => JSON.parse(localStorage.getItem('loop-pad:settings')).countInEnabled), false, 'Switching banks persists Count-in off');
+    assertEq(await page.evaluate(() => window.__loopPadTest.sentTransportEvents().length), transportBeforeSwitch, 'Start immediately after switching is not intercepted');
+    await page.evaluate(() => window.__loopPadTest.stop());
     await page.evaluate(([note, channel]) => window.__loopPadTest.noteOn(note, 100, channel), [deleteNote, 15]);
     await page.waitForTimeout(600);
     await page.evaluate(([note, channel]) => window.__loopPadTest.noteOn(note, 100, channel), [channelSwitchNote, 14]);
@@ -363,20 +374,46 @@ function assertEq(actual, expected, label) {
       return st.activeBank === 1 ? st : null;
     }, TIMEOUT_MS, 'Channel B Switch note returns to Channel B');
     assertEq(state.activeBank, 1, 'Channel Switch selects the requested bank after changing channels');
+    await page.evaluate((note) => window.__loopPadTest.noteOn(note, 100, 15), countInOnNote);
+    await waitFor(page, () => window.__loopPadTest.getState().settings.countInEnabled, TIMEOUT_MS, 'count-in enabled on Channel B');
     await page.evaluate(([note, channel]) => window.__loopPadTest.noteOn(note, 100, channel), [channelSwitchNote, 15]);
     state = await page.evaluate(() => window.__loopPadTest.getState());
     assertEq(state.activeBank, 1, 'Repeated Channel B Switch note does not toggle to Channel A');
+    assert(state.settings.countInEnabled, 'Selecting the already active bank leaves Count-in on');
+    await page.evaluate((note) => window.__loopPadTest.noteOn(note, 100, 14), firstNote);
+    state = await waitFor(page, () => {
+      const st = window.__loopPadTest.getState();
+      return st.activeBank === 0 && st.selectedSlot === 0 && !st.settings.countInEnabled ? st : null;
+    }, TIMEOUT_MS, 'selecting a Channel A sample disables count-in');
+    assertEq(state.settings.countInEnabled, false, 'Selecting a sample in the other bank turns Count-in off');
+    await page.evaluate(() => window.__loopPadTest.start());
+    await page.evaluate((note) => window.__loopPadTest.noteOn(note, 100, 14), countInOnNote);
+    await waitFor(page, () => window.__loopPadTest.getState().settings.countInEnabled, TIMEOUT_MS, 'count-in enabled before recording');
+    await page.evaluate((note) => window.__loopPadTest.noteOn(note, 100, 15), firstNote);
+    state = await waitFor(page, () => {
+      const st = window.__loopPadTest.getState();
+      return st.activeBank === 1 && st.slots[0].state === 'recording' && !st.settings.countInEnabled ? st : null;
+    }, TIMEOUT_MS, 'recording on Channel B disables count-in');
+    assertEq(state.settings.countInEnabled, false, 'Recording in the other bank turns Count-in off');
+    await page.evaluate((note) => window.__loopPadTest.noteOn(note, 100, 15), deleteNote);
+    await page.evaluate(() => window.__loopPadTest.stop());
     await page.evaluate(() => window.__loopPadTest.updateSettings({ channelMode: false }));
     await waitFor(page, () => !window.__loopPadTest.getState().settings.channelMode, TIMEOUT_MS, 'channel mode disabled');
+    await page.evaluate((note) => window.__loopPadTest.noteOn(note), countInOnNote);
+    await waitFor(page, () => window.__loopPadTest.getState().settings.countInEnabled, TIMEOUT_MS, 'count-in enabled in single-channel mode');
     await page.evaluate((note) => window.__loopPadTest.noteOn(note), channelSwitchNote);
     state = await page.evaluate(() => window.__loopPadTest.getState());
     assertEq(state.activeBank, 1, 'Channel Switch does nothing while Channel Mode is off');
     assertEq(state.selectedSlot, null, 'Channel Switch preserves no selection while Channel Mode is off');
+    assert(state.settings.countInEnabled, 'Channel Switch leaves Count-in on while Channel Mode is off');
     await page.evaluate((note) => window.__loopPadTest.noteOn(note), firstNote);
-    await waitFor(page, () => {
+    state = await waitFor(page, () => {
       const st = window.__loopPadTest.getState();
       return st.activeBank === 0 && st.selectedSlot === 0 ? st : null;
     }, TIMEOUT_MS, 'single-channel sample selects Bank A');
+    assert(state.settings.countInEnabled, 'Single-channel sample selection leaves Count-in on');
+    await page.evaluate((note) => window.__loopPadTest.noteOn(note), countInOffNote);
+    await waitFor(page, () => !window.__loopPadTest.getState().settings.countInEnabled, TIMEOUT_MS, 'count-in reset after channel tests');
 
     console.log('\n6. Sequencer Stop stops playback immediately…');
     await page.evaluate((note) => window.__loopPadTest.noteOn(note), firstNote);
@@ -429,6 +466,68 @@ function assertEq(actual, expected, label) {
     }, TIMEOUT_MS, 'slot 1 finished recording and selected');
     assertEq(state.selectedSlot, 1, 'Completed recording selects slot 1');
     assert(state.slots[1].durationSecs < 0.55, 'Zero recording tail adds no capture duration', `got ${state.slots[1].durationSecs}s`);
+
+    console.log('\n9a. Unselected playback supplies the large waveform without selecting a slot…');
+    await page.evaluate(() => window.__loopPadTest.updateSettings({ channelMode: true }));
+    await waitFor(page, () => window.__loopPadTest.getState().settings.channelMode, TIMEOUT_MS, 'channel mode enabled for clearing selection');
+    await page.evaluate((note) => window.__loopPadTest.noteOn(note, 100, 14), channelSwitchNote);
+    await waitFor(page, () => window.__loopPadTest.getState().selectedSlot === null, TIMEOUT_MS, 'selection cleared');
+    await page.evaluate(() => window.__loopPadTest.updateSettings({ channelMode: false }));
+    await waitFor(page, () => !window.__loopPadTest.getState().settings.channelMode, TIMEOUT_MS, 'single-channel mode restored');
+    await page.evaluate((note) => window.__loopPadTest.noteOn(note), firstNote + 1);
+    await page.getByLabel('Playing sample 2 waveform').waitFor();
+    assertEq((await page.evaluate(() => window.__loopPadTest.getState())).selectedSlot, null, 'Playback waveform does not select the playing slot');
+    assertEq(await page.locator('.slot-selected').count(), 0, 'Playback waveform does not highlight a slot');
+    assertEq(await page.locator('.mixer-displays').evaluate((element) => element.style.opacity), '0.35', 'Mixer remains inactive without a selection');
+    const levelBefore = (await page.evaluate(() => window.__loopPadTest.getState())).slots[1].mixer.level;
+    await page.evaluate((cc) => window.__loopPadTest.cc(cc, 0), state.settings.levelCc);
+    assertEq((await page.evaluate(() => window.__loopPadTest.getState())).slots[1].mixer.level, levelBefore, 'Mixer CC does not affect the displayed playing sample');
+    await page.evaluate((note) => window.__loopPadTest.noteOn(note), firstNote);
+    await page.getByLabel('Playing sample 1 waveform').waitFor();
+    assert(true, 'Lowest-numbered playing slot takes precedence');
+    await page.evaluate((note) => window.__loopPadTest.noteOff(note), firstNote);
+    await page.getByLabel('Playing sample 2 waveform').waitFor();
+    assert(true, 'Waveform returns to the remaining playing slot');
+    await page.evaluate((note) => window.__loopPadTest.noteOff(note), firstNote + 1);
+    await page.getByLabel('No selected sample waveform').waitFor();
+    assert(true, 'Waveform clears when playback stops');
+
+    await page.evaluate((note) => window.__loopPadTest.noteOn(note), firstNote);
+    await page.getByLabel('Playing sample 1 waveform').waitFor();
+    await page.waitForFunction(() => {
+      const canvas = document.querySelector('.sample-waveform');
+      const pixels = canvas.getContext('2d').getImageData(0, 0, canvas.width, canvas.height).data;
+      return pixels.some((value, index) => index % 4 === 0 && value === 0
+        && pixels[index + 1] === 140 && pixels[index + 2] === 255)
+        && pixels.some((value, index) => index % 4 === 0 && value === 255
+          && pixels[index + 1] === 255 && pixels[index + 2] === 255);
+    }, null, { timeout: TIMEOUT_MS });
+    assert(true, 'Fallback draws the sample waveform and playback position');
+    await page.getByLabel('No selected sample waveform').waitFor();
+    assert(true, 'Waveform clears when playback ends naturally');
+
+    await page.evaluate(() => window.__loopPadTest.updateSettings({ channelMode: true }));
+    await waitFor(page, () => window.__loopPadTest.getState().settings.channelMode, TIMEOUT_MS, 'channel mode enabled for playback isolation');
+    await page.evaluate((note) => window.__loopPadTest.noteOn(note, 100, 14), firstNote);
+    await page.getByLabel('Playing sample 1 waveform').waitFor();
+    await page.evaluate((note) => window.__loopPadTest.noteOn(note, 100, 15), channelSwitchNote);
+    await page.getByLabel('No selected sample waveform').waitFor();
+    assert(true, 'Playback in another channel is not displayed');
+    await page.evaluate((note) => window.__loopPadTest.noteOn(note, 100, 14), channelSwitchNote);
+    await page.getByLabel('Playing sample 1 waveform').waitFor();
+    assert(true, 'Switching back displays playback in the current channel');
+    await page.evaluate(() => window.__loopPadTest.stop());
+    await page.getByLabel('No selected sample waveform').waitFor();
+    assert(true, 'Sequencer stop clears the playback fallback');
+    await page.evaluate(() => window.__loopPadTest.updateSettings({ channelMode: false }));
+    await waitFor(page, () => !window.__loopPadTest.getState().settings.channelMode, TIMEOUT_MS, 'single-channel mode restored after isolation');
+    await page.evaluate((note) => window.__loopPadTest.noteOn(note), firstNote + 1);
+    await page.getByLabel('Selected sample waveform').waitFor();
+    await page.evaluate(() => window.__loopPadTest.start());
+    await page.evaluate((note) => window.__loopPadTest.noteOn(note), firstNote);
+    assertEq((await page.evaluate(() => window.__loopPadTest.getState())).selectedSlot, 1, 'Playing another slot preserves the selection');
+    assertEq(await page.getByLabel('Selected sample waveform').count(), 1, 'Selected waveform takes precedence over playback');
+    await page.evaluate((note) => window.__loopPadTest.noteOff(note), firstNote);
 
     console.log('\n10. Take mode records sequentially from empty slots and finalizes via MIDI…');
     await page.evaluate(() => window.__loopPadTest.updateSettings({ recordingTailMs: 300 }));
@@ -534,6 +633,46 @@ function assertEq(actual, expected, label) {
     }, TIMEOUT_MS, 'project switched to 2');
     assertEq(state.projectIndex, 2, 'Project index is 2');
     assert(state.slots.every((s) => s.state === 'empty'), 'Fresh project has all-empty slots');
+    await page.getByRole('button', { name: 'Settings' }).click();
+    await page.locator('label').filter({ hasText: 'MIDI Input' }).locator('select').selectOption('test-midi');
+    const programSwitch = page.locator('label').filter({ hasText: 'Program Change Project Switch' }).locator('input');
+    assert(await programSwitch.isChecked(), 'Program Change Project Switch defaults to on');
+    await page.getByRole('button', { name: 'Close', exact: true }).click();
+    await page.evaluate(() => {
+      for (const data of [[0xc0], [0xca, 0], [0xcf, 127]]) {
+        window.__testMidiInput.onmidimessage({ data: new Uint8Array(data) });
+      }
+    });
+    await page.waitForTimeout(300);
+    assertEq(await page.evaluate(() => window.__loopPadTest.getState().projectIndex), 2, 'Incomplete messages and channels 11–16 do not switch projects');
+    await page.evaluate(() => window.__testMidiInput.onmidimessage({ data: new Uint8Array([0xc9, 127]) }));
+    await waitFor(page, () => window.__loopPadTest.getState().projectIndex === 10, TIMEOUT_MS, 'channel 10 switches to project 10');
+    await page.evaluate(() => {
+      for (const data of [[0xc0, 0], [0xc1, 42], [0xc0, 127]]) {
+        window.__testMidiInput.onmidimessage({ data: new Uint8Array(data) });
+      }
+    });
+    await page.waitForTimeout(500);
+    state = await page.evaluate(() => window.__loopPadTest.getState());
+    assertEq(state.projectIndex, 1, 'Rapid Program Changes switch in order, ignoring program numbers');
+    assert(state.slots[0].hasSample, 'Program Change restores the selected project’s saved samples');
+    await page.getByRole('button', { name: 'Settings' }).click();
+    await programSwitch.uncheck();
+    await page.getByRole('button', { name: 'Close', exact: true }).click();
+    await page.evaluate(() => window.__testMidiInput.onmidimessage({ data: new Uint8Array([0xc1, 0]) }));
+    await page.waitForTimeout(300);
+    assertEq(await page.evaluate(() => window.__loopPadTest.getState().projectIndex), 1, 'Disabled option ignores Program Changes');
+    await page.reload({ waitUntil: 'domcontentloaded' });
+    await waitFor(page, () => window.__loopPadTest?.getState().ready, TIMEOUT_MS, 'app ready after settings reload');
+    await page.getByRole('button', { name: 'Settings' }).click();
+    assert(!(await programSwitch.isChecked()), 'Disabled option persists across reload');
+    await programSwitch.check();
+    await page.getByRole('button', { name: 'Close', exact: true }).click();
+    await page.evaluate(() => window.__loopPadTest.updateSettings({ channelMode: true }));
+    await waitFor(page, () => window.__loopPadTest.getState().settings.channelMode, TIMEOUT_MS, 'Channel Mode enabled');
+    await page.evaluate(() => window.__testMidiInput.onmidimessage({ data: new Uint8Array([0xc1, 99]) }));
+    await waitFor(page, () => window.__loopPadTest.getState().projectIndex === 2, TIMEOUT_MS, 'Program Change switches projects in Channel Mode');
+    await page.evaluate(() => window.__loopPadTest.updateSettings({ channelMode: false }));
     await page.reload({ waitUntil: 'domcontentloaded' });
     state = await waitFor(page, () => {
       const st = window.__loopPadTest?.getState();

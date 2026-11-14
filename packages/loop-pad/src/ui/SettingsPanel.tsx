@@ -128,6 +128,10 @@ export function SettingsPanel({
           </select>
         </label>
         {numberField('MIDI Channel (1-16)', settings.midiChannel + 1, (n) => onChange({ midiChannel: Math.max(0, Math.min(15, n - 1)) }), { min: 1, max: 16 })}
+        <label style={{ display: 'flex', justifyContent: 'space-between', gap: 12, fontSize: 13, color: '#a1a1aa' }}>
+          Program Change Project Switch
+          <input type="checkbox" checked={settings.programChangeProjectSwitch} onChange={(e) => onChange({ programChangeProjectSwitch: e.target.checked })} />
+        </label>
         {numberField('First Sample Note', settings.firstSampleNote, (n) => onChange({ firstSampleNote: n }))}
         {numberField('Delete Note', settings.deleteNote, (n) => onChange({ deleteNote: n }))}
         {numberField('Count-in On Note', settings.countInOnNote, (n) => onChange({ countInOnNote: n }))}

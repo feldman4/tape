@@ -12,6 +12,12 @@ import { btnStyle } from './btnStyle';
 export function SamplerPage() {
   const s = useSampler();
   const [showSettings, setShowSettings] = useState(false);
+  const slots = s.project.banks[s.activeBank];
+  const selectedSlotIndex = s.selectedSlot?.bank === s.activeBank ? s.selectedSlot.slot : null;
+  const playingSlotIndex = s.selectedSlot === null && s.clockRunning
+    ? slots.findIndex((slot) => slot.sample !== null && slot.activity.kind === 'playing')
+    : -1;
+  const displayedSlotIndex = selectedSlotIndex ?? (playingSlotIndex >= 0 ? playingSlotIndex : null);
 
   // window.__loopPadTest hook — lets scripts/workflow-test.mjs simulate MIDI
   // note/CC/clock events without real MIDI or audio hardware (see its
@@ -130,8 +136,10 @@ export function SamplerPage() {
         <InputLevelMeter analysers={s.masterLevelAnalysers} side="right" level={s.settings.masterLevel} />
       </div>
       <SampleDisplay
-        slot={s.selectedSlot?.bank === s.activeBank ? s.project.banks[s.activeBank][s.selectedSlot.slot]! : null}
-        progress={s.selectedSlot?.bank === s.activeBank ? s.playbackProgress[s.selectedSlot.slot] ?? null : null}
+        slot={displayedSlotIndex !== null ? slots[displayedSlotIndex]! : null}
+        mixerSlot={selectedSlotIndex !== null ? slots[selectedSlotIndex]! : null}
+        playingSlotNumber={selectedSlotIndex === null && displayedSlotIndex !== null ? displayedSlotIndex + 1 : null}
+        progress={displayedSlotIndex !== null ? s.playbackProgress[displayedSlotIndex] ?? null : null}
         tick={s.tick}
         mixerEnabled={!s.settings.channelMode}
         bpm={s.bpm}

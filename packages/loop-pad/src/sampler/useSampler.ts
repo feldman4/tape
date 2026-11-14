@@ -90,6 +90,7 @@ export function useSampler() {
   const midiRef = useRef<MidiEngine | null>(null);
   const projectRef = useRef<Project>(project);
   const projectIndexRef = useRef(1);
+  const projectSwitchRef = useRef<Promise<void>>(Promise.resolve());
   const settingsRef = useRef(settings);
   settingsRef.current = settings;
 
@@ -154,6 +155,9 @@ export function useSampler() {
   }
 
   function setActiveBankValue(bank: BankIndex): void {
+    if (settingsRef.current.channelMode && bank !== activeBankRef.current) {
+      setCountInEnabled(false);
+    }
     activeBankRef.current = bank;
     setActiveBank(bank);
   }
@@ -415,6 +419,7 @@ export function useSampler() {
   }
 
   function setCountInEnabled(enabled: boolean): void {
+    settingsRef.current = { ...settingsRef.current, countInEnabled: enabled };
     setSettings((prev) => {
       if (prev.countInEnabled === enabled) return prev;
       const next = { ...prev, countInEnabled: enabled };
@@ -552,6 +557,12 @@ export function useSampler() {
       clocksSinceStartRef.current = 0;
       setBpm(null);
       cancelCountIn();
+      return;
+    }
+    if (event.type === 'programchange') {
+      if (s.programChangeProjectSwitch && event.channel < PROJECT_COUNT) {
+        void selectProject(event.channel + 1);
+      }
       return;
     }
     if (event.type === 'noteon') {
@@ -726,7 +737,6 @@ export function useSampler() {
       const rememberedMidiIn = findRememberedDevice(midiIns, 'midi-in');
       if (rememberedMidiIn) {
         setSelectedMidiInputId(rememberedMidiIn.id);
-        midi.setInputDevice(rememberedMidiIn.id);
       }
       const rememberedMidiOut = findRememberedDevice(midiOuts, 'midi-out');
       if (rememberedMidiOut) {
@@ -749,6 +759,7 @@ export function useSampler() {
       }
       setProjectIndex(initialProjectIndex);
       refreshProject();
+      if (rememberedMidiIn) midi.setInputDevice(rememberedMidiIn.id);
       initErrorRef.current = null;
       setReady(true);
     } catch (e) {
@@ -900,7 +911,15 @@ export function useSampler() {
     return engineRef.current?.isPlaying(engineSlot({ bank: activeBank, slot })) ?? false;
   }
 
-  async function selectProject(index: number): Promise<void> {
+  function selectProject(index: number): Promise<void> {
+    const pending = projectSwitchRef.current.then(() => switchProject(index));
+    projectSwitchRef.current = pending.catch((e: unknown) => {
+      setRestoreStatus(`Project switch failed: ${e instanceof Error ? e.message : String(e)}`);
+    });
+    return projectSwitchRef.current;
+  }
+
+  async function switchProject(index: number): Promise<void> {
     const engine = engineRef.current;
     if (!engine || index === projectIndexRef.current) return;
     if (autoSaveTimeoutRef.current) clearTimeout(autoSaveTimeoutRef.current);
