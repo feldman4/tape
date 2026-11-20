@@ -158,6 +158,8 @@ export function SamplerPage() {
           audioOutputs={s.audioOutputs}
           selectedAudioOutputId={s.selectedAudioOutputId}
           onSelectAudioOutput={(deviceId) => void s.selectAudioOutput(deviceId)}
+          audioOutputError={s.audioOutputError}
+          audioOutputSwitching={s.audioOutputSwitching}
           audioOutputChannelCount={s.audioOutputChannelCount}
           selectedAudioOutputChannelPairStart={s.selectedAudioOutputChannelPairStart}
           onSelectAudioOutputChannelPair={s.selectAudioOutputChannelPair}

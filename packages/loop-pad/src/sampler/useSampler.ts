@@ -65,6 +65,8 @@ export function useSampler() {
   const [selectedAudioOutputId, setSelectedAudioOutputId] = useState<string>('');
   const [audioOutputChannelCount, setAudioOutputChannelCount] = useState(2);
   const [selectedAudioOutputChannelPairStart, setSelectedAudioOutputChannelPairStart] = useState(0);
+  const [audioOutputError, setAudioOutputError] = useState<string | null>(null);
+  const [audioOutputSwitching, setAudioOutputSwitching] = useState(false);
   const [midiInputs, setMidiInputs] = useState<MidiDeviceRef[]>([]);
   const [selectedMidiInputId, setSelectedMidiInputId] = useState<string | null>(null);
   const [midiOutputs, setMidiOutputs] = useState<MidiDeviceRef[]>([]);
@@ -729,8 +731,8 @@ export function useSampler() {
 
       const rememberedOut = findRememberedDevice(outputs, 'audio-out');
       if (rememberedOut) {
-        setSelectedAudioOutputId(rememberedOut.deviceId);
         await engine.setOutputDevice(rememberedOut.deviceId);
+        setSelectedAudioOutputId(rememberedOut.deviceId);
       }
       restoreRememberedOutputChannelPair(engine);
 
@@ -851,11 +853,19 @@ export function useSampler() {
   async function selectAudioOutput(deviceId: string): Promise<void> {
     const engine = engineRef.current;
     if (!engine) return;
-    await engine.setOutputDevice(deviceId);
-    setSelectedAudioOutputId(deviceId);
-    restoreRememberedOutputChannelPair(engine);
-    const device = audioOutputs.find((d) => d.deviceId === deviceId);
-    rememberDeviceName('audio-out', device?.label);
+    setAudioOutputSwitching(true);
+    setAudioOutputError(null);
+    try {
+      await engine.setOutputDevice(deviceId);
+      setSelectedAudioOutputId(deviceId);
+      restoreRememberedOutputChannelPair(engine);
+      const device = audioOutputs.find((d) => d.deviceId === deviceId);
+      rememberDeviceName('audio-out', device?.label);
+    } catch (e) {
+      setAudioOutputError(`Could not select audio output: ${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      setAudioOutputSwitching(false);
+    }
   }
 
   function restoreRememberedOutputChannelPair(engine: SamplerEngine): void {
@@ -1057,7 +1067,7 @@ export function useSampler() {
       ready, error, init,
       audioInputs, selectedAudioInputId, selectAudioInput,
       audioInputChannelCount, selectedAudioInputChannel, selectAudioInputChannel,
-      audioOutputs, selectedAudioOutputId, selectAudioOutput,
+      audioOutputs, selectedAudioOutputId, selectAudioOutput, audioOutputError, audioOutputSwitching,
       audioOutputChannelCount, selectedAudioOutputChannelPairStart, selectAudioOutputChannelPair,
       midiInputs, selectedMidiInputId, selectMidiInput,
       midiOutputs, selectedMidiOutputId, selectMidiOutput,
@@ -1074,7 +1084,7 @@ export function useSampler() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [
       ready, error, audioInputs, selectedAudioInputId, audioInputChannelCount, selectedAudioInputChannel,
-      audioOutputs, selectedAudioOutputId,
+      audioOutputs, selectedAudioOutputId, audioOutputError, audioOutputSwitching,
       audioOutputChannelCount, selectedAudioOutputChannelPairStart,
       midiInputs, selectedMidiInputId, midiOutputs, selectedMidiOutputId,
       settings, projectIndex, project, activeBank, bpm, clockRunning, countInCounting, playbackProgress, tick, selectedSlot, flashingSlots, restoreStatus,

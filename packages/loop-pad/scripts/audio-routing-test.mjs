@@ -76,6 +76,56 @@ try {
       await wait(250);
       closeTo(peak(engine.masterLevelAnalysers.right), 0.225, 'stereo monitor on channel B');
 
+      let outputChannels = 2;
+      let destinationChannels = 2;
+      Object.defineProperties(engine.audioContext.destination, {
+        maxChannelCount: { configurable: true, get: () => outputChannels },
+        channelCount: {
+          configurable: true,
+          get: () => destinationChannels,
+          set: (value) => { destinationChannels = value; },
+        },
+      });
+      engine.audioContext.setSinkId = async (id) => {
+        if (id === 'failed') throw new Error('device unavailable');
+        outputChannels = id === 'six' ? 6 : 2;
+      };
+      await engine.setOutputDevice('six');
+      if (engine.outputChannels !== 6 || destinationChannels !== 6) throw new Error('Six-channel output was not configured');
+      engine.setOutputChannelPair(4);
+      await wait(250);
+      closeTo(peak(engine.masterLevelAnalysers.right), 0.225, 'monitor on output channels 5-6');
+      engine.playCountInClicks(2, 0.5);
+      await engine.setOutputDevice('two');
+      engine.stopCountInClicks();
+      if (engine.outputChannels !== 2 || destinationChannels !== 2 || engine.selectedOutputChannelPairStart !== 0) {
+        throw new Error('Switching to stereo did not reset the output pair');
+      }
+      await wait(250);
+      closeTo(peak(engine.masterLevelAnalysers.right), 0.225, 'monitor after switching to stereo');
+      await engine.setOutputDevice('six');
+      engine.setOutputChannelPair(4);
+      await wait(250);
+      closeTo(peak(engine.masterLevelAnalysers.right), 0.225, 'monitor after switching back to six channels');
+      engine.setMonitor(false, 0);
+      const tone = Float32Array.from({ length: engine.sampleRate * 2 }, (_, index) =>
+        0.1 * Math.sin(2 * Math.PI * 1000 * index / engine.sampleRate));
+      engine.loadSlotBuffer(1, { left: tone, right: tone });
+      engine.play(1, { level: 1, pan: 0, lpfCutoff: 1, hpfCutoff: 0 }, 0);
+      await wait(150);
+      if (peak(engine.masterLevelAnalysers.right) < 0.05) throw new Error('Voice did not reach channels 5-6');
+      await engine.setOutputDevice('two');
+      await wait(150);
+      if (peak(engine.masterLevelAnalysers.right) < 0.05) throw new Error('Active voice was lost after output switch');
+      await engine.setOutputDevice('six');
+      try {
+        await engine.setOutputDevice('failed');
+        throw new Error('Failed sink selection unexpectedly succeeded');
+      } catch (error) {
+        if (error.message !== 'device unavailable') throw error;
+      }
+      if (engine.outputDeviceId !== 'six' || engine.outputChannels !== 6) throw new Error('Failed sink selection changed output state');
+
       // LPP3 has no mono byte; convert an LPP4 project containing stereo audio.
       const legacyProject = makeDefaultProject();
       legacyProject.banks[0][0].sample = {
@@ -145,6 +195,61 @@ try {
   if (await input.locator(':scope > div').count() !== 1) throw new Error('Mono selection was not restored');
   console.log('Mono meter display, alignment, and selection persistence passed');
   await context.close();
+
+  const outputContext = await browser.newContext();
+  await outputContext.grantPermissions(['microphone'], { origin: new URL(appUrl).origin });
+  await outputContext.addInitScript(() => {
+    Object.defineProperty(navigator, 'requestMIDIAccess', {
+      configurable: true,
+      value: async () => ({ inputs: new Map(), outputs: new Map() }),
+    });
+    const enumerate = navigator.mediaDevices.enumerateDevices.bind(navigator.mediaDevices);
+    navigator.mediaDevices.enumerateDevices = async () => [
+      ...(await enumerate()).filter((device) => device.kind !== 'audiooutput'),
+      { kind: 'audiooutput', deviceId: 'six', label: 'Six channel output' },
+      { kind: 'audiooutput', deviceId: 'two', label: 'Stereo output' },
+      { kind: 'audiooutput', deviceId: 'failed', label: 'Unavailable output' },
+    ];
+    const NativeAudioContext = window.AudioContext;
+    window.AudioContext = class extends NativeAudioContext {
+      constructor(options) {
+        super(options);
+        let channels = 6;
+        let destinationChannels = 2;
+        Object.defineProperties(this.destination, {
+          maxChannelCount: { configurable: true, get: () => channels },
+          channelCount: {
+            configurable: true,
+            get: () => destinationChannels,
+            set: (value) => { destinationChannels = value; },
+          },
+        });
+        this.setSinkId = async (id) => {
+          if (id === 'failed') throw new Error('device unavailable');
+          channels = id === 'two' ? 2 : 6;
+        };
+      }
+    };
+  });
+  const outputPage = await outputContext.newPage();
+  await outputPage.goto(appUrl);
+  const outputEnable = outputPage.getByRole('button', { name: 'Enable Audio + MIDI' });
+  if (await outputEnable.isVisible()) await outputEnable.click();
+  await outputPage.getByRole('button', { name: 'Settings' }).click();
+  const output = outputPage.getByLabel('Audio Output');
+  const pair = outputPage.getByLabel('Output Channels');
+  await output.selectOption('six');
+  await pair.selectOption({ label: '5-6' });
+  await output.selectOption('two');
+  await pair.waitFor({ state: 'hidden' });
+  await output.selectOption('six');
+  await pair.waitFor({ state: 'visible' });
+  if (await pair.inputValue() !== '4') throw new Error('Available remembered output pair was not restored');
+  await output.selectOption('failed');
+  await outputPage.getByRole('alert').getByText('Could not select audio output: device unavailable').waitFor();
+  if (await output.inputValue() !== 'six') throw new Error('Failed output selection changed the displayed device');
+  console.log('Output device channel switching, pair restoration, and error reporting passed');
+  await outputContext.close();
 } finally {
   await browser.close();
 }

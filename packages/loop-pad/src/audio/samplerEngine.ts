@@ -78,7 +78,7 @@ export class SamplerEngine {
   private levelSplitter: ChannelSplitterNode | null = null;
   private levelAnalyserL: AnalyserNode | null = null;
   private levelAnalyserR: AnalyserNode | null = null;
-  private countInClicks = new Set<OscillatorNode>();
+  private countInClicks = new Map<OscillatorNode, GainNode>();
 
   private progressListeners = new Set<(slot: number, peak: number) => void>();
   private endedListeners = new Set<(slot: number) => void>();
@@ -240,6 +240,24 @@ export class SamplerEngine {
     if (!this.ctx) throw new Error('SamplerEngine not initialized: call init() first');
     await (this.ctx as AudioContext & { setSinkId(id: string): Promise<void> }).setSinkId(sinkId);
     this.currentOutputDeviceId = sinkId;
+    const channelCount = Math.max(2, this.ctx.destination.maxChannelCount);
+    this.ctx.destination.channelCount = channelCount;
+    if (channelCount !== this.outputChannelCount) {
+      this.outputChannelCount = channelCount;
+      if (this.outputChannelPairStart + 1 >= channelCount) this.outputChannelPairStart = 0;
+
+      this.outputBus!.disconnect();
+      this.outputBus = this.ctx.createChannelMerger(channelCount);
+      this.outputBus.connect(this.masterGain!);
+      this.silentGain!.disconnect();
+      this.silentGain!.connect(this.outputBus, 0, 0);
+
+      this.masterGain!.disconnect(this.masterLevelSplitter!);
+      this.masterLevelSplitter!.disconnect();
+      this.masterLevelSplitter = this.ctx.createChannelSplitter(channelCount);
+      this.masterGain!.connect(this.masterLevelSplitter);
+      this.setOutputChannelPair(this.outputChannelPairStart);
+    }
   }
 
   setOutputChannelPair(start: number): void {
@@ -250,6 +268,11 @@ export class SamplerEngine {
     }
     this.connectMonitorToOutput();
     this.connectMasterMeters();
+    for (const gain of this.countInClicks.values()) {
+      gain.disconnect();
+      gain.connect(this.outputBus!, 0, this.outputChannelPairStart);
+      gain.connect(this.outputBus!, 0, this.outputChannelPairStart + 1);
+    }
   }
 
   private connectMasterMeters(): void {
@@ -537,12 +560,12 @@ export class SamplerEngine {
       };
       oscillator.start(clickAt);
       oscillator.stop(clickAt + 0.05);
-      this.countInClicks.add(oscillator);
+      this.countInClicks.set(oscillator, gain);
     }
   }
 
   stopCountInClicks(): void {
-    for (const oscillator of this.countInClicks) {
+    for (const [oscillator, gain] of this.countInClicks) {
       oscillator.onended = null;
       try {
         oscillator.stop();
@@ -550,6 +573,7 @@ export class SamplerEngine {
         // The click has already ended.
       }
       oscillator.disconnect();
+      gain.disconnect();
     }
     this.countInClicks.clear();
   }

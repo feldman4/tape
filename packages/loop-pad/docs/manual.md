@@ -209,7 +209,7 @@ Select the settings button on the front panel to open the configuration panel. I
 | Audio Input | Selects the signal recorded into slots; its device name is remembered and reconnected automatically. | — |
 | Input Channels | Selects an individual mono input or stereo pair for monitoring, metering, and recording. The last selection is restored when available. The selector shows how many channels the browser exposes; unavailable channels cannot be selected. | 1–2, or 1 for a mono device |
 | Audio Output | Selects where sample playback is sent; its device name is remembered and reconnected automatically. | System default |
-| Output Channels | Selects the stereo output pair for sample playback when the device exposes multiple pairs; the last selected pair is restored when available. | 1–2 |
+| Output Channels | Selects the stereo output pair for sample playback when the browser exposes multiple pairs for the selected output. The last selected pair is restored when available; otherwise playback uses 1–2. | 1–2 |
 | MIDI Input | Selects the source of notes, clock, and transport; its device name is remembered and reconnected automatically. | — |
 | MIDI Output | Selects the destination for Stop and Start during count-in; its device name is remembered and reconnected automatically. | — |
 | MIDI Channel | Sets the channel used by sample notes, control notes, and mixer CCs when Channel Mode is off. | 16 |

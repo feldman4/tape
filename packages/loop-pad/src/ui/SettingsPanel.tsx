@@ -14,6 +14,8 @@ interface SettingsPanelProps {
   audioOutputs: MediaDeviceInfo[];
   selectedAudioOutputId: string;
   onSelectAudioOutput: (deviceId: string) => void;
+  audioOutputError: string | null;
+  audioOutputSwitching: boolean;
   audioOutputChannelCount: number;
   selectedAudioOutputChannelPairStart: number;
   onSelectAudioOutputChannelPair: (start: number) => void;
@@ -53,6 +55,7 @@ export function SettingsPanel({
   settings, onChange, audioInputs, selectedAudioInputId, onSelectAudioInput,
   audioInputChannelCount, selectedAudioInputChannel, onSelectAudioInputChannel,
   audioOutputs, selectedAudioOutputId, onSelectAudioOutput,
+  audioOutputError, audioOutputSwitching,
   audioOutputChannelCount, selectedAudioOutputChannelPairStart, onSelectAudioOutputChannelPair,
   midiInputs, selectedMidiInputId, onSelectMidiInput,
   midiOutputs, selectedMidiOutputId, onSelectMidiOutput, onClearProjectMemory, onClose,
@@ -100,7 +103,7 @@ export function SettingsPanel({
         </label>
         <label style={{ display: 'flex', justifyContent: 'space-between', gap: 12, fontSize: 13, color: '#a1a1aa' }}>
           Audio Output
-          <select value={selectedAudioOutputId} onChange={(e) => onSelectAudioOutput(e.target.value)}>
+          <select value={selectedAudioOutputId} disabled={audioOutputSwitching} onChange={(e) => onSelectAudioOutput(e.target.value)}>
             <option value="">System default</option>
             {audioOutputs.map((device) => <option key={device.deviceId} value={device.deviceId}>{device.label || device.deviceId}</option>)}
           </select>
@@ -108,11 +111,12 @@ export function SettingsPanel({
         {stereoPairs.length > 1 && (
           <label style={{ display: 'flex', justifyContent: 'space-between', gap: 12, fontSize: 13, color: '#a1a1aa' }}>
             Output Channels
-            <select value={selectedAudioOutputChannelPairStart} onChange={(e) => onSelectAudioOutputChannelPair(Number(e.target.value))}>
+            <select value={selectedAudioOutputChannelPairStart} disabled={audioOutputSwitching} onChange={(e) => onSelectAudioOutputChannelPair(Number(e.target.value))}>
               {stereoPairs.map((start) => <option key={start} value={start}>{start + 1}-{start + 2}</option>)}
             </select>
           </label>
         )}
+        {audioOutputError && <div role="alert" style={{ color: '#fca5a5', fontSize: 13, gridColumn: '1 / -1' }}>{audioOutputError}</div>}
         <label style={{ display: 'flex', justifyContent: 'space-between', gap: 12, fontSize: 13, color: '#a1a1aa' }}>
           MIDI Input
           <select value={selectedMidiInputId ?? ''} onChange={(e) => onSelectMidiInput(e.target.value)}>
