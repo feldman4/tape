@@ -158,6 +158,7 @@ export function useSampler() {
 
   function setActiveBankValue(bank: BankIndex): void {
     if (settingsRef.current.channelMode && bank !== activeBankRef.current) {
+      clearDeleteGesture();
       setCountInEnabled(false);
     }
     activeBankRef.current = bank;
@@ -223,9 +224,17 @@ export function useSampler() {
 
   function checkDeleteAgainstSampleEvent(deleteTime: number): boolean {
     const last = lastSampleEventRef.current;
-    if (!last || deleteTime - last.time > DELETE_WINDOW_MS) return false;
+    if (!last || !isActiveBank(last.address.bank) || deleteTime - last.time > DELETE_WINDOW_MS) return false;
     deleteSlot(last.address);
     return true;
+  }
+
+  function isActiveBank(bank: BankIndex): boolean {
+    return !settingsRef.current.channelMode || bank === activeBankRef.current;
+  }
+
+  function rememberSampleEvent(address: SlotAddress, time: number): void {
+    if (isActiveBank(address.bank)) lastSampleEventRef.current = { address, time };
   }
 
   function clearDeleteGesture(): void {
@@ -277,7 +286,6 @@ export function useSampler() {
     const engine = engineRef.current!;
     const current = slotAt(address);
     const id = engineSlot(address);
-    lastSampleEventRef.current = { address, time };
     current.activity = {
       kind: 'recording',
       mode: settingsRef.current.recordingMode,
@@ -286,6 +294,7 @@ export function useSampler() {
     engine.startRecording(id);
     current.recordingPeaks = [];
     selectSlot(address);
+    rememberSampleEvent(address, time);
   }
 
   function completeRecording(address: SlotAddress, samples: StereoSamples | null, mode: RecordingMode): void {
@@ -309,7 +318,8 @@ export function useSampler() {
 
   function handleSampleNoteOn(address: SlotAddress, time: number, playbackOffsetMs?: number): void {
     const deleteTime = lastDeleteEventTimeRef.current;
-    if (deleteTime !== null && time - deleteTime <= DELETE_WINDOW_MS) {
+    if (isActiveBank(address.bank) && deleteTime !== null && time - deleteTime <= DELETE_WINDOW_MS) {
+      clearDeleteGesture();
       deleteSlot(address);
       return;
     }
@@ -324,7 +334,7 @@ export function useSampler() {
       const recording = current.activity;
       // The following pattern cycle can start before the recording tail has
       // flushed. Play the capture so far while the worklet keeps recording.
-      lastSampleEventRef.current = { address, time };
+      rememberSampleEvent(address, time);
       if (recording.mode === 'take') {
         // A new Take-mode note ends the prior take now, rather than waiting
         // for its tail. Once flushed, immediately begin the new take.
@@ -352,7 +362,7 @@ export function useSampler() {
       && current.sample?.takeStatus === 'unfinalized' && clockRunningRef.current) {
       startRecording(address, time);
     } else {
-      lastSampleEventRef.current = { address, time };
+      rememberSampleEvent(address, time);
       if (clockRunningRef.current && current.sample?.takeStatus === 'unfinalized') return;
       const mixer = settingsRef.current.channelMode
         ? { level: 1, pan: address.bank === BANK_A ? -1 : 1, lpfCutoff: 1, hpfCutoff: 0 }
@@ -408,7 +418,7 @@ export function useSampler() {
     if (standaloneDeleteTimeoutRef.current) clearTimeout(standaloneDeleteTimeoutRef.current);
     lastDeleteEventTimeRef.current = time;
     if (checkDeleteAgainstSampleEvent(time)) {
-      lastDeleteEventTimeRef.current = null;
+      clearDeleteGesture();
       return;
     }
     standaloneDeleteTimeoutRef.current = setTimeout(() => {
@@ -568,6 +578,11 @@ export function useSampler() {
       return;
     }
     if (event.type === 'noteon') {
+      const activeChannel = s.channelMode
+        ? activeBankRef.current === BANK_A ? s.channelAMidiChannel : s.channelBMidiChannel
+        : s.midiChannel;
+      const inactiveChannelWhileStopped = !clockRunningRef.current && event.channel !== activeChannel;
+      if (inactiveChannelWhileStopped && s.countInEnabled) setCountInEnabled(false);
       const bank = s.channelMode
         ? event.channel === s.channelAMidiChannel ? BANK_A : event.channel === s.channelBMidiChannel ? BANK_B : null
         : event.channel === s.midiChannel ? BANK_A : null;
@@ -583,7 +598,10 @@ export function useSampler() {
         }
         return;
       }
-      if (event.note === s.countInOnNote) { setCountInEnabled(true); return; }
+      if (event.note === s.countInOnNote) {
+        if (!inactiveChannelWhileStopped) setCountInEnabled(true);
+        return;
+      }
       if (event.note === s.countInOffNote) { setCountInEnabled(false); return; }
       if (event.note === s.deleteNote) { handleDeleteNote(time); return; }
       if (event.note === s.oneShotModeNote) { updateSettings({ recordingMode: 'one-shot' }); return; }
@@ -633,10 +651,6 @@ export function useSampler() {
       }
       if (countInStateRef.current !== 'idle') return;
       if (slot >= 0 && slot < SLOT_COUNT) {
-        if (lastDeleteEventTimeRef.current !== null && time - lastDeleteEventTimeRef.current <= DELETE_WINDOW_MS) {
-          if (standaloneDeleteTimeoutRef.current) clearTimeout(standaloneDeleteTimeoutRef.current);
-          standaloneDeleteTimeoutRef.current = null;
-        }
         handleSampleNoteOn({ bank, slot }, time);
       }
       return;
@@ -1065,6 +1079,7 @@ export function useSampler() {
   return useMemo(
     () => ({
       ready, error, init,
+      audioContext: engineRef.current?.audioContext ?? null,
       audioInputs, selectedAudioInputId, selectAudioInput,
       audioInputChannelCount, selectedAudioInputChannel, selectAudioInputChannel,
       audioOutputs, selectedAudioOutputId, selectAudioOutput, audioOutputError, audioOutputSwitching,

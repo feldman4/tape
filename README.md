@@ -5,6 +5,8 @@ This repository contains independently deployable web apps:
 - `tape`: browser-based multitrack tape recorder, deployed at `/tape/`.
 - `loop-pad`: 16-slot MIDI sampler, deployed at `/tape/loop-pad/`. See
   [packages/loop-pad/README.md](packages/loop-pad/README.md).
+- `opz-pads`: app starter with iRig Pads control surface and MIDI reference,
+  deployed at `/tape/opz-pads/`. See [packages/opz-pads/README.md](packages/opz-pads/README.md).
 
 Install dependencies once at the repository root:
 
@@ -12,8 +14,9 @@ Install dependencies once at the repository root:
 npm install
 ```
 
-Run an app locally with `npm run dev:tape` or `npm run dev:loop-pad`.
-Build or lint both apps with `npm run build` or `npm run lint`.
+Run an app locally with `npm run dev:tape`, `npm run dev:loop-pad`, or
+`npm run dev:opz-pads`. Build or lint all apps with `npm run build` or
+`npm run lint`.
 
 The Tape-specific guide and hardware workflows are in `packages/tape/README.md`.# Tape
 

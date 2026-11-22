@@ -5,6 +5,7 @@ import type { MidiDeviceRef } from '../midi/midiEngine';
 interface SettingsPanelProps {
   settings: SamplerSettings;
   onChange: (patch: Partial<SamplerSettings>) => void;
+  audioContext: AudioContext | null;
   audioInputs: MediaDeviceInfo[];
   selectedAudioInputId: string | null;
   onSelectAudioInput: (deviceId: string) => void;
@@ -52,7 +53,7 @@ function numberField(
 }
 
 export function SettingsPanel({
-  settings, onChange, audioInputs, selectedAudioInputId, onSelectAudioInput,
+  settings, onChange, audioContext, audioInputs, selectedAudioInputId, onSelectAudioInput,
   audioInputChannelCount, selectedAudioInputChannel, onSelectAudioInputChannel,
   audioOutputs, selectedAudioOutputId, onSelectAudioOutput,
   audioOutputError, audioOutputSwitching,
@@ -63,6 +64,8 @@ export function SettingsPanel({
   const stereoPairs = Array.from({ length: Math.floor(audioOutputChannelCount / 2) }, (_, index) => index * 2);
   const inputChannels = Array.from({ length: audioInputChannelCount }, (_, index) => index);
   const inputPairs = Array.from({ length: Math.floor(audioInputChannelCount / 2) }, (_, index) => index * 2);
+  const renderQuantumSize = audioContext && 'renderQuantumSize' in audioContext
+    ? audioContext.renderQuantumSize : null;
 
   return (
     <div
@@ -117,6 +120,14 @@ export function SettingsPanel({
           </label>
         )}
         {audioOutputError && <div role="alert" style={{ color: '#fca5a5', fontSize: 13, gridColumn: '1 / -1' }}>{audioOutputError}</div>}
+        <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, fontSize: 13, color: '#a1a1aa' }}>
+          <span>Audio Sample Rate</span>
+          <output aria-label="Audio Sample Rate">{audioContext ? `${audioContext.sampleRate} Hz` : 'Unavailable'}</output>
+        </div>
+        <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, fontSize: 13, color: '#a1a1aa' }}>
+          <span>Audio Render Block Size</span>
+          <output aria-label="Audio Render Block Size">{typeof renderQuantumSize === 'number' && renderQuantumSize > 0 ? `${renderQuantumSize} frames` : 'Unavailable'}</output>
+        </div>
         <label style={{ display: 'flex', justifyContent: 'space-between', gap: 12, fontSize: 13, color: '#a1a1aa' }}>
           MIDI Input
           <select value={selectedMidiInputId ?? ''} onChange={(e) => onSelectMidiInput(e.target.value)}>

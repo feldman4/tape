@@ -345,6 +345,13 @@ function assertEq(actual, expected, label) {
     assertEq(state.selectedSlot, 0, 'Channel A note selects its slot');
     await page.evaluate((note) => window.__loopPadTest.noteOn(note, 100, 14), countInOnNote);
     await waitFor(page, () => window.__loopPadTest.getState().settings.countInEnabled, TIMEOUT_MS, 'count-in enabled before switching');
+    await page.evaluate(() => window.__loopPadTest.noteOn(0, 100, 14));
+    state = await page.evaluate(() => window.__loopPadTest.getState());
+    assert(state.settings.countInEnabled, 'Active Channel A note leaves Count-in on while stopped');
+    await page.evaluate(() => window.__loopPadTest.noteOn(0, 100, 15));
+    await waitFor(page, () => !window.__loopPadTest.getState().settings.countInEnabled, TIMEOUT_MS, 'inactive Channel B note disables count-in while stopped');
+    await page.evaluate((note) => window.__loopPadTest.noteOn(note, 100, 14), countInOnNote);
+    await waitFor(page, () => window.__loopPadTest.getState().settings.countInEnabled, TIMEOUT_MS, 'count-in re-enabled before switching');
     const transportBeforeSwitch = await page.evaluate(() => window.__loopPadTest.sentTransportEvents().length);
     await page.evaluate((note) => {
       window.__loopPadTest.noteOn(note, 100, 15);
@@ -380,6 +387,17 @@ function assertEq(actual, expected, label) {
     state = await page.evaluate(() => window.__loopPadTest.getState());
     assertEq(state.activeBank, 1, 'Repeated Channel B Switch note does not toggle to Channel A');
     assert(state.settings.countInEnabled, 'Selecting the already active bank leaves Count-in on');
+    await page.evaluate(() => window.__loopPadTest.noteOn(0, 100, 0));
+    await waitFor(page, () => !window.__loopPadTest.getState().settings.countInEnabled, TIMEOUT_MS, 'unmapped channel disables count-in in Channel Mode');
+    await page.evaluate((note) => window.__loopPadTest.noteOn(note, 100, 15), countInOnNote);
+    await waitFor(page, () => window.__loopPadTest.getState().settings.countInEnabled, TIMEOUT_MS, 'count-in re-enabled after unmapped channel');
+    await page.evaluate((note) => window.__loopPadTest.noteOn(note, 100, 14), countInOnNote);
+    await waitFor(page, () => !window.__loopPadTest.getState().settings.countInEnabled, TIMEOUT_MS, 'inactive bank count-in On disables count-in while stopped');
+    await page.evaluate((note) => window.__loopPadTest.noteOn(note, 100, 14), countInOnNote);
+    state = await page.evaluate(() => window.__loopPadTest.getState());
+    assert(!state.settings.countInEnabled, 'Inactive bank Count-in On cannot enable Count-in while stopped');
+    await page.evaluate((note) => window.__loopPadTest.noteOn(note, 100, 15), countInOnNote);
+    await waitFor(page, () => window.__loopPadTest.getState().settings.countInEnabled, TIMEOUT_MS, 'count-in re-enabled on active Channel B');
     await page.evaluate((note) => window.__loopPadTest.noteOn(note, 100, 14), firstNote);
     state = await waitFor(page, () => {
       const st = window.__loopPadTest.getState();
@@ -414,6 +432,106 @@ function assertEq(actual, expected, label) {
     assert(state.settings.countInEnabled, 'Single-channel sample selection leaves Count-in on');
     await page.evaluate((note) => window.__loopPadTest.noteOn(note), countInOffNote);
     await waitFor(page, () => !window.__loopPadTest.getState().settings.countInEnabled, TIMEOUT_MS, 'count-in reset after channel tests');
+
+    console.log('\n5a. Delete gestures ignore playback in the inactive bank…');
+    await page.evaluate(() => window.__loopPadTest.updateSettings({ channelMode: true, recordingTailMs: 0 }));
+    await waitFor(page, () => window.__loopPadTest.getState().settings.channelMode, TIMEOUT_MS, 'channel mode enabled for delete isolation');
+    await page.evaluate(() => window.__loopPadTest.start());
+    await page.evaluate((note) => window.__loopPadTest.noteOn(note, 100, 15), firstNote + 2);
+    await page.waitForTimeout(400);
+    await page.evaluate((note) => window.__loopPadTest.noteOff(note, 15), firstNote + 2);
+    await waitFor(page, () => {
+      const st = window.__loopPadTest.getState();
+      return st.activeBank === 1 && st.slots[2].hasSample ? st : null;
+    }, TIMEOUT_MS, 'Channel B sample recorded');
+    await page.evaluate(() => window.__loopPadTest.stop());
+    await page.evaluate((note) => window.__loopPadTest.noteOn(note, 100, 14), firstNote);
+    await waitFor(page, () => {
+      const st = window.__loopPadTest.getState();
+      return st.activeBank === 0 && st.selectedSlot === 0 ? st : null;
+    }, TIMEOUT_MS, 'Channel A sample selected for delete isolation');
+    await page.evaluate(() => window.__loopPadTest.start());
+    await page.waitForTimeout(600);
+
+    await page.evaluate(([sample, reset]) => {
+      window.__loopPadTest.noteOn(sample, 100, 14);
+      window.__loopPadTest.noteOn(sample + 2, 100, 15);
+      window.__loopPadTest.noteOn(reset, 100, 15);
+    }, [firstNote, deleteNote]);
+    state = await waitFor(page, () => {
+      const st = window.__loopPadTest.getState();
+      return !st.slots[0].hasSample ? st : null;
+    }, TIMEOUT_MS, 'sample-first delete targets Channel A despite Channel B playback');
+    assertEq(state.activeBank, 0, 'Inactive playback does not select its bank during deletion');
+    await page.evaluate(([sample, reset]) => {
+      window.__loopPadTest.noteOn(sample, 100, 14);
+      window.__loopPadTest.noteOn(reset, 100, 14);
+    }, [firstNote, deleteNote]);
+    await waitFor(page, () => window.__loopPadTest.getState().slots[0].hasSample, TIMEOUT_MS, 'Channel A sample restored');
+    await page.waitForTimeout(600);
+
+    await page.evaluate(([sample, reset]) => {
+      window.__loopPadTest.noteOn(sample + 2, 100, 15);
+      window.__loopPadTest.noteOn(reset, 100, 14);
+      window.__loopPadTest.noteOn(sample + 2, 100, 15);
+    }, [firstNote, deleteNote]);
+    state = await waitFor(page, () => {
+      const st = window.__loopPadTest.getState();
+      return !st.slots[0].hasSample && st.selectedSlot === null ? st : null;
+    }, TIMEOUT_MS, 'standalone delete targets the selected Channel A sample');
+    assertEq(state.activeBank, 0, 'Inactive playback does not redirect standalone deletion');
+    await page.evaluate(([sample, reset]) => {
+      window.__loopPadTest.noteOn(sample, 100, 14);
+      window.__loopPadTest.noteOn(reset, 100, 14);
+    }, [firstNote, deleteNote]);
+    await waitFor(page, () => window.__loopPadTest.getState().slots[0].hasSample, TIMEOUT_MS, 'Channel A sample restored after standalone delete');
+    await page.waitForTimeout(600);
+
+    await page.evaluate(([sample, reset]) => {
+      window.__loopPadTest.noteOn(reset, 100, 14);
+      window.__loopPadTest.noteOn(sample + 2, 100, 15);
+      window.__loopPadTest.noteOn(sample, 100, 14);
+      window.__loopPadTest.noteOn(sample + 2, 100, 15);
+    }, [firstNote, deleteNote]);
+    await waitFor(page, () => !window.__loopPadTest.getState().slots[0].hasSample, TIMEOUT_MS, 'delete-first gesture targets Channel A');
+    await page.evaluate((note) => window.__loopPadTest.noteOn(note, 100, 15), channelSwitchNote);
+    state = await waitFor(page, () => {
+      const st = window.__loopPadTest.getState();
+      return st.activeBank === 1 ? st : null;
+    }, TIMEOUT_MS, 'Channel B inspected after delete gestures');
+    assert(state.slots[2].hasSample, 'Inactive Channel B sample survives both delete gesture orders');
+
+    await page.evaluate(([sample, reset]) => {
+      window.__loopPadTest.noteOn(sample + 2, 100, 15);
+      window.__loopPadTest.noteOn(reset, 100, 15);
+    }, [firstNote, deleteNote]);
+    await page.evaluate((note) => window.__loopPadTest.noteOn(note, 100, 14), channelSwitchNote);
+    await page.evaluate(([sample, reset]) => {
+      window.__loopPadTest.noteOn(sample, 100, 14);
+      window.__loopPadTest.noteOn(reset, 100, 14);
+    }, [firstNote, deleteNote]);
+    await waitFor(page, () => window.__loopPadTest.getState().slots[0].hasSample, TIMEOUT_MS, 'Channel A sample restored after delete isolation');
+    await page.waitForTimeout(600);
+    await page.evaluate(([sample, reset]) => {
+      window.__loopPadTest.noteOn(reset, 100, 14);
+      window.__loopPadTest.noteOn(sample + 3, 100, 15);
+    }, [firstNote, deleteNote]);
+    await page.waitForTimeout(600);
+    state = await page.evaluate(() => window.__loopPadTest.getState());
+    assertEq(state.activeBank, 1, 'Recording in the other bank switches the active bank');
+    assertEq(state.slots[3].state, 'recording', 'Bank change cancels a pending standalone delete');
+    await page.evaluate(([sample, reset, switchNote]) => {
+      window.__loopPadTest.noteOn(reset, 100, 15);
+      window.__loopPadTest.noteOn(sample + 3, 100, 15);
+      window.__loopPadTest.noteOn(switchNote, 100, 14);
+    }, [firstNote, deleteNote, channelSwitchNote]);
+    state = await waitFor(page, () => {
+      const st = window.__loopPadTest.getState();
+      return st.activeBank === 0 ? st : null;
+    }, TIMEOUT_MS, 'Channel A restored after bank-change test');
+    assert(state.slots[0].hasSample, 'Bank change leaves the previously selected sample intact');
+    await page.evaluate(() => window.__loopPadTest.updateSettings({ channelMode: false, recordingTailMs: 300 }));
+    await waitFor(page, () => !window.__loopPadTest.getState().settings.channelMode, TIMEOUT_MS, 'single-channel mode restored after delete isolation');
 
     console.log('\n6. Sequencer Stop stops playback immediately…');
     await page.evaluate((note) => window.__loopPadTest.noteOn(note), firstNote);
@@ -728,6 +846,29 @@ function assertEq(actual, expected, label) {
     }, TIMEOUT_MS, 'count-in disabled by MIDI Off note');
     assertEq(state.settings.countInEnabled, false, 'Count-in disabled by MIDI Off note');
     assertEq(await page.locator('.count-in-status').textContent(), 'Count-in Off', 'Count-in status reflects the MIDI Off note');
+    await page.evaluate(() => window.__loopPadTest.stop());
+    await waitFor(page, () => !window.__loopPadTest.getState().clockRunning, TIMEOUT_MS, 'sequencer stopped for count-in channel tests');
+    for (let channel = 0; channel < 15; channel++) {
+      await page.evaluate((note) => window.__loopPadTest.noteOn(note), countInOnNote);
+      await waitFor(page, () => window.__loopPadTest.getState().settings.countInEnabled, TIMEOUT_MS, 'count-in enabled for inactive channel test');
+      await page.evaluate((channel) => window.__loopPadTest.noteOn(0, 100, channel), channel);
+      await waitFor(page, () => !window.__loopPadTest.getState().settings.countInEnabled, TIMEOUT_MS, `count-in disabled by channel ${channel + 1}`);
+    }
+    assertEq(await page.evaluate(() => JSON.parse(localStorage.getItem('loop-pad:settings')).countInEnabled), false, 'Inactive-channel Note On persists Count-in off');
+    await page.evaluate((note) => window.__loopPadTest.noteOn(note), countInOnNote);
+    await waitFor(page, () => window.__loopPadTest.getState().settings.countInEnabled, TIMEOUT_MS, 'count-in enabled for note-off test');
+    await page.evaluate(() => window.__loopPadTest.noteOff(0, 0));
+    state = await page.evaluate(() => window.__loopPadTest.getState());
+    assert(state.settings.countInEnabled, 'Inactive-channel Note Off leaves Count-in on');
+    await page.evaluate((note) => window.__loopPadTest.noteOn(note), countInOffNote);
+    await waitFor(page, () => !window.__loopPadTest.getState().settings.countInEnabled, TIMEOUT_MS, 'count-in disabled before running test');
+    await page.evaluate(() => window.__loopPadTest.start());
+    await page.evaluate((note) => window.__loopPadTest.noteOn(note), countInOnNote);
+    await waitFor(page, () => window.__loopPadTest.getState().settings.countInEnabled, TIMEOUT_MS, 'count-in enabled while running');
+    await page.evaluate(() => window.__loopPadTest.noteOn(0, 100, 0));
+    state = await page.evaluate(() => window.__loopPadTest.getState());
+    assert(state.settings.countInEnabled, 'Inactive-channel Note On leaves Count-in on while running');
+    await page.evaluate(() => window.__loopPadTest.stop());
     await page.evaluate((note) => window.__loopPadTest.noteOn(note), countInOnNote);
 
     console.log('\n15. Count-in: Start intercepted, then re-Start after N beats of clock…');
@@ -750,6 +891,9 @@ function assertEq(actual, expected, label) {
     await page.evaluate(() => window.__loopPadTest.stop());
     state = await page.evaluate(() => window.__loopPadTest.getState());
     assert(state.countInCounting, 'Echoed Stop does not cancel the count-in');
+    await page.evaluate(() => window.__loopPadTest.noteOn(0, 100, 0));
+    state = await page.evaluate(() => window.__loopPadTest.getState());
+    assert(state.countInCounting && state.settings.countInEnabled, 'Inactive-channel Note On does not interrupt an ongoing count-in');
     for (let i = 0; i < 2 * 24; i++) {
       await page.evaluate(() => window.__loopPadTest.clock());
     }

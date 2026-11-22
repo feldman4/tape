@@ -166,13 +166,32 @@ try {
       configurable: true,
       value: async () => ({ inputs: new Map(), outputs: new Map() }),
     });
+    const NativeAudioContext = window.AudioContext;
+    window.AudioContext = class extends NativeAudioContext {
+      constructor(options) {
+        super(options);
+        window.testAudioContext = this;
+        Object.defineProperty(this, 'renderQuantumSize', { configurable: true, value: 64 });
+      }
+    };
   });
   const ui = await context.newPage();
   await ui.goto(appUrl);
-  const enable = ui.getByRole('button', { name: 'Enable Audio + MIDI' });
-  if (await enable.isVisible()) await enable.click();
   await ui.getByRole('button', { name: 'Settings' }).waitFor();
   await ui.getByRole('button', { name: 'Settings' }).click();
+  const sampleRate = await ui.evaluate(() => window.testAudioContext.sampleRate);
+  if (await ui.getByLabel('Audio Sample Rate').textContent() !== `${sampleRate} Hz`) {
+    throw new Error('Settings did not show the audio context sample rate');
+  }
+  if (await ui.getByLabel('Audio Render Block Size').textContent() !== '64 frames') {
+    throw new Error('Settings did not show the reported render block size');
+  }
+  await ui.evaluate(() => Object.defineProperty(window.testAudioContext, 'renderQuantumSize', { value: undefined }));
+  await ui.getByRole('button', { name: 'Close' }).click();
+  await ui.getByRole('button', { name: 'Settings' }).click();
+  if (await ui.getByLabel('Audio Render Block Size').textContent() !== 'Unavailable') {
+    throw new Error('Unavailable render block size was not reported');
+  }
   await ui.getByLabel('Input Channels').selectOption({ label: '1-2 (stereo)' });
   const input = ui.getByLabel('Input level');
   const stereoStrip = await input.locator(':scope > div').first().boundingBox();
@@ -190,7 +209,6 @@ try {
     throw new Error(`Input and master meters are not aligned: ${JSON.stringify({ inputBox, masterBox })}`);
   }
   await ui.reload();
-  if (await enable.isVisible()) await enable.click();
   await ui.getByRole('button', { name: 'Settings' }).waitFor();
   if (await input.locator(':scope > div').count() !== 1) throw new Error('Mono selection was not restored');
   console.log('Mono meter display, alignment, and selection persistence passed');
@@ -233,8 +251,6 @@ try {
   });
   const outputPage = await outputContext.newPage();
   await outputPage.goto(appUrl);
-  const outputEnable = outputPage.getByRole('button', { name: 'Enable Audio + MIDI' });
-  if (await outputEnable.isVisible()) await outputEnable.click();
   await outputPage.getByRole('button', { name: 'Settings' }).click();
   const output = outputPage.getByLabel('Audio Output');
   const pair = outputPage.getByLabel('Output Channels');

@@ -149,6 +149,7 @@ export function SamplerPage() {
         <SettingsPanel
           settings={s.settings}
           onChange={s.updateSettings}
+          audioContext={s.audioContext}
           audioInputs={s.audioInputs}
           selectedAudioInputId={s.selectedAudioInputId}
           onSelectAudioInput={(deviceId) => void s.selectAudioInput(deviceId)}

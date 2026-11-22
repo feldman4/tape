@@ -82,11 +82,11 @@ range, but each bank is triggered from its own MIDI channel. By default,
 Channel A uses MIDI channel 15 and Channel B uses MIDI channel 16.
 
 Sample notes on Channel A record and play only Channel A; sample notes on
-Channel B record and play only Channel B. The applicable control notes,
-including Delete, Count-in, and the One-shot and Take mode notes, are accepted
-on either bank channel. The **Channel Switch Note** selects the bank mapped to
+Channel B record and play only Channel B. The applicable control notes are
+accepted on either bank channel, except that a Count-in On Note on the inactive
+channel cannot enable Count-in while stopped. The **Channel Switch Note** selects the bank mapped to
 the MIDI channel that sends it, clears the selection, cancels any pending
-Delete Note pairing, and disables Count-in if active. When selecting or recording a sample in either bank, the front panel
+Delete Note pairing, and disables Count-in when changing banks. When selecting or recording a sample in either bank, the front panel
 automatically switches to that bank so its samples are shown.
 
 Channel Mode disables the per-slot **Level**, **Pan**, **LPF Cutoff**, and
@@ -122,6 +122,10 @@ There is one global **Delete Note**.
 That slot is cleared. Repeat the same delete gesture for that slot to restore the deleted sample and its mixer settings. The two notes may arrive in either order, provided they are no more than 500 ms apart. Deleting a recording cancels it; deleting a playing sample stops it. When the sequencer is stopped, a Delete Note outside the 500 ms window does nothing.
 
 When the sequencer is running, a Delete Note by itself deletes the selected slot after the 500 ms pairing window. Starting playback while the sequencer is running does not change the selection, so a standalone Delete Note can undo the last recording.
+
+In Channel Mode, delete gestures target the active bank, regardless of which
+bank sends the Delete Note. Playback notes in the other bank cannot pair with
+it. Switching banks cancels any pending delete gesture.
 
 Choose a Delete Note outside the 16-note sample range.
 
@@ -185,9 +189,12 @@ Their appearance shows each slot's state:
 
 The OP-Z has no built-in count-in for recording, so **Count-in** stops it, counts the configured beats, then restarts it. It affects transport start only and does not delay an individual sample recording. The app plays an audible click for each count-in beat through the selected audio output.
 
-Send a Note On for the **Count-in On Note** on the configured MIDI channel to enable Count-in, or the **Count-in Off Note** to disable it. Its state is displayed on the front panel and cannot be changed there.
-In Channel Mode, switching to the other bank also disables Count-in. A count-in
-already underway completes normally.
+Send a Note On for the **Count-in On Note** on the active MIDI channel to enable Count-in, or the **Count-in Off Note** to disable it. Its state is displayed on the front panel and cannot be changed there.
+While the sequencer is stopped, any Note On on one of the other 15 MIDI channels
+disables Count-in, including a Count-in On Note. In Channel Mode, the active
+channel is the active bank's MIDI channel; switching to the other bank also
+disables Count-in, even while the sequencer is running. A count-in already
+underway completes normally.
 
 When Count-in is off, OP-Z Start passes through normally. When it is on:
 
@@ -210,6 +217,8 @@ Select the settings button on the front panel to open the configuration panel. I
 | Input Channels | Selects an individual mono input or stereo pair for monitoring, metering, and recording. The last selection is restored when available. The selector shows how many channels the browser exposes; unavailable channels cannot be selected. | 1–2, or 1 for a mono device |
 | Audio Output | Selects where sample playback is sent; its device name is remembered and reconnected automatically. | System default |
 | Output Channels | Selects the stereo output pair for sample playback when the browser exposes multiple pairs for the selected output. The last selected pair is restored when available; otherwise playback uses 1–2. | 1–2 |
+| Audio Sample Rate | Shows the audio context's sample rate in Hz. | Read-only |
+| Audio Render Block Size | Shows the audio context's render block size in frames when reported by the browser. This is not the input or output device buffer size. | Read-only |
 | MIDI Input | Selects the source of notes, clock, and transport; its device name is remembered and reconnected automatically. | — |
 | MIDI Output | Selects the destination for Stop and Start during count-in; its device name is remembered and reconnected automatically. | — |
 | MIDI Channel | Sets the channel used by sample notes, control notes, and mixer CCs when Channel Mode is off. | 16 |
