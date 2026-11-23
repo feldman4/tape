@@ -5,7 +5,7 @@ This repository contains independently deployable web apps:
 - `tape`: browser-based multitrack tape recorder, deployed at `/tape/`.
 - `loop-pad`: 16-slot MIDI sampler, deployed at `/tape/loop-pad/`. See
   [packages/loop-pad/README.md](packages/loop-pad/README.md).
-- `opz-pads`: app starter with iRig Pads control surface and MIDI reference,
+- `opz-pads`: first-pass iRig Pads and OP-Z MIDI controller,
   deployed at `/tape/opz-pads/`. See [packages/opz-pads/README.md](packages/opz-pads/README.md).
 
 Install dependencies once at the repository root:

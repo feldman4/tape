@@ -1,7 +1,43 @@
 # OP-Z Pads manual
 
-> **Planned functionality:** OP-Z Pads is currently a landing page. The
-> controls and workflows described here are not implemented yet.
+> **Implementation status:** This document describes the target design.
+> The current first pass implements the controller display, scene types
+> (empty and drum), drum note learning/playback and parameter control,
+> project storage/import/export, and an incoming CC diagnostics grid.
+> The mixer, performance FX, kit library and offset plotting below are not
+> implemented. Do not rely on them yet.
+
+## Current setup
+
+Open the app in a Chromium browser on localhost or HTTPS. In the Controller
+view, enable MIDI and select separate iRig and OP-Z inputs and their
+respective outputs. The app
+sends drum notes and relative parameter CCs to the selected OP-Z output;
+it does not currently forward OP-Z MIDI to Ableton or create virtual ports.
+Use operating-system virtual MIDI ports and external routing if needed;
+avoid routing the app's output back into its OP-Z input.
+
+Program each iRig scene with momentary note 48 (C3 in the iRig manual),
+one MIDI channel per pad, and these channel-1 controls: pot 1 CC 10, pot 2
+CC 11, fader CC 1, DATA encoder CC 7 in relative mode, button 1 CC 20,
+button 2 CC 21 and DATA push CC 22, all buttons momentary. These assignments
+must be the same in all 16 scenes. Scene tracking assumes the iRig emits
+program changes with raw values 0–15. This assumption, aftertouch, LED
+feedback and the other mappings still require hardware verification.
+Startup assumes scene 1; select a scene on the device to synchronize.
+
+In Scenes, configure a slot as a drum kit. Selecting a different type
+replaces its contents. Select it physically on the iRig. Learning is
+disabled until an OP-Z MIDI Stop message is received; then hold an iRig
+pad and play a note on OP-Z channel 1–4. A Start or Continue disables
+learning again. When a parameter is moved, audition notes repeat every
+120 ms until 200 ms after the last movement or until release. Absolute
+pots and the compression fader establish their starting point on the first
+message; DATA uses signed relative values. Project JSON files are versioned and validated;
+loading or creating a project replaces the current one after confirmation.
+The diagnostics plot displays the last 10 seconds of incoming messages
+(up to 100 per CC); values are unknown until received, and offsets are
+not implemented.
 
 OP-Z Pads uses an iRig Pads controller alongside an OP-Z and Ableton Live.
 Use the iRig's pads, pots, buttons, DATA encoder and fader to control a

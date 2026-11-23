@@ -4,6 +4,7 @@
   "version": "0.0.0",
   "scripts": {
     "dev": "vite --base /tape/opz-pads/",
-    "build": "vite build --base /tape/opz-pads/"
+    "build": "vite build --base /tape/opz-pads/",
+    "test:workflow": "node scripts/workflow-test.mjs"
   }
 }

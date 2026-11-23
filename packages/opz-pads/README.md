@@ -1,7 +1,9 @@
 # OP-Z Pads
 
-A static landing page; MIDI functionality is not implemented yet. See the
-[planned user manual](docs/MANUAL.md),
+A first pass at a browser-based iRig/OP-Z controller, with mocked MIDI
+workflow tests. Mixer, performance FX and kit-library workflows remain
+unimplemented; hardware mappings need verification. See the
+[user manual and current setup](docs/MANUAL.md),
 [implementation notes](docs/implementation_notes.md), and
 [iRig Pads control surface and MIDI reference](docs/irig-pads.md).
 
@@ -19,3 +21,8 @@ npm install
 npm run dev:opz-pads
 npm run build:opz-pads
 ```
+
+With the dev server running, use `npm run test:workflow --workspace=opz-pads`
+to exercise the app with mocked Web MIDI devices. Set `OPZ_PADS_URL` to
+override the server URL, or `OPZ_PADS_SCREENSHOTS` to a directory to save
+rendered controller, scenes, drum and diagnostics views.

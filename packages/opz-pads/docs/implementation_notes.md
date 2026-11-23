@@ -1,7 +1,8 @@
 # OP-Z Pads implementation notes
 
 This is a design-in-progress, not a description of current functionality.
-The app currently serves only a landing page. User workflows belong in
+The app implements an initial subset; see the status and setup in the manual.
+User workflows belong in
 [MANUAL.md](MANUAL.md).
 
 ## Controller and state
