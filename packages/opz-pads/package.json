@@ -2,9 +2,16 @@
   "name": "opz-pads",
   "private": true,
   "version": "0.0.0",
+  "type": "module",
   "scripts": {
     "dev": "vite --base /tape/opz-pads/",
-    "build": "vite build --base /tape/opz-pads/",
+    "build": "tsc --noEmit && vite build --base /tape/opz-pads/",
+    "lint": "oxlint",
+    "test:unit": "node --experimental-strip-types --test scripts/engine-test.mjs",
     "test:workflow": "node scripts/workflow-test.mjs"
+  },
+  "dependencies": {
+    "react": "^19.2.7",
+    "react-dom": "^19.2.7"
   }
 }
