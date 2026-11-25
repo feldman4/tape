@@ -1,13 +1,14 @@
 import type { ControllerState } from './controller.ts';
 import type { Control, IrigEvent, MidiEvent } from './midi.ts';
 import type { DrumPad, DrumScene, Scene } from './model.ts';
+import { IRIG_MIDI } from './irig-midi.ts';
 
 export type Send = (destination: 'opz' | 'irig', bytes: number[]) => void;
 export type Led = [red: number, green: number];
 
 export type Transport = 'unknown' | 'running' | 'stopped';
 export type SceneEvent =
-  | (Exclude<IrigEvent, { type: 'scene' | 'control' }> & { time: number })
+  | (Exclude<IrigEvent, { type: 'control' }> & { time: number })
   | (Extract<IrigEvent, { type: 'control' }> & { delta: number; time: number })
   | { type: 'midi'; event: MidiEvent; transport: Transport; time: number };
 
@@ -45,7 +46,7 @@ export class DrumHandler implements SceneHandler<DrumScene> {
         this.pad(scene, event.index, event.on, event.velocity);
         break;
       case 'control':
-        if (event.delta || (event.control === 1 && !controller.buttons[0] && !controller.buttons[1])) {
+        if (event.delta || (event.control === IRIG_MIDI.cc.fader && !controller.buttons[0] && !controller.buttons[1])) {
           this.control(scene, controller, event.control, event.delta, event.value);
         }
         break;
@@ -69,16 +70,16 @@ export class DrumHandler implements SceneHandler<DrumScene> {
   private control(scene: DrumScene, controller: ControllerState, control: Control, delta: number, value: number): void {
     const modifier = controller.buttons[0] ? 1 : controller.buttons[1] ? 2 : 0;
     const table: Partial<Record<Control, number>>[] = [
-      { 10: 1, 11: 2, 7: controller.push ? 4 : 3 },
-      { 10: 5, 11: 6, 7: controller.push ? 8 : 7, 1: 9 },
-      { 10: 13, 11: 14, 7: controller.push ? 16 : 15, 1: 9 },
+      { [IRIG_MIDI.cc.pot1]: 1, [IRIG_MIDI.cc.pot2]: 2, [IRIG_MIDI.cc.data]: controller.push ? 4 : 3 },
+      { [IRIG_MIDI.cc.pot1]: 5, [IRIG_MIDI.cc.pot2]: 6, [IRIG_MIDI.cc.data]: controller.push ? 8 : 7, [IRIG_MIDI.cc.fader]: 9 },
+      { [IRIG_MIDI.cc.pot1]: 13, [IRIG_MIDI.cc.pot2]: 14, [IRIG_MIDI.cc.data]: controller.push ? 16 : 15, [IRIG_MIDI.cc.fader]: 9 },
     ];
     let dirty = false;
     const adjustedChannels = new Set<number>();
     controller.held.forEach((held, index) => {
       const pad = scene.pads[index];
       if (!held || !pad) return;
-      if (control === 1 && modifier === 0) {
+      if (control === IRIG_MIDI.cc.fader && modifier === 0) {
         pad.velocity = value;
         dirty = true;
         return;

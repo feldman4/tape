@@ -9,11 +9,13 @@ User workflows belong in
 
 - Aim for a stateless controller: drive the iRig LEDs from the app's
   understanding of state, while accounting for the device's own scene
-  switching. Its 16 scenes must share the same pad assignments: C3, one
+  switching. Its 16 scenes must share the same pad assignments: MIDI note 60, one
   channel per pad (1-16), **momentary**, not toggle. Momentary Note On/Off
   is needed to distinguish holding from releasing; the iRig manual says
   held pads send channel aftertouch.
-- Users select scenes with the physical SCENE button. Scene 1 is the mixer;
+- Users select scenes with the physical SCENE button, then use a pot, fader,
+  DATA control or button 1 or 2 so the app can detect the scene from its MIDI
+  channel. Scene 1 is the mixer;
   slots 2-16 can be drum or performance FX. Display scene types and the
   current slot. The on-screen iRig depiction is read-only and shows the
   app's known fader position, pad and button press states, and LED colors
@@ -21,12 +23,11 @@ User workflows belong in
   intensity, allowing mixed colors and brightness.
 - Establish and verify LED feedback and scene-change detection first.
   See [irig-pads.md](irig-pads.md) for the host-to-device LED CC pairs,
-  channel 1 receive behavior, and the manual's ambiguity about program
-  change numbering. Verify the scene-change messages the hardware actually
-  emits and reconcile LEDs after switching, reconnecting or starting up.
-- Specify non-pad control CCs, channels and encoder mode consistently
-  across iRig scenes; verify simultaneous holds, aftertouch and button
-  gestures on hardware.
+  channel 1 receive behavior. The scene-specific control messages identify
+  the scene; reconcile LEDs after detecting a switch, reconnecting or starting up.
+- Specify non-pad control CCs and encoder mode consistently across iRig
+  scenes, with all controls on the scene's channel; verify simultaneous
+  holds, aftertouch and button gestures on hardware.
 
 ## MIDI routing and diagnostics
 

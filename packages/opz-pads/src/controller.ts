@@ -1,4 +1,5 @@
 import type { Control } from './midi.ts';
+import { IRIG_MIDI } from './irig-midi.ts';
 
 export class ControllerState {
   readonly held = Array<boolean>(16).fill(false);
@@ -25,9 +26,9 @@ export class ControllerState {
   }
 
   move(control: Control, value: number): number {
-    if (control === 1) this.fader = value;
+    if (control === IRIG_MIDI.cc.fader) this.fader = value;
     const previous = this.controls.get(control);
     this.controls.set(control, value);
-    return control === 7 ? (value >= 64 ? value - 128 : value) : previous === undefined ? 0 : value - previous;
+    return control === IRIG_MIDI.cc.data ? (value >= 64 ? value - 128 : value) : previous === undefined ? 0 : value - previous;
   }
 }

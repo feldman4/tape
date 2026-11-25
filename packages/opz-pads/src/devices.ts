@@ -32,8 +32,10 @@ export class MidiDevices {
     return true;
   }
 
-  send(id: string, bytes: number[]): void {
+  send(id: string, bytes: number[]): boolean {
     const output = this.access.outputs.get(id);
-    if (output?.state === 'connected') output.send(bytes);
+    if (!output || output.state !== 'connected') return false;
+    output.send(bytes);
+    return true;
   }
 }

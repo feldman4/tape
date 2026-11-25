@@ -31,6 +31,7 @@ The typed engine separates MIDI decoding (`src/midi.ts`), controller gesture
 state (`src/controller.ts`), project validation (`src/model.ts`), and scene
 behavior (`src/scenes.ts`). Web MIDI port access is isolated in
 `src/devices.ts`, with the React UI in `src/App.tsx` and `src/views.tsx`.
+iRig MIDI assignments and LED mappings are centralized in `src/irig-midi.ts`.
 Mixer and empty scenes currently have no behavior; drum playback and its
 audition timers belong to the drum handler.
 

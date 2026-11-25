@@ -9,22 +9,49 @@
 
 ## Current setup
 
-Open the app in a Chromium browser on localhost or HTTPS. In the Controller
-view, enable MIDI and select separate iRig and OP-Z inputs and their
-respective outputs. The app
+Open the app in a Chromium browser on localhost or HTTPS. The app requests
+MIDI access on load and selects available iRig Pads input and output ports,
+including when the device is connected later. Grant browser MIDI permission
+if prompted; use **Enable MIDI** to retry if access fails. In the Controller
+view, select the OP-Z input and output and check the iRig selections; the
+iRig and OP-Z inputs must be separate. Existing selections are not replaced
+when another iRig appears. The app
 sends drum notes and relative parameter CCs to the selected OP-Z output;
 it does not currently forward OP-Z MIDI to Ableton or create virtual ports.
 Use operating-system virtual MIDI ports and external routing if needed;
 avoid routing the app's output back into its OP-Z input.
 
-Program each iRig scene with momentary note 48 (C3 in the iRig manual),
-one MIDI channel per pad, and these channel-1 controls: pot 1 CC 10, pot 2
-CC 11, fader CC 1, DATA encoder CC 7 in relative mode, button 1 CC 20,
-button 2 CC 21 and DATA push CC 22, all buttons momentary. These assignments
-must be the same in all 16 scenes. Scene tracking assumes the iRig emits
-program changes with raw values 0–15. This assumption, aftertouch, LED
-feedback and the other mappings still require hardware verification.
-Startup assumes scene 1; select a scene on the device to synchronize.
+Program each iRig scene with momentary MIDI note 60,
+one MIDI channel per pad. Program these controls on the MIDI channel matching
+the scene number: pot 1 CC 94, pot 2
+CC 95, fader CC 96, DATA encoder CC 92 in relative mode, and momentary
+DATA push CC 93 (127 pressed, 0 released). Program momentary buttons 1 and 2
+as CC 90 and CC 91, also on the scene's channel, with value 127 pressed and
+0 released. Use the same CC assignments in every scene. Aftertouch, LED
+feedback and the mappings still require hardware verification.
+
+The iRig does not report scene selection directly. Startup assumes scene 1;
+after selecting a scene on the device, move a pot, fader or DATA encoder, or
+press or release DATA or button 1 or 2 to synchronize the app before playing
+pads. The app detects the scene from that message's channel and processes the
+control action normally.
+
+Use **iRig check** for a guided bidirectional test. Choose any section from
+the checklist; completed sections get a check mark. Progress is kept while
+switching sections, but interrupted holds and gestures must be restarted.
+Changing the scene resets all checks. It uses the same MIDI
+port selections but needs only the iRig input and output. For one selected
+scene it checks the scene-specific button message, each pad's note and aftertouch,
+simultaneous holds, the configured controls, pad/modifier combinations, and
+DATA push-turn. The LED check runs a roughly 10-second sequence through each
+pad and buttons 1 and 2, from dim green through yellow to dim red. Confirm the
+sequence visually once it finishes. Repeat
+the check for each programmed scene; a pass does not verify other scenes or
+automatically detect what the LEDs displayed. The last raw MIDI message is
+shown to help diagnose mismatches. While checking, normal scene input and
+OP-Z input are suspended. On leaving, select a scene on the iRig and use a
+scene-specific control to resynchronize; the OP-Z transport state must also
+be received again.
 
 In Scenes, configure a slot as a drum kit. Selecting a different type
 replaces its contents. Select it physically on the iRig. Learning is
@@ -51,11 +78,12 @@ presses, and LED colors and brightness.
 
 A project contains 16 scene slots. Scene 1 is always the mixer. Slots 2-16
 can contain drum kits or performance FX scenes. Select a scene using the
-iRig's **SCENE** button and the corresponding pad. The app shows the
-current scene and the 16 slots, with colors or icons identifying their types.
+iRig's **SCENE** button and the corresponding pad, then use a scene-specific
+control to tell the app which scene is active. The app shows its last detected
+scene and the 16 slots, with colors or icons identifying their types.
 The iRig's pad LEDs reflect the state known to the app.
 
-The iRig must use the same pad setup in every scene: each pad sends C3 in
+The iRig must use the same pad setup in every scene: each pad sends note 60 in
 momentary mode, on its own MIDI channel from 1 through 16. See the
 [iRig Pads reference](irig-pads.md) for the device's scene-editing
 controls.

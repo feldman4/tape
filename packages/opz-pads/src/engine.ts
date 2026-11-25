@@ -1,4 +1,5 @@
 import { ControllerState } from './controller.ts';
+import { padLedMessages } from './irig.ts';
 import { decodeIrig, decodeMidi } from './midi.ts';
 import { newProject, newScene, validateProject } from './model.ts';
 import type { EditableSceneType, Project, Scene } from './model.ts';
@@ -7,7 +8,6 @@ import type { Led, SceneEvent, SceneHandler, Send, Transport } from './scenes.ts
 
 export { newProject, validateProject } from './model.ts';
 
-const PAD_LEDS = [94, 96, 98, 100, 86, 88, 90, 92, 78, 80, 82, 84, 70, 72, 74, 76];
 type HistoryEntry = { time: number; before: number; after: number };
 type Handlers = { [K in Scene['type']]: SceneHandler<Extract<Scene, { type: K }>> };
 
@@ -92,8 +92,9 @@ export class Engine {
     const leds = this.leds();
     leds.forEach(([red, green], index) => {
       const previous = this.lastLeds?.[index];
-      if (force || !previous || previous[1] !== green) this.send('irig', [0xb0, PAD_LEDS[index], green]);
-      if (force || !previous || previous[0] !== red) this.send('irig', [0xb0, PAD_LEDS[index] + 1, red]);
+      const [greenMessage, redMessage] = padLedMessages(index, [red, green]);
+      if (force || !previous || previous[1] !== green) this.send('irig', greenMessage);
+      if (force || !previous || previous[0] !== red) this.send('irig', redMessage);
     });
     this.lastLeds = leds.map(([red, green]) => [red, green]);
   }
@@ -107,11 +108,11 @@ export class Engine {
   irig(data: ArrayLike<number>, time = performance.now()): void {
     const event = decodeIrig(data);
     if (!event) return;
+    if ('scene' in event && event.scene !== this.scene) {
+      this.selectScene(event.scene);
+      this.refreshLeds();
+    }
     switch (event.type) {
-      case 'scene':
-        this.selectScene(event.index);
-        this.refreshLeds();
-        return;
       case 'pad':
         if (this.held[event.index] === event.on) return;
         this.held[event.index] = event.on;

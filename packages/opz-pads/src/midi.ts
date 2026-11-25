@@ -1,3 +1,5 @@
+import { IRIG_MIDI, isSceneButtonCC } from './irig-midi.ts';
+
 export type MidiEvent =
   | { type: 'note'; channel: number; note: number; velocity: number; on: boolean }
   | { type: 'control'; channel: number; controller: number; value: number }
@@ -6,13 +8,13 @@ export type MidiEvent =
   | { type: 'transport'; state: 'running' | 'stopped' };
 
 export type IrigEvent =
-  | { type: 'scene'; index: number }
   | { type: 'pad'; index: number; on: boolean; velocity: number }
   | { type: 'pressure'; index: number; value: number }
-  | { type: 'button'; index: 0 | 1; pressed: boolean }
-  | { type: 'push'; pressed: boolean }
-  | { type: 'control'; control: Control; value: number };
-export type Control = 1 | 7 | 10 | 11;
+  | { type: 'button'; index: 0 | 1; pressed: boolean; scene: number }
+  | { type: 'push'; pressed: boolean; scene: number }
+  | { type: 'control'; control: Control; value: number; scene: number };
+export type Control = typeof IRIG_MIDI.cc.fader | typeof IRIG_MIDI.cc.data |
+  typeof IRIG_MIDI.cc.pot1 | typeof IRIG_MIDI.cc.pot2;
 
 export function decodeMidi(data: ArrayLike<number>): MidiEvent | null {
   const status = data[0];
@@ -38,19 +40,21 @@ export function decodeMidi(data: ArrayLike<number>): MidiEvent | null {
 export function decodeIrig(data: ArrayLike<number>): IrigEvent | null {
   const event = decodeMidi(data);
   if (!event) return null;
-  if (event.type === 'program' && event.program < 16) return { type: 'scene', index: event.program };
-  if (event.type === 'note' && event.note === 48) {
+  if (event.type === 'note' && event.note === IRIG_MIDI.padNote) {
     return { type: 'pad', index: event.channel, on: event.on, velocity: event.velocity };
   }
   if (event.type === 'pressure') return { type: 'pressure', index: event.channel, value: event.value };
-  if (event.type !== 'control' || event.channel !== 0) return null;
+  if (event.type !== 'control') return null;
   const { controller, value } = event;
-  if (controller === 20 || controller === 21) {
-    return { type: 'button', index: controller === 20 ? 0 : 1, pressed: value > 0 };
+  if (isSceneButtonCC(controller) && (value === IRIG_MIDI.buttonReleased || value === IRIG_MIDI.buttonPressed)) {
+    return { type: 'button', index: controller === IRIG_MIDI.cc.button1 ? 0 : 1, pressed: value === IRIG_MIDI.buttonPressed, scene: event.channel };
   }
-  if (controller === 22) return { type: 'push', pressed: value > 0 };
-  if (controller === 1 || controller === 7 || controller === 10 || controller === 11) {
-    return { type: 'control', control: controller, value };
+  if (controller === IRIG_MIDI.cc.dataPush && (value === IRIG_MIDI.buttonPressed || value === IRIG_MIDI.buttonReleased)) {
+    return { type: 'push', pressed: value === IRIG_MIDI.buttonPressed, scene: event.channel };
+  }
+  if (controller === IRIG_MIDI.cc.fader || controller === IRIG_MIDI.cc.data ||
+    controller === IRIG_MIDI.cc.pot1 || controller === IRIG_MIDI.cc.pot2) {
+    return { type: 'control', control: controller, value, scene: event.channel };
   }
   return null;
 }

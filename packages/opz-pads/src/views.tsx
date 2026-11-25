@@ -26,8 +26,8 @@ export function ControllerView({ engine }: EngineProps) {
       <div className="small-control">SCENE</div><div className="small-control">FIX VEL</div>
       <div className={`small-control ${engine.buttons[0] ? 'active' : ''}`}>1</div>
       <div className={`small-control ${engine.buttons[1] ? 'active' : ''}`}>2</div>
-      <strong>iRig <small>PADS</small></strong><div className={`encoder ${engine.push ? 'active' : ''}`}>DATA</div>
-    </div><div className="device-body"><aside><div className="knob">1</div><div className="knob">2</div>
+      <strong>iRig <small>PADS</small></strong><div className={`encoder ${engine.push ? 'active' : ''}`}><span>DATA</span></div>
+    </div><div className="device-body"><aside><div className="knob"><span>1</span></div><div className="knob"><span>2</span></div>
       <div className="fader"><i style={{ bottom: `${engine.fader / 127 * 100}%` }} /></div><small>SLIDER</small></aside>
       <PadGrid engine={engine} /></div>
   </div>;
