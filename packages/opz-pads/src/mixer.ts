@@ -3,10 +3,10 @@ import { IRIG_MIDI } from './irig-midi.ts';
 import type { MixerScene } from './model.ts';
 import type { Led, SceneEvent, SceneHandler, Send } from './scenes.ts';
 import type { MidiEvent } from './midi.ts';
+import { groupOther, groupSelected, mixerLevelLed, mixerPanLed, mixerScaleLed, off } from './irig-colors.ts';
 
 const clamp = (value: number): number => Math.max(0, Math.min(127, Math.round(value)));
 const displayTimeout = 1000;
-const minimumActiveBrightness = 16;
 
 export class MixerHandler implements SceneHandler<MixerScene> {
   readonly levels: (number | null)[] = Array(16).fill(null);
@@ -40,19 +40,15 @@ export class MixerHandler implements SceneHandler<MixerScene> {
 
   leds(_scene: MixerScene, controller: ControllerState): Led[] {
     return this.muted.map((muted, index) => {
-      if (controller.buttons[1]) return index === this.group ? [127, 35] : index < this.groups.length ? [7, 5] : [0, 0];
+      if (controller.buttons[1]) return index === this.group ? groupSelected : index < this.groups.length ? groupOther : off;
       if (this.display) {
         const value = (this.display === 'level' ? this.levels : this.pans)[index];
-        if (value === null) return [0, 0];
-        if (this.display === 'pan') return [clamp((127 - value) / 2), value];
-        return [0, Math.max(muted === true ? 0 : minimumActiveBrightness, value)];
+        if (value === null) return off;
+        if (this.display === 'pan') return mixerPanLed(value);
+        return mixerLevelLed(value, muted === true);
       }
-      if (muted === true) return [0, 0];
-      const scale = this.faderScales[index] / 127;
-      const brightness = 19 + 108 * scale;
-      const orange = Math.min(1, 2 * (1 - scale));
-      const redBrightness = 7 + (brightness - 19) / 2;
-      return [clamp(redBrightness * orange), clamp(brightness * (1 - orange * (1 - 35 / 127)))];
+      if (muted === true) return off;
+      return mixerScaleLed(this.faderScales[index]);
     });
   }
 
@@ -131,6 +127,10 @@ export class MixerHandler implements SceneHandler<MixerScene> {
 
   scaledLevel(channel: number, value: number): number {
     return clamp(value * this.faderScales[channel] / 127);
+  }
+
+  guessMutes(muted: readonly boolean[]): void {
+    muted.forEach((value, channel) => this.setMute(channel, value));
   }
 
   private setMute(channel: number, muted: boolean): void {

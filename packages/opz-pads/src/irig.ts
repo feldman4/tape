@@ -1,5 +1,6 @@
 import type { Led } from './scenes.ts';
-import { IRIG_MIDI } from './irig-midi.ts';
+import { flipPadIndex, IRIG_MIDI } from './irig-midi.ts';
+import { ledTestColors, off } from './irig-colors.ts';
 
 function ledMessages(greenCC: number, [red, green]: Led): [number[], number[]] {
   return [[0xb0 + IRIG_MIDI.ledChannel, greenCC, green],
@@ -7,7 +8,7 @@ function ledMessages(greenCC: number, [red, green]: Led): [number[], number[]] {
 }
 
 export function padLedMessages(index: number, [red, green]: Led): [number[], number[]] {
-  return ledMessages(IRIG_MIDI.padGreenLedCCs[index], [red, green]);
+  return ledMessages(IRIG_MIDI.padGreenLedCCs[flipPadIndex(index)], [red, green]);
 }
 
 export function buttonLedMessages(index: number, color: Led): [number[], number[]] {
@@ -17,7 +18,7 @@ export function buttonLedMessages(index: number, color: Led): [number[], number[
 export function startLedSequence(
   send: (bytes: number[]) => void, onComplete: () => void, onError: (message: string) => void,
 ): () => void {
-  const colors: Led[] = [[0, 32], [0, 127], [32, 96], [64, 64], [96, 32], [127, 0], [32, 0], [0, 0]];
+  const colors = ledTestColors;
   const padCount = IRIG_MIDI.padGreenLedCCs.length;
   const interval = 10000 / (padCount * colors.length);
   let frame = 0;
@@ -29,9 +30,9 @@ export function startLedSequence(
     if (stopped) return;
     stopped = true;
     clearTimeout(timer);
-    const messages: number[][] = activePad === null ? [] : padLedMessages(activePad, [0, 0]);
+    const messages: number[][] = activePad === null ? [] : padLedMessages(activePad, off);
     for (let index = 0; index < IRIG_MIDI.buttonGreenLedCCs.length; index++) {
-      messages.push(...buttonLedMessages(index, [0, 0]));
+      messages.push(...buttonLedMessages(index, off));
     }
     const errors: string[] = [];
     for (const bytes of messages) {
@@ -60,7 +61,7 @@ export function startLedSequence(
         return;
       }
       if (frame === 0) {
-        for (let pad = 0; pad < padCount; pad++) sendMessages(padLedMessages(pad, [0, 0]));
+        for (let pad = 0; pad < padCount; pad++) sendMessages(padLedMessages(pad, off));
       }
       activePad = Math.floor(frame / colors.length);
       const color = colors[frame % colors.length];

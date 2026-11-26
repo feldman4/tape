@@ -5,6 +5,7 @@ export class ControllerState {
   readonly held = Array<boolean>(16).fill(false);
   readonly pressure = Array<number>(16).fill(0);
   readonly buttons: [boolean, boolean] = [false, false];
+  readonly pots: [number | null, number | null] = [null, null];
   push = false;
   fader = 127;
   private readonly controls = new Map<Control, number>();
@@ -27,6 +28,8 @@ export class ControllerState {
 
   move(control: Control, value: number): number {
     if (control === IRIG_MIDI.cc.fader) this.fader = value;
+    if (control === IRIG_MIDI.cc.pot1) this.pots[0] = value;
+    if (control === IRIG_MIDI.cc.pot2) this.pots[1] = value;
     const previous = this.controls.get(control);
     this.controls.set(control, value);
     return control === IRIG_MIDI.cc.data ? (value >= 64 ? value - 128 : value) : previous === undefined ? 0 : value - previous;

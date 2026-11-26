@@ -16,6 +16,10 @@ export const IRIG_MIDI = {
   padGreenLedCCs: [94, 96, 98, 100, 86, 88, 90, 92, 78, 80, 82, 84, 70, 72, 74, 76],
 } as const;
 
+export function flipPadIndex(index: number): number {
+  return (3 - Math.floor(index / 4)) * 4 + index % 4;
+}
+
 export function isSceneButtonCC(cc: number): boolean {
   return cc === IRIG_MIDI.cc.button1 || cc === IRIG_MIDI.cc.button2;
 }

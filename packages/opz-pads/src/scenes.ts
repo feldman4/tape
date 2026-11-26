@@ -1,10 +1,13 @@
 import type { ControllerState } from './controller.ts';
 import type { Control, IrigEvent, MidiEvent } from './midi.ts';
 import type { DrumPad, DrumScene, Scene } from './model.ts';
+import { isDrumChannel } from './model.ts';
 import { IRIG_MIDI } from './irig-midi.ts';
+import { drumLed, off } from './irig-colors.ts';
+import type { Led } from './irig-colors.ts';
 
 export type Send = (destination: 'opz' | 'irig' | 'iac', bytes: number[]) => boolean;
-export type Led = [red: number, green: number];
+export type { Led } from './irig-colors.ts';
 
 export type Transport = 'unknown' | 'running' | 'stopped';
 export type SceneEvent =
@@ -18,25 +21,37 @@ export interface SceneHandler<S extends Scene> {
   release(): void;
 }
 
-const colors: Led[] = [[127, 100], [127, 0], [127, 35], [0, 127]];
+const velocityDisplayDuration = 250;
 
 export class DrumHandler implements SceneHandler<DrumScene> {
   private readonly playing = new Map<number, DrumPad>();
   private readonly auditions = new Map<number, { interval: ReturnType<typeof setInterval>; timeout: ReturnType<typeof setTimeout> }>();
+  private readonly velocityTimers = new Map<number, ReturnType<typeof setTimeout>>();
+  readonly velocities = Array<number | null>(16).fill(null);
 
-  constructor(privateSend: Send, privateSave: () => void) {
+  constructor(
+    privateSend: Send,
+    privateSave: () => void,
+    parameterValue: (channel: number, cc: number) => number | null,
+    sendParameter: (channel: number, cc: number, value: number) => void,
+    changed: () => void,
+  ) {
     this.send = privateSend;
     this.save = privateSave;
+    this.parameterValue = parameterValue;
+    this.sendParameter = sendParameter;
+    this.changed = changed;
   }
   private readonly send: Send;
   private readonly save: () => void;
+  private readonly parameterValue: (channel: number, cc: number) => number | null;
+  private readonly sendParameter: (channel: number, cc: number, value: number) => void;
+  private readonly changed: () => void;
 
   leds(scene: DrumScene, controller: ControllerState): Led[] {
     return scene.pads.map((pad, index) => {
-      if (!pad) return [0, 0];
-      const factor = controller.held[index] ? 1 : 0.45;
-      const [red, green] = colors[pad.channel];
-      return [Math.round(red * factor), Math.round(green * factor)];
+      if (!pad) return off;
+      return drumLed(pad.channel, controller.held[index]);
     });
   }
 
@@ -46,7 +61,7 @@ export class DrumHandler implements SceneHandler<DrumScene> {
         this.pad(scene, event.index, event.on, event.velocity);
         break;
       case 'control':
-        if (event.delta || (event.control === IRIG_MIDI.cc.fader && !controller.buttons[0] && !controller.buttons[1])) {
+        if (event.control !== IRIG_MIDI.cc.data || event.delta) {
           this.control(scene, controller, event.control, event.delta, event.value);
         }
         break;
@@ -59,8 +74,10 @@ export class DrumHandler implements SceneHandler<DrumScene> {
   private pad(scene: DrumScene, index: number, on: boolean, velocity: number): void {
     const pad = scene.pads[index];
     if (on && pad) {
-      this.send('opz', [0x90 + pad.channel, pad.note, Math.max(1, Math.round(velocity * pad.velocity / 127))]);
+      const playedVelocity = Math.max(1, Math.round(velocity * pad.velocity / 127));
+      this.sendNote([0x90 + pad.channel, pad.note, playedVelocity]);
       this.playing.set(index, { ...pad });
+      this.showVelocity(index, playedVelocity);
     } else if (!on) {
       this.clearAudition(index);
       this.stopNote(index);
@@ -87,9 +104,10 @@ export class DrumHandler implements SceneHandler<DrumScene> {
       const cc = table[modifier][control];
       if (!cc) return;
       if (!adjustedChannels.has(pad.channel)) {
-        for (let i = 0; i < Math.min(Math.abs(delta), 127); i++) {
-          this.send('opz', [0xb0 + pad.channel, cc + 31, delta > 0 ? 1 : 127]);
-        }
+        const next = control === IRIG_MIDI.cc.data
+          ? Math.max(0, Math.min(127, (this.parameterValue(pad.channel, cc) ?? 64) + delta))
+          : value;
+        this.sendParameter(pad.channel, cc, next);
         adjustedChannels.add(pad.channel);
       }
       this.audition(index, pad);
@@ -98,13 +116,18 @@ export class DrumHandler implements SceneHandler<DrumScene> {
   }
 
   private midi(scene: DrumScene, controller: ControllerState, event: MidiEvent, transport: Transport): void {
-    if (event.type !== 'note' || !event.on || event.channel >= 4 || transport !== 'stopped') return;
+    if (event.type !== 'note' || !event.on || !isDrumChannel(event.channel) || transport !== 'stopped') return;
+    const channel = event.channel;
     let dirty = false;
+    const note = Math.max(0, Math.min(127, event.note));
     controller.held.forEach((held, index) => {
       if (!held) return;
+      const pad = scene.pads[index];
+      if (pad && pad.channel === channel && pad.note === note) return;
       this.stopAudition(index);
       this.stopNote(index);
-      scene.pads[index] = { channel: event.channel, note: Math.max(0, Math.min(127, event.note)), velocity: 127 };
+      this.clearVelocity(index);
+      scene.pads[index] = { channel, note, velocity: pad?.velocity ?? 127 };
       dirty = true;
     });
     if (dirty) this.save();
@@ -113,13 +136,34 @@ export class DrumHandler implements SceneHandler<DrumScene> {
   release(): void {
     for (const index of this.playing.keys()) this.stopNote(index);
     for (const index of this.auditions.keys()) this.clearAudition(index);
+    for (const index of this.velocityTimers.keys()) this.clearVelocity(index);
+    this.velocities.fill(null);
   }
 
   private stopNote(index: number): void {
     const pad = this.playing.get(index);
     if (!pad) return;
-    this.send('opz', [0x80 + pad.channel, pad.note, 0]);
+    this.sendNote([0x80 + pad.channel, pad.note, 0]);
     this.playing.delete(index);
+    if (!this.velocityTimers.has(index)) this.velocities[index] = null;
+  }
+
+  private showVelocity(index: number, velocity: number): void {
+    clearTimeout(this.velocityTimers.get(index));
+    this.velocities[index] = velocity;
+    this.velocityTimers.set(index, setTimeout(() => {
+      this.velocityTimers.delete(index);
+      if (!this.playing.has(index)) {
+        this.velocities[index] = null;
+        this.changed();
+      }
+    }, velocityDisplayDuration));
+  }
+
+  private clearVelocity(index: number): void {
+    clearTimeout(this.velocityTimers.get(index));
+    this.velocityTimers.delete(index);
+    this.velocities[index] = null;
   }
 
   private clearAudition(index: number): void {
@@ -140,24 +184,34 @@ export class DrumHandler implements SceneHandler<DrumScene> {
     const previous = this.auditions.get(index);
     if (previous) {
       clearTimeout(previous.timeout);
-      previous.timeout = setTimeout(() => this.stopAudition(index), 200);
+      previous.timeout = setTimeout(() => { this.stopAudition(index); this.changed(); }, 200);
       return;
     }
     const repeat = () => {
-      this.send('opz', [0x80 + pad.channel, pad.note, 0]);
-      this.send('opz', [0x90 + pad.channel, pad.note, Math.max(1, pad.velocity)]);
+      this.sendNote([0x80 + pad.channel, pad.note, 0]);
+      this.sendNote([0x90 + pad.channel, pad.note, Math.max(1, pad.velocity)]);
       this.playing.set(index, { ...pad });
+      this.showVelocity(index, Math.max(1, pad.velocity));
     };
     repeat();
     this.auditions.set(index, {
-      interval: setInterval(repeat, 120),
-      timeout: setTimeout(() => this.stopAudition(index), 200),
+      interval: setInterval(() => {
+        const previousVelocity = this.velocities[index];
+        repeat();
+        if (this.velocities[index] !== previousVelocity) this.changed();
+      }, 120),
+      timeout: setTimeout(() => { this.stopAudition(index); this.changed(); }, 200),
     });
+  }
+
+  private sendNote(bytes: number[]): void {
+    this.send('opz', bytes);
+    if ((bytes[0] & 0x0f) !== 12) this.send('iac', bytes);
   }
 }
 
 export class InactiveHandler implements SceneHandler<Scene> {
-  leds(scene: Scene): Led[] { return scene.pads.map(() => [0, 0]); }
+  leds(scene: Scene): Led[] { return scene.pads.map(() => off); }
   handle(): void {}
   release(): void {}
 }

@@ -4,6 +4,7 @@ import { checkReducer, controls, gestures, initialCheck } from './irig-check.ts'
 import type { Step } from './irig-check.ts';
 import { startLedSequence } from './irig.ts';
 import { IRIG_MIDI, isSceneButtonCC } from './irig-midi.ts';
+import { IrigColors } from './IrigColors.tsx';
 
 type Props = {
   ready: boolean;
@@ -20,8 +21,9 @@ const headings: Record<Step, string> = {
   controls: 'Controls and modifiers',
   gestures: 'Combined gestures',
   leds: 'LED output',
+  colors: 'LED colors',
 };
-const steps: Step[] = ['scene', 'pads', 'simultaneous', 'controls', 'gestures', 'leds'];
+const steps: Exclude<Step, 'colors'>[] = ['scene', 'pads', 'simultaneous', 'controls', 'gestures', 'leds'];
 
 export function IrigCheck({ ready, inputRef, send, restoreLeds, reportError }: Props) {
   const [state, dispatch] = useReducer(checkReducer, initialCheck);
@@ -50,7 +52,7 @@ export function IrigCheck({ ready, inputRef, send, restoreLeds, reportError }: P
     'Keep pad 2 held and release pad 1.', 'Release pad 2.',
   ];
   const control = controls[state.control];
-  const completed: Record<Step, boolean> = {
+  const completed: Record<Exclude<Step, 'colors'>, boolean> = {
     scene: state.sceneSeen,
     pads: state.pad === 16,
     simultaneous: state.simultaneous === 4,
@@ -64,7 +66,8 @@ export function IrigCheck({ ready, inputRef, send, restoreLeds, reportError }: P
     <p>Allow MIDI access and select the iRig input and output above. An OP-Z is not required.
       Testing does not play notes or edit your project. Test each programmed scene separately;
       this checks only the scene selected below.</p>
-    <p>Before starting, program the scene as described in the manual. Factory defaults differ.
+    <p>Pad and scene numbers in this check refer to the labels on the iRig, not the app layout.
+      Before starting, program the scene as described in the manual. Factory defaults differ.
       Use the physical SCENE button to recall it; do not hold SCENE to store or erase a scene.</p>
     {!ready ? <p role="status" className="check-warning">Select connected, distinct iRig and OP-Z inputs and a connected iRig output.
       The OP-Z input may be left unselected.</p> : <>
@@ -80,15 +83,16 @@ export function IrigCheck({ ready, inputRef, send, restoreLeds, reportError }: P
           <span aria-hidden="true" className={completed[step] ? 'check-complete' : ''}>{completed[step] ? '✓' : '○'}</span>
           {' '}{headings[step]}
         </button></li>)}
+        <li><button type="button" aria-pressed={state.step === 'colors'}
+          onClick={() => dispatch({ type: 'select', step: 'colors' })}>LED colors</button></li>
       </ul>
       {steps.every((step) => completed[step]) && <p role="status">Scene {state.scene} passed all checks.
         This does not verify other scenes or automatically prove the hardware displayed the LED patterns.</p>}
       <h2>{headings[state.step]}</h2>
       {state.step === 'scene' && <>
-        <p>On the iRig, recall scene {state.scene}, then press and release button 1 or 2.
-          Expected: CC {IRIG_MIDI.cc.button1} or {IRIG_MIDI.cc.button2} on channel {state.scene}, with value
-          {' '}{IRIG_MIDI.buttonPressed} when pressed and {IRIG_MIDI.buttonReleased} when released.</p>
-        <p>{state.sceneSeen ? 'Matching button press and release received.' : 'Waiting for matching button press and release.'}</p>
+        <p>On the iRig, recall scene {state.scene}, then move the fader.
+          Expected: CC {IRIG_MIDI.cc.fader} on channel {state.scene}.</p>
+        <p>{state.sceneSeen ? 'Matching fader message received.' : 'Waiting for matching fader message.'}</p>
       </>}
       {state.step === 'pads' && <>
         {state.pad < 16 ? <p>Pad {state.pad + 1} of 16: {state.padPhase === 'press'
@@ -103,7 +107,7 @@ export function IrigCheck({ ready, inputRef, send, restoreLeds, reportError }: P
       {state.step === 'controls' && <>
         {control ? <p>{control.kind === 'button'
           ? `${state.pressed ? 'Release' : 'Press and hold'} ${control.label}`
-          : `Move ${control.label}`}. Expected channel {state.scene}, CC {control.cc}
+          : `Move ${control.label}`}. Expected {control.cc === IRIG_MIDI.cc.fader ? `channel ${state.scene}` : 'any channel'}, CC {control.cc}
           {isSceneButtonCC(control.cc) || control.cc === IRIG_MIDI.cc.dataPush
             ? `, value ${IRIG_MIDI.buttonPressed} pressed, ${IRIG_MIDI.buttonReleased} released` : ''}
           {control.kind === 'positive' ? ', value 1–63' : control.kind === 'negative' ? ', value 64–127' : ''}.</p>
@@ -125,7 +129,8 @@ export function IrigCheck({ ready, inputRef, send, restoreLeds, reportError }: P
         {state.ledSent && <p>Sequence finished; did all pads and both buttons match?</p>}
         {state.ledComplete && <p>LED sequence visually confirmed.</p>}
       </>}
-      <button onClick={() => dispatch({ type: 'restart-check' })}>Restart this check</button>
+      {state.step === 'colors' && <IrigColors send={send} restoreLeds={restoreLeds} reportError={reportError} />}
+      {state.step !== 'colors' && <button onClick={() => dispatch({ type: 'restart-check' })}>Restart this check</button>}
       <h2>Last iRig MIDI message</h2>
       <p className="midi-message" aria-live="polite">{state.last}</p>
       <p>If a step does not progress, compare the raw message above with the expected channel, note or CC.

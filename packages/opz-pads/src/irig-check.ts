@@ -1,13 +1,12 @@
 import { decodeIrig, decodeMidi } from './midi.ts';
 import { IRIG_MIDI, isSceneButtonCC } from './irig-midi.ts';
 
-export type Step = 'scene' | 'pads' | 'simultaneous' | 'controls' | 'gestures' | 'leds';
+export type Step = 'scene' | 'pads' | 'simultaneous' | 'controls' | 'gestures' | 'leds' | 'colors';
 type PadPhase = 'press' | 'pressure' | 'release';
 type CheckState = {
   step: Step;
   scene: number;
   sceneSeen: boolean;
-  scenePressed: 0 | 1 | null;
   pad: number;
   padPhase: PadPhase;
   simultaneous: number;
@@ -50,7 +49,7 @@ export const gestures = [
 ] as const;
 
 export const initialCheck: CheckState = {
-  step: 'scene', scene: 1, sceneSeen: false, scenePressed: null, pad: 0, padPhase: 'press',
+  step: 'scene', scene: 1, sceneSeen: false, pad: 0, padPhase: 'press',
   simultaneous: 0, control: 0, pressed: false, gesture: 0,
   ledComplete: false, ledRunning: false, ledSent: false, ledError: '', last: 'No MIDI received yet.',
 };
@@ -72,19 +71,20 @@ export function checkReducer(state: CheckState, action: Action): CheckState {
     case 'select':
       if (action.step === state.step) return state;
       return {
-        ...state, step: action.step, scenePressed: null, padPhase: 'press', pressed: false,
+        ...state, step: action.step, padPhase: 'press', pressed: false,
         simultaneous: state.simultaneous === 4 ? 4 : 0,
         gesture: state.gesture === gestures.length ? state.gesture : state.gesture < 5 ? 0 : state.gesture < 10 ? 5 : 10,
         ledRunning: false, ledSent: false, ledError: '',
       };
     case 'restart-check':
       switch (state.step) {
-        case 'scene': return { ...state, sceneSeen: false, scenePressed: null };
+        case 'scene': return { ...state, sceneSeen: false };
         case 'pads': return { ...state, pad: 0, padPhase: 'press' };
         case 'simultaneous': return { ...state, simultaneous: 0 };
         case 'controls': return { ...state, control: 0, pressed: false };
         case 'gestures': return { ...state, gesture: 0 };
         case 'leds': return { ...state, ledComplete: false, ledRunning: false, ledSent: false, ledError: '' };
+        case 'colors': return state;
       }
     case 'led-start':
       return state.step === 'leds' && !state.ledRunning
@@ -102,12 +102,11 @@ export function checkReducer(state: CheckState, action: Action): CheckState {
       const last = action.bytes.map((byte) => byte.toString(16).padStart(2, '0').toUpperCase()).join(' ');
       const next = { ...state, last: `Hex: ${last}${event ? ` | ${JSON.stringify(event)}` : ' | unsupported message'}` };
       if (!event) return next;
-      if (irig && 'scene' in irig && irig.scene !== state.scene - 1) {
+      if (event.type === 'control' && event.controller === IRIG_MIDI.cc.fader && event.channel !== state.scene - 1) {
         return { ...initialCheck, scene: state.scene, last: `${next.last} | Different scene detected; checks reset.` };
       }
-      if (state.step === 'scene' && irig?.type === 'button') {
-        if (irig.pressed) return { ...next, scenePressed: irig.index };
-        return { ...next, sceneSeen: state.sceneSeen || state.scenePressed === irig.index, scenePressed: null };
+      if (state.step === 'scene' && irig?.type === 'control' && irig.control === IRIG_MIDI.cc.fader) {
+        return { ...next, sceneSeen: true };
       }
       if (state.step === 'pads' && state.pad < 16) {
         if (state.padPhase === 'press' && event.type === 'note' && event.channel === state.pad && event.note === IRIG_MIDI.padNote && event.on) {
@@ -135,7 +134,7 @@ export function checkReducer(state: CheckState, action: Action): CheckState {
       }
       if (state.step === 'controls' && state.control < controls.length && event.type === 'control') {
         const control = controls[state.control];
-        if (event.controller !== control.cc || event.channel !== state.scene - 1 ||
+        if (event.controller !== control.cc || (control.cc === IRIG_MIDI.cc.fader && event.channel !== state.scene - 1) ||
           (isSceneButtonCC(control.cc) && irig?.type !== 'button') ||
           (control.cc === IRIG_MIDI.cc.dataPush && irig?.type !== 'push')) return next;
         if (control.kind === 'button') {
@@ -150,7 +149,7 @@ export function checkReducer(state: CheckState, action: Action): CheckState {
         const expected = gestures[state.gesture];
         const matches = expected.type === 'note'
           ? event.type === 'note' && event.channel === 0 && event.note === IRIG_MIDI.padNote && event.on === expected.on
-          : event.type === 'control' && event.channel === state.scene - 1 && event.controller === expected.cc &&
+          : event.type === 'control' && event.controller === expected.cc &&
             (!isSceneButtonCC(expected.cc) || irig?.type === 'button') &&
             (expected.cc !== IRIG_MIDI.cc.dataPush || irig?.type === 'push') &&
             (expected.value === 'any' || (expected.value === 'on' && event.value > 0) ||
@@ -161,8 +160,7 @@ export function checkReducer(state: CheckState, action: Action): CheckState {
         const start = state.gesture < 5 ? 0 : state.gesture < 10 ? 5 : 10;
         if (state.gesture > start && ((event.type === 'note' && event.channel === 0 && event.note === IRIG_MIDI.padNote && !event.on) ||
           (event.type === 'control' && event.value === 0 &&
-            event.controller === (start === 0 ? IRIG_MIDI.cc.button1 : start === 5 ? IRIG_MIDI.cc.button2 : IRIG_MIDI.cc.dataPush) &&
-            event.channel === state.scene - 1))) {
+            event.controller === (start === 0 ? IRIG_MIDI.cc.button1 : start === 5 ? IRIG_MIDI.cc.button2 : IRIG_MIDI.cc.dataPush)))) {
           return { ...next, gesture: start };
         }
       }

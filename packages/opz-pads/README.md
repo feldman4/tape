@@ -1,8 +1,8 @@
 # OP-Z Pads
 
-A first pass at a browser-based iRig/OP-Z controller, with mocked MIDI
-workflow tests. Performance FX and kit-library workflows remain
-unimplemented; hardware mappings need verification. See the
+A browser-based iRig/OP-Z controller, with mocked MIDI
+workflow tests. Performance FX and hardware mappings need
+verification. See the
 [user manual](docs/MANUAL.md), [device setup](docs/device-setup.md),
 [implementation notes](docs/implementation_notes.md), and
 [iRig Pads control surface and MIDI reference](docs/irig-pads.md).
@@ -28,18 +28,24 @@ override the server URL, or `OPZ_PADS_SCREENSHOTS` to a directory to save
 rendered controller, scenes, drum and diagnostics views.
 
 The typed engine separates MIDI decoding (`src/midi.ts`), controller gesture
-state (`src/controller.ts`), project validation (`src/model.ts`), and scene
-behavior (`src/scenes.ts`). Web MIDI port access is isolated in
+state (`src/controller.ts`), parameter tracking (`src/parameter-state.ts`),
+project validation (`src/model.ts`), and drum scene behavior (`src/scenes.ts`).
+Storage formats and validation are in `src/storage.ts`. Web MIDI port access is isolated in
 `src/devices.ts`, with the React UI in `src/App.tsx` and `src/views.tsx`.
 iRig MIDI assignments and LED mappings are centralized in `src/irig-midi.ts`.
+The shared hardware LED palette and gradients are in `src/irig-colors.ts`.
 The mixer handles OP-Z level, pan, mute and mute-group controls; the empty
 scene has no behavior. Drum playback and its audition timers belong to the
-drum handler.
+drum handler; performance FX behavior is in `src/performance-fx.ts`.
+Parameter tracking keeps diagnostic input, DATA adjustment values, FX bases,
+and successfully sent output separate; diagnostic output is the calculated value.
+Entering and leaving the iRig check goes through the engine's check-mode
+transitions so notes and temporary effects are released before routing changes.
 
 Scene handlers receive timestamped controller and OP-Z events after the
 controller state is updated. Event times use the Web MIDI monotonic clock;
-direct engine calls default to `performance.now()`. This is groundwork for
-gestures, not a gesture recognizer; performance FX remains unimplemented.
+direct engine calls default to `performance.now()`. Performance FX recognizes
+bidirectional CC gestures using these timestamps.
 LED updates send changed components; pad presses and releases resend both
 colors immediately, and releases refresh again after 200 ms to reconcile the
 iRig's own LED changes. Pressure refreshes are coalesced at most every 50 ms.
