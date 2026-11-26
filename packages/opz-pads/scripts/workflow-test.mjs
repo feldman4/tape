@@ -2,7 +2,7 @@ import { chromium } from 'playwright';
 import assert from 'node:assert/strict';
 import { mkdir } from 'node:fs/promises';
 import { join } from 'node:path';
-import { flipPadIndex } from '../src/irig-midi.ts';
+import { flipPadIndex } from '../src/irig/midi.ts';
 
 const url = process.env.OPZ_PADS_URL ?? 'http://localhost:5173/tape/opz-pads/';
 const browser = await chromium.launch({ headless: true });

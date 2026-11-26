@@ -1,9 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
 import type { DragEvent } from 'react';
-import type { Engine } from './engine.ts';
-import { newProject, newScene } from './model.ts';
-import { filename, loadLibrary, nameFromFile, parseKitFile, parseProjectFile, saveLibrary } from './storage.ts';
-import type { Library } from './storage.ts';
+import type { Engine } from '../engine/engine.ts';
+import { newProject, newScene } from '../project/model.ts';
+import { filename, loadLibrary, nameFromFile, parseKitFile, parseProjectFile, saveLibrary } from '../project/storage.ts';
+import type { Library } from '../project/storage.ts';
 
 const errorText = (error: unknown): string => error instanceof Error ? error.message : String(error);
 export const kitDragType = 'application/x-opz-pads-kit';

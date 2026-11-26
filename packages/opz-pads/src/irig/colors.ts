@@ -1,4 +1,4 @@
-import type { DrumChannel } from './model.ts';
+import type { DrumChannel } from '../project/model.ts';
 
 export type Led = [red: number, green: number];
 

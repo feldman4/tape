@@ -1,6 +1,6 @@
-import type { Led } from './scenes.ts';
-import { flipPadIndex, IRIG_MIDI } from './irig-midi.ts';
-import { ledTestColors, off } from './irig-colors.ts';
+import type { Led } from '../engine/scenes.ts';
+import { flipPadIndex, IRIG_MIDI } from './midi.ts';
+import { ledTestColors, off } from './colors.ts';
 
 function ledMessages(greenCC: number, [red, green]: Led): [number[], number[]] {
   return [[0xb0 + IRIG_MIDI.ledChannel, greenCC, green],

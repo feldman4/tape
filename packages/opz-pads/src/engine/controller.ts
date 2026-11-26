@@ -1,5 +1,5 @@
-import type { Control } from './midi.ts';
-import { IRIG_MIDI } from './irig-midi.ts';
+import type { Control } from '../midi/midi.ts';
+import { IRIG_MIDI } from '../irig/midi.ts';
 
 export class ControllerState {
   readonly held = Array<boolean>(16).fill(false);

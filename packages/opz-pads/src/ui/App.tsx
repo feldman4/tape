@@ -1,14 +1,14 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { ControllerState } from './controller.ts';
-import { MidiDevices } from './devices.ts';
-import type { PortInfo } from './devices.ts';
-import { Engine } from './engine.ts';
+import { ControllerState } from '../engine/controller.ts';
+import { MidiDevices } from '../midi/devices.ts';
+import type { PortInfo } from '../midi/devices.ts';
+import { Engine } from '../engine/engine.ts';
 import { IrigCheck } from './IrigCheck.tsx';
-import { flipPadIndex, IRIG_MIDI } from './irig-midi.ts';
-import { decodeIrig } from './midi.ts';
-import type { CustomSlot, EditableSceneType } from './model.ts';
-import { loadCustomSlots, loadProject, saveCustomSlots, saveProject } from './storage.ts';
-import { ControllerView, DiagnosticsView, DrumView, MixerView, PerformanceFxView, ScenesView } from './views.tsx';
+import { flipPadIndex, IRIG_MIDI } from '../irig/midi.ts';
+import { decodeIrig } from '../midi/midi.ts';
+import type { CustomSlot, EditableSceneType } from '../project/model.ts';
+import { loadCustomSlots, loadProject, saveCustomSlots, saveProject } from '../project/storage.ts';
+import { ControllerView, DiagnosticsView, DrumView, MixerView, PerformanceFxView, ScenesView } from './Views.tsx';
 
 type PortId = 'irig-in' | 'irig-out' | 'opz-in' | 'opz-out' | 'iac-out';
 type Selection = Record<PortId, string>;

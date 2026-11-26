@@ -1,8 +1,8 @@
 import type { ControllerState } from './controller.ts';
-import { IRIG_MIDI } from './irig-midi.ts';
-import type { CustomSlot, FxOffset, FxPad, FxScene } from './model.ts';
+import { IRIG_MIDI } from '../irig/midi.ts';
+import type { CustomSlot, FxOffset, FxPad, FxScene } from '../project/model.ts';
 import type { Led, SceneEvent, SceneHandler, Send } from './scenes.ts';
-import { fxLed, off } from './irig-colors.ts';
+import { fxLed, off } from '../irig/colors.ts';
 
 const clamp = (value: number): number => Math.max(0, Math.min(127, Math.round(value)));
 const key = (channel: number, cc: number): string => `${channel}:${cc}`;

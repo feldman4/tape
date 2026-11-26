@@ -1,9 +1,9 @@
 import { Fragment, memo, useEffect, useRef, useState } from 'react';
 import type { CSSProperties } from 'react';
-import type { ControllerState } from './controller.ts';
-import type { Engine } from './engine.ts';
-import type { CustomSlot, DrumChannel, EditableSceneType } from './model.ts';
-import { validateCustomSlots } from './model.ts';
+import type { ControllerState } from '../engine/controller.ts';
+import type { Engine } from '../engine/engine.ts';
+import type { CustomSlot, DrumChannel, EditableSceneType } from '../project/model.ts';
+import { validateCustomSlots } from '../project/model.ts';
 import { kitDragType, LibraryView } from './Library.tsx';
 
 type EngineProps = { engine: Engine };

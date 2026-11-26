@@ -1,15 +1,15 @@
 import { ControllerState } from './controller.ts';
-import { padLedMessages } from './irig.ts';
-import { decodeIrig, decodeMidi } from './midi.ts';
-import { newProject, newScene, validateCustomSlots, validateDrumScene, validateProject } from './model.ts';
+import { padLedMessages } from '../irig/leds.ts';
+import { decodeIrig, decodeMidi } from '../midi/midi.ts';
+import { newProject, newScene, validateCustomSlots, validateDrumScene, validateProject } from '../project/model.ts';
 import { MixerHandler } from './mixer.ts';
-import type { CustomSlot, EditableSceneType, Project, Scene } from './model.ts';
+import type { CustomSlot, EditableSceneType, Project, Scene } from '../project/model.ts';
 import { PerformanceFxHandler } from './performance-fx.ts';
 import { ParameterState } from './parameter-state.ts';
 import { DrumHandler, InactiveHandler } from './scenes.ts';
 import type { Led, SceneEvent, SceneHandler, Send, Transport } from './scenes.ts';
 
-export { newProject, validateProject } from './model.ts';
+export { newProject, validateProject } from '../project/model.ts';
 
 type Handlers = { mixer: MixerHandler; empty: SceneHandler<Extract<Scene, { type: 'empty' }>>; drum: DrumHandler; fx: PerformanceFxHandler };
 const pressureLedInterval = 50;

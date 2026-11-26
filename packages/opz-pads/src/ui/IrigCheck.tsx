@@ -1,9 +1,9 @@
 import { useEffect, useReducer } from 'react';
 import type { RefObject } from 'react';
-import { checkReducer, controls, gestures, initialCheck } from './irig-check.ts';
-import type { Step } from './irig-check.ts';
-import { startLedSequence } from './irig.ts';
-import { IRIG_MIDI, isSceneButtonCC } from './irig-midi.ts';
+import { checkReducer, controls, gestures, initialCheck } from '../irig/check.ts';
+import type { Step } from '../irig/check.ts';
+import { startLedSequence } from '../irig/leds.ts';
+import { IRIG_MIDI, isSceneButtonCC } from '../irig/midi.ts';
 import { IrigColors } from './IrigColors.tsx';
 
 type Props = {

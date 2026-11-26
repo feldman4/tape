@@ -27,16 +27,16 @@ to exercise the app with mocked Web MIDI devices. Set `OPZ_PADS_URL` to
 override the server URL, or `OPZ_PADS_SCREENSHOTS` to a directory to save
 rendered controller, scenes, drum and diagnostics views.
 
-The typed engine separates MIDI decoding (`src/midi.ts`), controller gesture
-state (`src/controller.ts`), parameter tracking (`src/parameter-state.ts`),
-project validation (`src/model.ts`), and drum scene behavior (`src/scenes.ts`).
-Storage formats and validation are in `src/storage.ts`. Web MIDI port access is isolated in
-`src/devices.ts`, with the React UI in `src/App.tsx` and `src/views.tsx`.
-iRig MIDI assignments and LED mappings are centralized in `src/irig-midi.ts`.
-The shared hardware LED palette and gradients are in `src/irig-colors.ts`.
+The typed engine separates MIDI decoding (`src/midi/midi.ts`), controller gesture
+state (`src/engine/controller.ts`), parameter tracking (`src/engine/parameter-state.ts`),
+project validation (`src/project/model.ts`), and drum scene behavior (`src/engine/scenes.ts`).
+Storage formats and validation are in `src/project/storage.ts`. Web MIDI port access is isolated in
+`src/midi/devices.ts`, with the React UI in `src/ui/App.tsx` and `src/ui/Views.tsx`.
+iRig MIDI assignments and LED mappings are centralized in `src/irig/midi.ts`.
+The shared hardware LED palette and gradients are in `src/irig/colors.ts`.
 The mixer handles OP-Z level, pan, mute and mute-group controls; the empty
 scene has no behavior. Drum playback and its audition timers belong to the
-drum handler; performance FX behavior is in `src/performance-fx.ts`.
+drum handler; performance FX behavior is in `src/engine/performance-fx.ts`.
 Parameter tracking keeps diagnostic input, DATA adjustment values, FX bases,
 and successfully sent output separate; diagnostic output is the calculated value.
 Entering and leaving the iRig check goes through the engine's check-mode

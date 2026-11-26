@@ -1,4 +1,4 @@
-import { flipPadIndex, IRIG_MIDI, isSceneButtonCC } from './irig-midi.ts';
+import { flipPadIndex, IRIG_MIDI, isSceneButtonCC } from '../irig/midi.ts';
 
 export type MidiEvent =
   | { type: 'note'; channel: number; note: number; velocity: number; on: boolean }

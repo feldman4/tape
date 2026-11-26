@@ -1,9 +1,9 @@
 import type { ControllerState } from './controller.ts';
-import { IRIG_MIDI } from './irig-midi.ts';
-import type { MixerScene } from './model.ts';
+import { IRIG_MIDI } from '../irig/midi.ts';
+import type { MixerScene } from '../project/model.ts';
 import type { Led, SceneEvent, SceneHandler, Send } from './scenes.ts';
-import type { MidiEvent } from './midi.ts';
-import { groupOther, groupSelected, mixerLevelLed, mixerPanLed, mixerScaleLed, off } from './irig-colors.ts';
+import type { MidiEvent } from '../midi/midi.ts';
+import { groupOther, groupSelected, mixerLevelLed, mixerPanLed, mixerScaleLed, off } from '../irig/colors.ts';
 
 const clamp = (value: number): number => Math.max(0, Math.min(127, Math.round(value)));
 const displayTimeout = 1000;

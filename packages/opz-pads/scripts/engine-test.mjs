@@ -1,12 +1,12 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { decodeIrig, decodeMidi } from '../src/midi.ts';
-import { ControllerState } from '../src/controller.ts';
-import { MidiDevices } from '../src/devices.ts';
-import { Engine, newProject, validateProject } from '../src/engine.ts';
-import { flipPadIndex, IRIG_MIDI } from '../src/irig-midi.ts';
-import { padLedMessages } from '../src/irig.ts';
-import { parseKitFile, parseProjectFile } from '../src/storage.ts';
+import { decodeIrig, decodeMidi } from '../src/midi/midi.ts';
+import { ControllerState } from '../src/engine/controller.ts';
+import { MidiDevices } from '../src/midi/devices.ts';
+import { Engine, newProject, validateProject } from '../src/engine/engine.ts';
+import { flipPadIndex, IRIG_MIDI } from '../src/irig/midi.ts';
+import { padLedMessages } from '../src/irig/leds.ts';
+import { parseKitFile, parseProjectFile } from '../src/project/storage.ts';
 
 function appIrig(engine, bytes, time) {
   const [status, ...data] = bytes;

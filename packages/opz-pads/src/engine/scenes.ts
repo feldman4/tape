@@ -1,13 +1,13 @@
 import type { ControllerState } from './controller.ts';
-import type { Control, IrigEvent, MidiEvent } from './midi.ts';
-import type { DrumPad, DrumScene, Scene } from './model.ts';
-import { isDrumChannel } from './model.ts';
-import { IRIG_MIDI } from './irig-midi.ts';
-import { drumLed, off } from './irig-colors.ts';
-import type { Led } from './irig-colors.ts';
+import type { Control, IrigEvent, MidiEvent } from '../midi/midi.ts';
+import type { DrumPad, DrumScene, Scene } from '../project/model.ts';
+import { isDrumChannel } from '../project/model.ts';
+import { IRIG_MIDI } from '../irig/midi.ts';
+import { drumLed, off } from '../irig/colors.ts';
+import type { Led } from '../irig/colors.ts';
 
 export type Send = (destination: 'opz' | 'irig' | 'iac', bytes: number[]) => boolean;
-export type { Led } from './irig-colors.ts';
+export type { Led } from '../irig/colors.ts';
 
 export type Transport = 'unknown' | 'running' | 'stopped';
 export type SceneEvent =

@@ -1,5 +1,5 @@
-import { decodeIrig, decodeMidi } from './midi.ts';
-import { IRIG_MIDI, isSceneButtonCC } from './irig-midi.ts';
+import { decodeIrig, decodeMidi } from '../midi/midi.ts';
+import { IRIG_MIDI, isSceneButtonCC } from './midi.ts';
 
 export type Step = 'scene' | 'pads' | 'simultaneous' | 'controls' | 'gestures' | 'leds' | 'colors';
 type PadPhase = 'press' | 'pressure' | 'release';

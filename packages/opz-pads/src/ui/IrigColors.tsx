@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
-import { gradients, off, palette } from './irig-colors.ts';
-import { buttonLedMessages, padLedMessages } from './irig.ts';
-import { flipPadIndex } from './irig-midi.ts';
+import { gradients, off, palette } from '../irig/colors.ts';
+import { buttonLedMessages, padLedMessages } from '../irig/leds.ts';
+import { flipPadIndex } from '../irig/midi.ts';
 
 type Props = {
   send: (bytes: number[]) => void;
