@@ -576,23 +576,75 @@ test('mixer assumes group 1 and displays unknown track mutes as green', () => {
   }
 });
 
+test('observed pattern follows incoming selections and resets with OP-Z input', () => {
+  let changes = 0;
+  const engine = new Engine({ send: () => true, changed: () => changes++, save: () => {} });
+  assert.equal(engine.observedPattern, null);
+  engine.opz([0xc0, 0]);
+  assert.equal(engine.observedPattern, 0);
+  assert(changes > 0, 'incoming program change refreshes the UI');
+  engine.opz([0xc9, 15]);
+  assert.equal(engine.observedPattern, 159);
+  engine.opz([0xb2, 103, 5]);
+  assert.equal(engine.observedPattern, 37);
+  engine.opz([0xca, 1]);
+  assert.equal(engine.observedPattern, null, 'unrecognized pattern is unknown');
+  engine.opz([0xc0, 7]);
+  engine.resetOpz();
+  assert.equal(engine.observedPattern, null);
+});
+
+test('program changes use channel as project and program value as pattern', (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const sent = [];
+  const engine = new Engine({ send: (destination, bytes) => {
+    if (destination === 'opz' && (bytes[0] & 0xf0) === 0xc0) sent.push(bytes);
+    return true;
+  }, changed: () => {}, save: () => {}, notify: () => {} });
+  appIrig(engine, [0xb0, 90, 127]);
+  for (const [message, pattern] of [
+    [[0xc0, 0], 0], [[0xc7, 0], 112], [[0xc7, 1], 113],
+    [[0xc7, 5], 117], [[0xc7, 15], 127],
+    [[0xc8, 0], 128], [[0xc9, 14], 158],
+  ]) {
+    engine.opz(message);
+    assert.equal(engine.observedPattern, pattern);
+    sent.length = 0;
+    appIrig(engine, [0xb0, 93, 127]);
+    appIrig(engine, [0xb0, 93, 0]);
+    t.mock.timers.tick(300);
+    t.mock.timers.tick(300);
+    assert.deepEqual(sent, [[0xc9, 15], message]);
+  }
+  engine.opz([0xc9, 15]);
+  assert.equal(engine.observedPattern, 159);
+  for (const message of [[0xc9, 16], [0xc9, 17], [0xca, 0]]) {
+    engine.opz(message);
+    assert.equal(engine.observedPattern, null, 'out-of-range project or pattern is unknown');
+  }
+});
+
 test('mixer button 1 and DATA sync the reserved pattern and return to the observed pattern', (t) => {
   t.mock.timers.enable({ apis: ['setTimeout'] });
   const sent = [];
   const messages = [];
   const engine = new Engine({ send: (destination, bytes) => { sent.push({ destination, bytes }); return true; },
     changed: () => {}, save: () => {}, notify: (message) => messages.push(message) });
-  engine.opz([0xc1, 10]);
+  engine.opz([0xc1, 9]);
   engine.opz([0xfa]);
   appIrig(engine, [0xb0, 90, 127]);
   sent.length = 0;
   appIrig(engine, [0xb0, 93, 127]);
   appIrig(engine, [0xb0, 93, 127]);
-  assert.deepEqual(sent.filter((m) => m.destination === 'opz').map((m) => m.bytes), [[0xc1, 31]]);
+  assert.deepEqual(sent.filter((m) => m.destination === 'opz').map((m) => m.bytes), [[0xc9, 15]]);
+  assert.equal(engine.observedPattern, 25, 'requested calibration is not an observed selection');
+  engine.opz([0xc9, 15]);
+  assert.deepEqual(messages, [], 'calibration feedback does not cancel sync');
   assert.equal(engine.mixer.muted[0], null, 'modified push does not guess mutes');
   t.mock.timers.tick(299);
   assert.equal(sent.filter((m) => m.destination === 'opz').length, 1);
   t.mock.timers.tick(1);
+  assert.equal(engine.observedPattern, 159, 'calibration feedback is recognized');
   const output = sent.filter((m) => m.destination === 'opz').map((m) => m.bytes);
   assert.equal(output.length, 257);
   assert.deepEqual(output.slice(1), Array.from({ length: 256 }, (_, i) =>
@@ -602,11 +654,11 @@ test('mixer button 1 and DATA sync the reserved pattern and return to the observ
   t.mock.timers.tick(299);
   assert.equal(sent.filter((m) => m.destination === 'opz').length, 257);
   t.mock.timers.tick(1);
-  assert.deepEqual(sent.filter((m) => m.destination === 'opz').at(-1).bytes, [0xc1, 10]);
+  assert.deepEqual(sent.filter((m) => m.destination === 'opz').at(-1).bytes, [0xc1, 9]);
   engine.opz([0xb0, 1, 37]);
   assert.equal(engine.values[0][0], 37);
   assert.equal(engine.values[0][1], 126);
-  assert.match(messages.at(-1), /Verify/);
+  assert.deepEqual(messages, [], 'successful sync does not leave a status message');
 });
 
 test('sync without an observed pattern leaves calibration selected and asks for a working pattern', (t) => {
@@ -619,7 +671,7 @@ test('sync without an observed pattern leaves calibration selected and asks for 
   appIrig(engine, [0xb0, 93, 127]);
   t.mock.timers.tick(1000);
   assert.deepEqual(sent.filter((m) => m.destination === 'opz' && (m.bytes[0] & 0xf0) === 0xc0)
-    .map((m) => m.bytes), [[0xc1, 31]]);
+    .map((m) => m.bytes), [[0xc9, 15]]);
   assert.match(messages.at(-1), /Select a working pattern/);
 });
 
@@ -638,18 +690,18 @@ test('sync handles CC pattern selection and cancels on another observed pattern 
   press();
   t.mock.timers.tick(300);
   t.mock.timers.tick(300);
-  assert.deepEqual(sent.at(-1), [0xc0, 37], 'CC 103 project and pattern map to default program addressing');
+  assert.deepEqual(sent.at(-1), [0xc2, 5], 'CC 103 project and pattern map to program addressing');
   sent.length = 0;
   press();
   engine.opz([0xc0, 2]);
   t.mock.timers.tick(600);
-  assert.deepEqual(sent, [[0xc1, 31]], 'unexpected pattern prevents calibration writes');
+  assert.deepEqual(sent, [[0xc9, 15]], 'unexpected pattern prevents calibration writes');
   assert.match(messages.at(-1), /cancelled/);
   sent.length = 0;
   fail = true;
   press();
   t.mock.timers.tick(600);
-  assert.deepEqual(sent, [[0xc1, 31]], 'failed pattern selection prevents calibration writes');
+  assert.deepEqual(sent, [[0xc9, 15]], 'failed pattern selection prevents calibration writes');
   assert.match(messages.at(-1), /failed/);
 });
 
@@ -780,11 +832,13 @@ test('mixer toggles unknown mute, sends channel-specific note stops, and tracks 
   assert.deepEqual(sent.filter(({ destination }) => destination !== 'irig'), [
     { destination: 'opz', bytes: [0xb1, 53, 1] },
     { destination: 'iac', bytes: [0xb1, 120, 0] },
-    { destination: 'iac', bytes: [0xb1, 123, 0] },
   ]);
   appIrig(engine, [0x81, 60, 0]);
+  sent.length = 0;
   appIrig(engine, [0x91, 60, 100]);
   assert.equal(engine.mixer.groups[2][1], false);
+  assert.deepEqual(sent.filter(({ destination }) => destination !== 'irig'),
+    [{ destination: 'opz', bytes: [0xb1, 53, 0] }], 'unmuting sends no note stops');
   engine.opz([0xb1, 53, 1]);
   assert.equal(engine.mixer.groups[2][1], true);
   engine.opz([0xb0, 55, 3]);
@@ -1356,6 +1410,34 @@ test('drum notes and audition repeats reach both outputs through release', (t) =
   ]);
   assert.deepEqual(notes('iac'), notes('opz'));
   engine.cancelReleaseLedRefreshes();
+});
+
+test('fader velocity edits audition held pads at the updated maximum', (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout', 'setInterval'] });
+  const { engine, sent, saved } = setup();
+  engine.project.scenes[1].pads[0] = { channel: 0, note: 36, velocity: 127 };
+  engine.project.scenes[1].pads[1] = { channel: 12, note: 48, velocity: 127 };
+  appIrig(engine, [0x90, 60, 100]);
+  appIrig(engine, [0x91, 60, 100]);
+  sent.length = 0;
+  appIrig(engine, [0xb1, 96, 80]);
+  const notes = (destination) => sent.filter(({ destination: target, bytes }) =>
+    target === destination && (bytes[0] & 0xf0) !== 0xb0).map(({ bytes }) => bytes);
+  assert.deepEqual(notes('opz'), [[0x80, 36, 0], [0x90, 36, 80], [0x8c, 48, 0], [0x9c, 48, 80]]);
+  assert.deepEqual(notes('iac'), [[0x80, 36, 0], [0x90, 36, 80]]);
+  assert.equal(saved.at(-1).scenes[1].pads[0].velocity, 80);
+  assert.equal(saved.at(-1).scenes[1].pads[1].velocity, 80);
+  appIrig(engine, [0xb1, 96, 0]);
+  t.mock.timers.tick(120);
+  assert.deepEqual(notes('opz').slice(-4), [[0x80, 36, 0], [0x90, 36, 1], [0x8c, 48, 0], [0x9c, 48, 1]]);
+  appIrig(engine, [0x80, 60, 0]);
+  t.mock.timers.tick(80);
+  assert.deepEqual(notes('opz').slice(-2), [[0x80, 36, 0], [0x8c, 48, 0]]);
+  const count = notes('opz').length;
+  t.mock.timers.tick(240);
+  assert.equal(notes('opz').length, count, 'release and inactivity stop repeats');
+  engine.cancelReleaseLedRefreshes();
+  engine.releaseAll();
 });
 
 test('drum absolute controls update the mixer and scale Ableton level', () => {

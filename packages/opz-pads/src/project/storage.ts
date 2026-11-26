@@ -56,7 +56,9 @@ export function loadLibrary(): Library {
   const value: unknown = saved === null ? { version: 2, projects: [], kits: [] } : JSON.parse(saved);
   if (!isRecord(value) || value.version !== 2 ||
     !validEntries(value.projects, validateProject) || !validEntries(value.kits, validateDrumScene)) {
-    throw new Error('Stored library has an invalid or unsupported format');
+    localStorage.removeItem(libraryKey);
+    console.warn('Reset invalid or unsupported stored library.');
+    return { version: 2, projects: [], kits: [] };
   }
   return { version: 2, projects: value.projects, kits: value.kits };
 }

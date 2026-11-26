@@ -99,6 +99,7 @@ export class DrumHandler implements SceneHandler<DrumScene> {
       if (control === IRIG_MIDI.cc.fader && modifier === 0) {
         pad.velocity = value;
         dirty = true;
+        this.audition(index, pad);
         return;
       }
       const cc = table[modifier][control];

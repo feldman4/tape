@@ -21,13 +21,14 @@ const calibrationValue = 126;
 const patternSwitchDelay = 300;
 
 function patternProgram(pattern: number): number[] {
-  return pattern < 128 ? [0xc0, pattern] : [0xc1, pattern - 128];
+  return [0xc0 + Math.floor(pattern / 16), pattern % 16];
 }
 
 function observedPattern(event: ReturnType<typeof decodeMidi>): number | null | undefined {
   if (event?.type === 'program') {
-    if (event.channel === 0 && event.program <= 127) return event.program;
-    if (event.channel === 1 && event.program <= 31) return 128 + event.program;
+    if (event.channel < 10 && event.program >= 0 && event.program <= 15) {
+      return event.channel * 16 + event.program;
+    }
     return null;
   }
   if (event?.type === 'control' && event.controller === 103) {
@@ -47,6 +48,7 @@ export class Engine {
   readonly outputValues = this.parameters.outputValues;
   private readonly latestTrackEvent = Array<number | null>(16).fill(null);
   private currentPattern: number | null = null;
+  private lastObservedPattern: number | null = null;
   private syncTimer: ReturnType<typeof setTimeout> | undefined;
   private syncPattern: number | null = null;
   private syncing = false;
@@ -102,6 +104,7 @@ export class Engine {
 
   get project(): Project { return this.currentProject; }
   get transport(): Transport { return this.currentTransport; }
+  get observedPattern(): number | null { return this.lastObservedPattern; }
   get held(): boolean[] { return this.controller.held; }
   get pressure(): number[] { return this.controller.pressure; }
   get pots(): readonly [number | null, number | null] { return this.controller.pots; }
@@ -209,6 +212,7 @@ export class Engine {
   resetOpz(): void {
     this.cancelSync();
     this.currentPattern = null;
+    this.lastObservedPattern = null;
     this.currentTransport = 'unknown';
     this.latestTrackEvent.fill(null);
     this.mixer.reset();
@@ -361,6 +365,7 @@ export class Engine {
         this.notify('OP-Z sync cancelled because the pattern changed.');
       }
       this.currentPattern = pattern;
+      this.lastObservedPattern = pattern;
     }
     const status = data[0];
     if (event?.type === 'transport') {
@@ -419,7 +424,6 @@ export class Engine {
     }
     this.syncing = true;
     this.syncPattern = calibrationPattern;
-    this.notify('Syncing OP-Z parameter state.');
     this.syncTimer = setTimeout(() => {
       this.syncTimer = undefined;
       this.currentPattern = calibrationPattern;
@@ -451,7 +455,6 @@ export class Engine {
         }
         this.currentPattern = previousPattern;
         this.cancelSync();
-        this.notify('OP-Z sync requested. Verify the working pattern and incoming parameter values.');
       }, patternSwitchDelay);
     }, patternSwitchDelay);
   }

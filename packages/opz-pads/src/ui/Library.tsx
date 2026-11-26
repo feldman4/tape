@@ -57,7 +57,6 @@ export function LibraryView({ engine, reportError }: { engine: Engine; reportErr
     if (!library) return;
     const name = projectName.trim();
     if (!name) { reportError('Enter a project name.'); return; }
-    if (library.projects.some((item) => item.name === name) && !confirm(`Replace project "${name}" in the library?`)) return;
     persist({ ...library, projects: [...library.projects.filter((item) => item.name !== name),
       { name, value: structuredClone(engine.project) }] });
   }
@@ -66,7 +65,6 @@ export function LibraryView({ engine, reportError }: { engine: Engine; reportErr
     if (!library || current.type !== 'drum') return;
     const name = kitName.trim();
     if (!name) { reportError('Enter a kit name.'); return; }
-    if (library.kits.some((item) => item.name === name) && !confirm(`Replace kit "${name}" in the library?`)) return;
     persist({ ...library, kits: [...library.kits.filter((item) => item.name !== name),
       { name, value: structuredClone(current) }] });
   }

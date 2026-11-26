@@ -86,8 +86,8 @@ incoming OP-Z levels are scaled on their way to the Ableton output.
 Track mutes start unknown, and the active mute group is assumed to be group 1
 until another group is selected or reported. If a track's mute state is
 unknown, the first button-1 toggle assumes it is unmuted and sends mute.
-Each toggle also sends All Sound Off (CC 120) and All Notes Off (CC 123) on
-that track's channel to the Ableton output. The matrix shows mute states
+Muting a track also sends All Sound Off (CC 120) on
+that track's channel to the Ableton output; unmuting does not. The matrix shows mute states
 received, changed or guessed for the selected or assumed group; other cells
 remain unknown. Group observations are cleared and group 1 is assumed again on
 incoming pattern changes and OP-Z input reconnection. OP-Z MIDI does not
@@ -142,9 +142,9 @@ parameter values using the CC numbers in the table for them to be observed.
 Pad notes on channels 1–4, including audition repeats and note-offs, go to both
 outputs. Channel 13 pad notes go only to OP-Z. MIDI received from OP-Z is
 still forwarded to Ableton, including channel 13.
-While a parameter control is moving, the assigned note repeats every 120 ms
-so you can hear the change. Repetition stops 200 ms after the last movement
-or when the pad is released.
+While a parameter control or the maximum velocity fader is moving, the
+assigned note repeats every 120 ms so you can hear the change. Repetition
+stops 200 ms after the last movement or when the pad is released.
 
 ## Performance FX scenes
 
@@ -230,8 +230,8 @@ delete it. A kit loads into the current scene, including an empty scene; drag a
 kit name onto a scene slot to load it there instead. The mixer cannot be
 replaced. Dropping a kit replaces the target without confirmation. Init project
 starts a new project; Init kit replaces the current non-mixer scene with an
-empty drum kit. Other replacements, deletions, and saving over an existing name
-require confirmation. Names are trimmed and case-sensitive. Library entries
+empty drum kit. Saving over an existing name replaces it without confirmation;
+other replacements and deletions require confirmation. Names are trimmed and case-sensitive. Library entries
 are snapshots: subsequent edits to the current project do not change a saved
 entry until it is saved again.
 
@@ -241,14 +241,19 @@ are percent-escaped. Drag project or kit files onto the corresponding library
 to import them under the filename, without its extension and, for exported
 files, its type prefix. Files are versioned and validated; importing does not
 change the current project or scene. Project and kit files must use version 2.
-Replacing an existing library name requires confirmation. The working project
+An invalid or unsupported stored library is cleared and replaced with an empty
+library; the working project and other browser storage are not cleared.
+Importing over an existing library name requires confirmation. The working project
 and libraries are stored in the browser; keep disk backups because browser
 storage can be cleared. There is no separate performance FX kit library; FX
 scenes are saved as part of projects.
 
 ## OP-Z diagnostics
 
-The OP-Z page shows parameter values and their offsets. Select a cell in the
+The OP-Z page shows the last project and pattern observed from OP-Z MIDI, or
+`—` when unknown. This is not device confirmation of a pattern switch requested
+by the app, and the observation is cleared when OP-Z input is reset.
+The page also shows parameter values and their offsets. Select a cell in the
 16-by-16 CC grid to see the last 10 seconds of input and calculated output
 after effects and mixer scaling, up to 100 entries per CC. Input values are
 unknown until received or established by parameter sync. Grid values are

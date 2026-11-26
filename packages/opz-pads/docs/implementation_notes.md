@@ -63,9 +63,8 @@ User workflows belong in
 - Mixer pads target Ableton tracks. Pot 1/2 set absolute level/pan values on
   held pads; fader scales underlying levels only on the Ableton output, including
   forwarded OP-Z level changes. Button 1 toggles track
-  mute and sends CC 120 (All Sound Off) and CC 123 (All Notes Off) on the
-  corresponding virtual OP-Z channels toward Ableton, both when muting and
-  unmuting. While button 2 is held, pads 1-10 select a group and are dim
+  mute and sends CC 120 (All Sound Off) on the
+  corresponding virtual OP-Z channels toward Ableton, only when muting. While button 2 is held, pads 1-10 select a group and are dim
   orange, except the current group, which is bright orange; pads 11-16 are off.
   Pot movement displays level as green brightness or pan
   from red (left) to green (right), with unknown values off. A pot display

@@ -198,7 +198,6 @@ export default function App() {
     if (lostPort) {
       engine.portDisconnected(lostSelections.has('opz-in'));
       checkController.release();
-      setMessage('A MIDI port disconnected. iRig Pads, OP-Z and IAC reconnect automatically when available; reselect other ports as needed.');
     }
     configurePorts(devices, next);
     setRevision((revision) => revision + 1);

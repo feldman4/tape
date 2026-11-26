@@ -21,10 +21,17 @@ Enable OP-Z incoming and outgoing MIDI, set track channels 1–16 and outgoing
 pan/volume CCs 15/16, disable channel-one-to-active and MIDI echo, and avoid
 routing the IAC bus or Ableton output back to the OP-Z input. These settings
 and the OP-Z's actual feedback behavior need hardware verification.
-For parameter-state sync, enable program change in/out, disable alternate
-program change, and configure outgoing parameter CCs 1–16 on tracks 1–16 to
+For parameter-state sync, enable program change in/out and configure outgoing
+parameter CCs 1–16 on tracks 1–16 to
 match their incoming CC numbers. Reserve project 10, pattern 16 for calibration.
 The sync relies on a 300 ms switch delay, not device confirmation.
+
+The app reads and sends pattern program changes using MIDI channel 1–10 as
+the project and raw program value 0–15 as pattern 1–16. For example, project 8
+pattern 6 is `C7 05`, and project 10 pattern 16 is `C9 0F` (hexadecimal).
+The [OP-Z MIDI guide](https://teenage.engineering/guides/op-z/midi) also
+describes a different program-change mapping; verify that the OP-Z responds
+to the requested switches before relying on parameter sync.
 
 Program each iRig scene with momentary MIDI note 60,
 one MIDI channel per pad matching its physical iRig label from 1 through 16

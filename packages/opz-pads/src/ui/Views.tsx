@@ -274,7 +274,11 @@ export function DiagnosticsView({ engine, selectedCell, onSelect }: EngineProps 
   const [ch, cc] = selectedCell;
   const now = Date.now();
   const recent = engine.history[ch][cc].filter((entry) => now - entry.time <= graphWindow).length;
-  return <div className="diagnostics"><section><h2>CC VALUES</h2><p>16 × 16 (CHANNEL 1–16 × CC 1–16)</p>
+  const pattern = engine.observedPattern;
+  return <div className="diagnostics"><section><h2>CC VALUES</h2>
+    <p>LAST OBSERVED OP-Z PROJECT {pattern === null ? '—' : Math.floor(pattern / 16) + 1}
+      &nbsp; PATTERN {pattern === null ? '—' : pattern % 16 + 1}</p>
+    <p>16 × 16 (CHANNEL 1–16 × CC 1–16)</p>
     <div className="cc-grid-scroll"><div className="cc-grid"><span>CH / CC</span>{Array.from({ length: 16 }, (_, i) => <span key={i}>{i + 1}</span>)}
       {engine.values.map((row, channel) => <Fragment key={channel}><span>{channel + 1}</span>
         {row.map((value, controller) => <CcCell key={controller} channel={channel} controller={controller} value={value}

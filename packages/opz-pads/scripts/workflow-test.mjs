@@ -92,8 +92,10 @@ try {
   assert.equal(await lateIacPage.locator('#iac-out').inputValue(), '');
   await lateIacPage.evaluate(() => window.mockMidi.setState('output', 'iac', 'connected'));
   await lateIacPage.waitForFunction(() => document.querySelector('#iac-out').value === 'iac');
+  const messageBeforeDisconnect = await lateIacPage.locator('#message').textContent();
   await lateIacPage.evaluate(() => window.mockMidi.setState('output', 'iac', 'disconnected'));
   await lateIacPage.waitForFunction(() => document.querySelector('#iac-out').value === '');
+  assert.equal(await lateIacPage.locator('#message').textContent(), messageBeforeDisconnect, 'disconnect does not show a message');
   await lateIacPage.evaluate(() => window.mockMidi.setState('output', 'iac', 'connected'));
   await lateIacPage.waitForFunction(() => document.querySelector('#iac-out').value === 'iac');
   await lateIacPage.locator('#iac-out').selectOption('other');
@@ -239,7 +241,7 @@ try {
   assert.equal(await page.locator('.led-log [role="log"] > div').count() <= 100, true, 'LED log is bounded');
   assert((await sent('opz')).some((message) => message.join() === '176,53,1'), 'unknown track is muted on first toggle');
   assert.equal(await page.getByLabel('Group 1, track 1: muted').count(), 1);
-  assert.deepEqual(await sent('iac'), [[0xb0, 120, 0], [0xb0, 123, 0]], 'mute stops notes on the virtual bus');
+  assert.deepEqual(await sent('iac'), [[0xb0, 120, 0]], 'mute stops notes on the virtual bus');
   await emitApp('irig', [0x80, 60, 0]);
   await emitApp('irig', [0xb0, 90, 0]);
   await page.getByLabel('Button 1: released').waitFor();
@@ -526,7 +528,7 @@ try {
   await page.locator('.drum-card').first().getByText('MAX VEL 90').waitFor();
   assert.match(await page.locator('.drum-card').first().textContent(), /MAX VEL 90/, 'first fader movement sets velocity');
   const velocityBar = page.locator('.drum-card').first().locator('.bar');
-  assert.equal(await velocityBar.getAttribute('aria-label'), 'Pad 1 maximum velocity 90, played velocity 100');
+  assert.equal(await velocityBar.getAttribute('aria-label'), 'Pad 1 maximum velocity 90, played velocity 90');
   await emitApp('irig', [0x80, 60, 0]);
   await emitApp('irig', [0x90, 60, 64]);
   await page.getByLabel('Pad 1 maximum velocity 90, played velocity 45').waitFor();
@@ -578,7 +580,7 @@ try {
   await emitApp('irig', [0x90, 60, 100]);
   await clear();
   await page.evaluate(() => window.mockMidi.setState('input', 'irig', 'disconnected'));
-  await page.waitForFunction(() => document.querySelector('#message').textContent.includes('disconnected'));
+  await page.waitForFunction(() => window.mockMidi.inputs.get('irig').onmidimessage === null);
   assert((await sent('opz')).some((m) => m.join() === '129,40,0'), 'input disconnect releases sounding notes');
   await page.evaluate(() => window.mockMidi.setState('input', 'irig', 'connected'));
   await page.waitForFunction(() => window.mockMidi.inputs.get('irig').onmidimessage !== null);
@@ -591,6 +593,23 @@ try {
   await emitApp('irig', [0xb2, 96, 64]);
   assert.equal(await page.getByRole('heading', { name: 'EMPTY SCENE' }).count(), 1, 'unconfigured scenes show an empty state');
   await page.getByRole('button', { name: 'OP-Z', exact: true }).click();
+  await page.waitForFunction(() => document.querySelector('.diagnostics').textContent.includes('LAST OBSERVED OP-Z PROJECT —'));
+  await emit('opz', [0xc7, 0]);
+  await page.waitForFunction(() => document.querySelector('.diagnostics').textContent.includes('PROJECT 8'));
+  assert.match(await page.locator('.diagnostics').textContent(), /PROJECT 8\s+PATTERN 1/);
+  await emit('opz', [0xc7, 1]);
+  await page.waitForFunction(() => /PROJECT 8\s+PATTERN 2/.test(document.querySelector('.diagnostics').textContent));
+  await emit('opz', [0xc7, 5]);
+  await page.waitForFunction(() => /PROJECT 8\s+PATTERN 6/.test(document.querySelector('.diagnostics').textContent));
+  assert.match(await page.locator('.diagnostics').textContent(), /PROJECT 8\s+PATTERN 6/);
+  await emit('opz', [0xc9, 15]);
+  await page.waitForFunction(() => document.querySelector('.diagnostics').textContent.includes('PROJECT 10'));
+  assert.match(await page.locator('.diagnostics').textContent(), /PROJECT 10\s+PATTERN 16/);
+  await emit('opz', [0xb2, 103, 5]);
+  await page.waitForFunction(() => document.querySelector('.diagnostics').textContent.includes('PROJECT 3'));
+  assert.match(await page.locator('.diagnostics').textContent(), /PROJECT 3\s+PATTERN 6/);
+  await emit('opz', [0xc2, 16]);
+  await page.waitForFunction(() => document.querySelector('.diagnostics').textContent.includes('PROJECT —'));
   assert.equal(await page.getByRole('button', { name: 'Channel 2 CC 5' }).textContent(), '75');
   await page.getByRole('button', { name: 'Channel 2 CC 5' }).click();
   assert.match(await page.locator('.diagnostics').textContent(), /1 recent messages/);
@@ -649,6 +668,20 @@ try {
 
   await page.getByLabel('Project name').fill('Snapshot');
   await page.getByRole('button', { name: 'Save project' }).click();
+  const projectOverwriteDialog = page.waitForEvent('dialog');
+  await dropFiles(projectLibrary, [{ name: 'project_Snapshot.json', content: JSON.stringify(replacement) }]);
+  await (await projectOverwriteDialog).accept();
+  await page.waitForFunction(() => JSON.parse(localStorage.getItem('opz-pads-library-v1'))
+    .projects.find((item) => item.name === 'Snapshot').value.scenes[1].pads[0].velocity === 77);
+  let saveDialogs = 0;
+  const dismissSaveDialog = (dialog) => { saveDialogs++; void dialog.dismiss(); };
+  page.on('dialog', dismissSaveDialog);
+  await page.getByRole('button', { name: 'Save project' }).click();
+  page.off('dialog', dismissSaveDialog);
+  assert.equal(saveDialogs, 0, 'saving over a project does not ask for confirmation');
+  let library = JSON.parse(await page.evaluate(() => localStorage.getItem('opz-pads-library-v1')));
+  assert.equal(library.projects.filter((item) => item.name === 'Snapshot').length, 1);
+  assert.equal(library.projects.find((item) => item.name === 'Snapshot').value.scenes[1].pads[0].velocity, 45);
   const downloadPromise = page.waitForEvent('download');
   await page.getByRole('button', { name: 'Download project Snapshot' }).click();
   const download = await downloadPromise;
@@ -683,8 +716,21 @@ try {
   const kitFile = JSON.parse(Buffer.concat(kitChunks).toString());
   assert.equal(kitFile.kit.pads[0].velocity, 45);
   assert.equal(kitFile.kit.pads[1].channel, 12, 'exported kits retain performance FX assignments');
-  page.once('dialog', (dialog) => dialog.dismiss());
+  const differentKit = structuredClone(kitFile);
+  differentKit.kit.pads[0].velocity = 77;
+  const kitOverwriteDialog = page.waitForEvent('dialog');
+  await dropFiles(kitLibrary, [{ name: 'kit_Snapshot.json', content: JSON.stringify(differentKit) }]);
+  await (await kitOverwriteDialog).accept();
+  await page.waitForFunction(() => JSON.parse(localStorage.getItem('opz-pads-library-v1'))
+    .kits.find((item) => item.name === 'Snapshot').value.pads[0].velocity === 77);
+  saveDialogs = 0;
+  page.on('dialog', dismissSaveDialog);
   await page.getByRole('button', { name: 'Save kit' }).click();
+  page.off('dialog', dismissSaveDialog);
+  assert.equal(saveDialogs, 0, 'saving over a kit does not ask for confirmation');
+  library = JSON.parse(await page.evaluate(() => localStorage.getItem('opz-pads-library-v1')));
+  assert.equal(library.kits.filter((item) => item.name === 'Snapshot').length, 1);
+  assert.equal(library.kits.find((item) => item.name === 'Snapshot').value.pads[0].velocity, 45);
   page.once('dialog', (dialog) => dialog.accept());
   await page.getByRole('button', { name: 'Init kit' }).click();
   assert.equal(JSON.parse(await page.evaluate(() => localStorage.getItem('opz-pads-project-v1'))).scenes[1].pads[0], null);
@@ -946,26 +992,43 @@ try {
   await page.evaluate(() => {
     window.restoreStorage();
     localStorage.setItem('opz-pads-library-v1', '{"version":99}');
+    localStorage.setItem('opz-pads-test-unrelated', 'preserved');
   });
   await page.reload();
+  const invalidLibraryLog = page.waitForEvent('console', {
+    predicate: (message) => message.type() === 'warning' && message.text().includes('Reset invalid or unsupported stored library'),
+  });
   await page.getByRole('button', { name: 'Project', exact: true }).click();
-  await page.getByText('Could not load library: Stored library has an invalid or unsupported format').waitFor();
-  assert.equal(await page.getByRole('button', { name: 'Save project' }).isDisabled(), true);
-  assert.equal(await page.evaluate(() => localStorage.getItem('opz-pads-library-v1')), '{"version":99}',
-    'invalid stored libraries are not overwritten');
+  await invalidLibraryLog;
+  assert.doesNotMatch(await page.locator('#message').textContent(), /Could not load library/);
+  await page.waitForFunction(() => !document.querySelector('[aria-label="Save project"]').disabled);
+  assert.equal(await page.evaluate(() => localStorage.getItem('opz-pads-library-v1')), null);
+  assert.equal(await page.evaluate(() => localStorage.getItem('opz-pads-test-unrelated')), 'preserved');
+  await emitApp('irig', [0xb1, 96, 64]);
+  await page.getByLabel('Kit name').fill('New kit');
+  await page.getByRole('button', { name: 'Save kit' }).click();
+  await page.reload();
+  await page.getByRole('button', { name: 'Project', exact: true }).click();
+  await page.getByRole('button', { name: 'New kit', exact: true }).waitFor();
   await page.evaluate(() => {
     localStorage.setItem('opz-pads-library-v1', JSON.stringify({ version: 1, projects: [], kits: [] }));
   });
   await page.reload();
+  const unsupportedLibraryLog = page.waitForEvent('console', {
+    predicate: (message) => message.type() === 'warning' && message.text().includes('Reset invalid or unsupported stored library'),
+  });
   await page.getByRole('button', { name: 'Project', exact: true }).click();
-  await page.getByText('Could not load library: Stored library has an invalid or unsupported format').waitFor();
-  assert.equal(await page.evaluate(() => JSON.parse(localStorage.getItem('opz-pads-library-v1')).version), 1,
-    'unsupported v1 libraries are not overwritten');
+  await unsupportedLibraryLog;
+  assert.doesNotMatch(await page.locator('#message').textContent(), /Could not load library/);
+  assert.equal(await page.evaluate(() => localStorage.getItem('opz-pads-library-v1')), null,
+    'unsupported v1 libraries are cleared');
+  await page.waitForFunction(() => !document.querySelector('[aria-label="Save project"]').disabled);
   await page.evaluate(() => {
     const project = JSON.parse(localStorage.getItem('opz-pads-project-v1'));
     project.version = 1;
     localStorage.setItem('opz-pads-project-v1', JSON.stringify(project));
     localStorage.removeItem('opz-pads-library-v1');
+    localStorage.removeItem('opz-pads-test-unrelated');
   });
   await page.reload();
   await page.getByText('Stored project has an invalid or unsupported format').waitFor();

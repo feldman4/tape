@@ -58,8 +58,9 @@ export class MixerHandler implements SceneHandler<MixerScene> {
       if (event.on && controller.buttons[0]) {
         const muted = this.muted[event.index] !== true;
         if (this.send('opz', [0xb0 + event.index, 53, muted ? 1 : 0])) this.setMute(event.index, muted);
-        this.send('iac', [0xb0 + event.index, 120, 0]);
-        this.send('iac', [0xb0 + event.index, 123, 0]);
+        if (muted) {
+          this.send('iac', [0xb0 + event.index, 120, 0]);
+        }
       } else if (event.on && controller.buttons[1] && event.index < 10) {
         if (this.send('opz', [0xb0, 55, event.index])) this.selectGroup(event.index);
       }
