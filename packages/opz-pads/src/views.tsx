@@ -64,6 +64,42 @@ export function ScenesView({ engine, onTypeChange, onImport, onReset, onExport }
   </div>;
 }
 
+export function MixerView({ engine }: EngineProps) {
+  const { mixer } = engine;
+  return <div className="mixer-layout">
+    <h2>TRACK LEVELS AND PAN</h2>
+    <div className="mixer-tracks">{mixer.levels.map((level, index) =>
+      <div className={`mixer-track track-color-${Math.floor(index / 4)}`} key={index}>
+        <strong>{index + 1}</strong>
+        <div className="mixer-level" aria-label={`Track ${index + 1} level ${level ?? 'unknown'}`}>
+          {mixer.baseLevels[index] !== null && <i className="base-level" aria-label={`Track ${index + 1} underlying level ${mixer.baseLevels[index]}`}
+            style={{ height: `${mixer.baseLevels[index] / 127 * 100}%` }} />}
+          {level !== null && <i className="final-level" style={{ height: `${level / 127 * 100}%` }} />}
+        </div>
+        <span>{level ?? '—'}</span><small>PAN {mixer.pans[index] ?? '—'}</small>
+        <small>{mixer.muted[index] === null ? 'UNKNOWN' : mixer.muted[index] ? 'MUTED' : 'ACTIVE'}</small>
+      </div>)}</div>
+    <div className="mixer-details"><section><h2>CONTROLLER STATUS</h2>
+      <div className="mixer-buttons">{engine.buttons.map((pressed, index) =>
+        <div key={index} data-button={index + 1} className={`mixer-button ${pressed ? 'active' : ''}`}
+          role="img" aria-label={`Button ${index + 1}: ${pressed ? 'pressed' : 'released'}`}>
+          <span>BUTTON {index + 1}</span><small>{pressed ? 'PRESSED' : 'RELEASED'}</small>
+        </div>)}</div>
+      <PadGrid engine={engine} compact /></section>
+      <section><h2>MUTE GROUPS — {mixer.group + 1}</h2>
+        <div className="mixer-matrix"><span />{mixer.muted.map((_, index) => <span key={index}>{index + 1}</span>)}
+          {mixer.groups.map((group, groupIndex) => <Fragment key={groupIndex}>
+            <span>{groupIndex + 1}</span>{group.map((muted, index) =>
+              <span key={index} className={`track-color-${Math.floor(index / 4)}`}
+                aria-label={`Group ${groupIndex + 1}, track ${index + 1}: ${muted === null ? 'unknown' : muted ? 'muted' : 'active'}`}>
+                {muted === null ? '–' : muted ? '○' : '●'}
+              </span>)}
+          </Fragment>)}
+        </div><p>● active &nbsp; ○ muted &nbsp; – unknown</p></section>
+    </div>
+  </div>;
+}
+
 export function DrumView({ engine }: EngineProps) {
   const current = engine.project.scenes[engine.scene];
   if (current.type !== 'drum') return <div className="empty-state"><h2>DRUM KIT</h2>

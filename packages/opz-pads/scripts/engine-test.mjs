@@ -9,7 +9,7 @@ function setup() {
   const sent = [];
   const saved = [];
   const engine = new Engine({
-    send: (destination, bytes) => sent.push({ destination, bytes }),
+    send: (destination, bytes) => { sent.push({ destination, bytes }); return true; },
     changed: () => {},
     save: (project) => saved.push(structuredClone(project)),
   });
@@ -18,6 +18,368 @@ function setup() {
   engine.irig([0xb1, 90, 0]);
   return { engine, sent, saved };
 }
+
+test('mixer controls known OP-Z levels and forwards resulting values without compounding fader changes', () => {
+  const sent = [];
+  const engine = new Engine({ send: (destination, bytes) => { sent.push({ destination, bytes }); return true; }, changed: () => {}, save: () => {} });
+  engine.opz([0xb0, 16, 100]);
+  engine.opz([0xb0, 15, 64]);
+  assert.deepEqual(sent.filter(({ destination }) => destination === 'iac').map(({ bytes }) => bytes),
+    [[0xb0, 16, 100], [0xb0, 15, 64]]);
+  sent.length = 0;
+  engine.irig([0x90, 60, 100]);
+  engine.irig([0xb0, 96, 64]);
+  engine.irig([0xb0, 96, 127]);
+  engine.irig([0xb0, 95, 50]);
+  engine.irig([0xb0, 95, 55]);
+  assert.deepEqual(sent.filter(({ destination }) => destination === 'opz').map(({ bytes }) => bytes),
+    [[0xb0, 15, 50], [0xb0, 15, 55]]);
+  assert.deepEqual(sent.filter(({ destination }) => destination === 'iac').map(({ bytes }) => bytes),
+    [[0xb0, 16, 50], [0xb0, 16, 100], [0xb0, 15, 50], [0xb0, 15, 55]]);
+  engine.irig([0x80, 60, 0]);
+  engine.irig([0x90, 60, 100]);
+  engine.irig([0xb0, 96, 64]);
+  engine.irig([0x80, 60, 0]);
+  engine.irig([0x90, 60, 100]);
+  engine.irig([0xb0, 96, 127]);
+  assert.equal(engine.mixer.levels[0], 100, 'fader retains the underlying level across pad releases');
+  engine.irig([0x80, 60, 0]);
+  engine.irig([0x91, 60, 100]);
+  sent.length = 0;
+  engine.irig([0xb0, 96, 60]);
+  assert.equal(sent.filter(({ destination }) => destination === 'opz' || destination === 'iac').length, 0, 'unknown level is not guessed');
+});
+
+test('mixer pots set absolute values on all held tracks, even before feedback', () => {
+  const sent = [];
+  const engine = new Engine({ send: (destination, bytes) => { sent.push({ destination, bytes }); return true; }, changed: () => {}, save: () => {} });
+  engine.opz([0xb0, 16, 100]);
+  engine.irig([0x90, 60, 100]);
+  engine.irig([0x91, 60, 100]);
+  engine.irig([0xb0, 96, 64]);
+  sent.length = 0;
+  engine.irig([0xb0, 94, 80]);
+  engine.irig([0xb0, 95, 0]);
+  assert.deepEqual(sent.filter(({ destination }) => destination === 'opz').map(({ bytes }) => bytes),
+    [[0xb0, 16, 80], [0xb1, 16, 80], [0xb0, 15, 0], [0xb1, 15, 0]]);
+  assert.deepEqual(sent.filter(({ destination }) => destination === 'iac').map(({ bytes }) => bytes),
+    [[0xb0, 16, 40], [0xb1, 16, 80], [0xb0, 15, 0], [0xb1, 15, 0]]);
+  engine.irig([0xb0, 96, 127]);
+  assert.deepEqual(engine.mixer.levels.slice(0, 2), [80, 80], 'pot 1 establishes the new fader baseline');
+  engine.irig([0xb0, 94, 127]);
+  engine.irig([0xb0, 95, 127]);
+  assert.deepEqual(engine.mixer.levels.slice(0, 2), [127, 127]);
+  assert.deepEqual(engine.mixer.pans.slice(0, 2), [127, 127]);
+});
+
+test('mixer LEDs show each track fader scale while retaining the underlying level', (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  let canSend = true;
+  const engine = new Engine({ send: (destination) => destination !== 'iac' || canSend, changed: () => {}, save: () => {} });
+  engine.opz([0xb0, 16, 100]);
+  engine.opz([0xb1, 16, 40]);
+  engine.irig([0x90, 60, 100]);
+  engine.irig([0x91, 60, 100]);
+  engine.irig([0xb0, 96, 64]);
+  assert.deepEqual(engine.mixer.baseLevels.slice(0, 2), [100, 40]);
+  assert.deepEqual(engine.mixer.levels.slice(0, 2), [50, 20]);
+  assert.deepEqual(engine.leds().slice(0, 3), [[34, 21], [34, 21], [0, 127]]);
+  engine.opz([0xb0, 16, 100]);
+  assert.deepEqual(engine.leds()[0], [34, 21], 'echo preserves the fader scale');
+  engine.opz([0xb0, 53, 1]);
+  assert.deepEqual(engine.leds()[0], [0, 0], 'muting overrides the scale');
+  engine.opz([0xb0, 53, 0]);
+  assert.deepEqual(engine.leds()[0], [34, 21]);
+  canSend = false;
+  engine.irig([0xb0, 96, 0]);
+  assert.deepEqual(engine.leds()[0], [34, 21], 'failed sends do not change the scale');
+  canSend = true;
+  engine.irig([0xb0, 96, 0]);
+  assert.deepEqual(engine.leds().slice(0, 2), [[7, 5], [7, 5]], 'zero fader scale leaves active pads visible');
+  engine.irig([0xb0, 94, 80]);
+  assert.deepEqual(engine.mixer.baseLevels.slice(0, 2), [80, 80]);
+  engine.irig([0x80, 60, 0]);
+  engine.irig([0x81, 60, 0]);
+  assert.deepEqual(engine.leds().slice(0, 2), [[7, 5], [7, 5]], 'pot 1 preserves the scale');
+  assert.deepEqual(engine.mixer.levels.slice(0, 2), [0, 0]);
+  engine.irig([0x90, 60, 100]);
+  engine.irig([0x91, 60, 100]);
+  engine.irig([0xb0, 96, 64]);
+  engine.opz([0xb0, 16, 30]);
+  assert.equal(engine.mixer.baseLevels[0], 30);
+  assert.equal(engine.mixer.levels[0], 15);
+  assert.deepEqual(engine.leds()[0], [34, 21], 'new incoming level preserves the scale');
+  engine.resetOpz();
+  assert.deepEqual(engine.leds().slice(0, 2), [[0, 127], [0, 127]]);
+  engine.cancelReleaseLedRefreshes();
+});
+
+test('mixer pots show all track values while changing held tracks', (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const sent = [];
+  const engine = new Engine({ send: (destination, bytes) => { sent.push({ destination, bytes }); return true; }, changed: () => {}, save: () => {} });
+  engine.opz([0xb2, 16, 30]);
+  engine.opz([0xb2, 15, 127]);
+  engine.irig([0x90, 60, 100]);
+  engine.irig([0x91, 60, 100]);
+  sent.length = 0;
+  engine.irig([0xb0, 94, 80]);
+  assert.deepEqual(engine.leds().slice(0, 4), [[0, 80], [0, 80], [0, 30], [0, 0]]);
+  assert.deepEqual(sent.filter(({ destination }) => destination === 'opz').map(({ bytes }) => bytes),
+    [[0xb0, 16, 80], [0xb1, 16, 80]]);
+  t.mock.timers.tick(999);
+  sent.length = 0;
+  engine.irig([0xb0, 95, 0]);
+  assert.deepEqual(engine.leds().slice(0, 4), [[64, 0], [64, 0], [0, 127], [0, 0]]);
+  assert.deepEqual(sent.filter(({ destination }) => destination === 'opz').map(({ bytes }) => bytes),
+    [[0xb0, 15, 0], [0xb1, 15, 0]]);
+  t.mock.timers.tick(5000);
+  assert.deepEqual(engine.leds()[0], [64, 0], 'pot display persists while pads are held');
+  engine.irig([0x92, 60, 100]);
+  engine.irig([0x80, 60, 0]);
+  engine.irig([0x81, 60, 0]);
+  assert.deepEqual(engine.leds()[0], [64, 0], 'changing held pads preserves the display');
+  engine.irig([0xb0, 96, 64]);
+  assert.deepEqual(engine.leds()[0], [64, 0], 'fader movement preserves the pot display');
+  engine.irig([0xb0, 91, 127]);
+  engine.irig([0xb0, 94, 70]);
+  assert.deepEqual(engine.leds()[0], [127, 35], 'mute-group display takes precedence');
+  engine.irig([0xb0, 91, 0]);
+  assert.deepEqual(engine.leds()[0], [0, 80], 'pot display returns while any pad is held');
+  engine.irig([0x82, 60, 0]);
+  assert.deepEqual(engine.leds()[0], [0, 127], 'releasing the last pad restores the usual display');
+  engine.cancelReleaseLedRefreshes();
+});
+
+test('mixer fader display transitions to orange at half scale and dims toward zero', () => {
+  const sent = [];
+  const engine = new Engine({ send: (destination, bytes) => { sent.push({ destination, bytes }); return true; }, changed: () => {}, save: () => {} });
+  engine.opz([0xb0, 16, 100]);
+  engine.irig([0x90, 60, 100]);
+  const colors = [];
+  for (const scale of [0, 32, 63, 95, 127]) {
+    sent.length = 0;
+    engine.irig([0xb0, 96, scale]);
+    colors.push(engine.leds()[0]);
+    assert.deepEqual(sent.filter(({ destination }) => destination === 'irig').map(({ bytes }) => bytes),
+      [[0xb0, 94, colors.at(-1)[1]], [0xb0, 95, colors.at(-1)[0]]]);
+  }
+  assert.deepEqual(colors[0], [7, 5], 'minimum is a dim but visible orange');
+  assert.deepEqual(colors[4], [0, 127]);
+  assert(colors[0][0] < colors[1][0] && colors[1][0] < colors[2][0], 'orange gets brighter up to 50%');
+  assert.deepEqual(colors[2], [34, 20], '50% is orange with reduced red');
+  assert.deepEqual(colors[3], [24, 63], '75% is still transitioning toward orange');
+});
+
+test('fader offsets only the virtual bus, including pot changes and OP-Z feedback', () => {
+  const sent = [];
+  const engine = new Engine({ send: (destination, bytes) => { sent.push({ destination, bytes }); return true; }, changed: () => {}, save: () => {} });
+  engine.opz([0xb0, 16, 100]);
+  engine.irig([0x90, 60, 100]);
+  sent.length = 0;
+  engine.irig([0xb0, 96, 64]);
+  assert.deepEqual(sent.filter(({ destination }) => destination !== 'irig'), [{ destination: 'iac', bytes: [0xb0, 16, 50] }]);
+  sent.length = 0;
+  engine.irig([0xb0, 94, 80]);
+  assert.deepEqual(sent.filter(({ destination }) => destination !== 'irig'), [
+    { destination: 'opz', bytes: [0xb0, 16, 80] },
+    { destination: 'iac', bytes: [0xb0, 16, 40] },
+  ]);
+  sent.length = 0;
+  engine.opz([0xb0, 16, 80]);
+  engine.opz([0xb0, 16, 60]);
+  engine.opz([0xb1, 16, 60]);
+  engine.opz([0xb0, 15, 60]);
+  assert.deepEqual(sent.filter(({ destination }) => destination === 'iac').map(({ bytes }) => bytes),
+    [[0xb0, 16, 40], [0xb0, 16, 30], [0xb1, 16, 60], [0xb0, 15, 60]]);
+  assert.equal(engine.mixer.baseLevels[0], 60);
+  assert.equal(engine.mixer.levels[0], 30);
+  assert.deepEqual(engine.history[0][15].at(-1), { time: engine.history[0][15].at(-1).time, before: 60, after: 30 });
+  engine.selectScene(1);
+  sent.length = 0;
+  engine.opz([0xb0, 16, 100]);
+  assert.deepEqual(sent.filter(({ destination }) => destination === 'iac').map(({ bytes }) => bytes), [[0xb0, 16, 50]]);
+  engine.cancelReleaseLedRefreshes();
+});
+
+test('mixer pot display returns to mute LEDs after one second of inactivity', (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const sent = [];
+  let changes = 0;
+  const engine = new Engine({ send: (destination, bytes) => { sent.push({ destination, bytes }); return true; }, changed: () => { changes++; }, save: () => {} });
+  engine.opz([0xb0, 53, 0]);
+  engine.opz([0xb0, 16, 40]);
+  engine.opz([0xb0, 15, 70]);
+  engine.irig([0xb0, 94, 10]);
+  assert.deepEqual(engine.leds()[0], [0, 40]);
+  assert.deepEqual(engine.leds()[1], [0, 0], 'unknown level is dark');
+  engine.opz([0xb1, 15, 0]);
+  t.mock.timers.tick(999);
+  assert.deepEqual(engine.leds()[0], [0, 40]);
+  engine.irig([0xb0, 95, 10]);
+  assert.deepEqual(engine.leds()[0], [29, 70]);
+  assert.deepEqual(engine.leds()[1], [64, 0], 'hard left is red');
+  assert.deepEqual(engine.leds()[2], [0, 0], 'unknown pan is dark');
+  t.mock.timers.tick(999);
+  assert.deepEqual(engine.leds()[0], [29, 70]);
+  sent.length = 0;
+  const previousChanges = changes;
+  t.mock.timers.tick(1);
+  assert.deepEqual(engine.leds()[0], [0, 127]);
+  assert(sent.some(({ destination, bytes }) => destination === 'irig' && bytes.join() === '176,94,127'));
+  assert.equal(changes, previousChanges + 1, 'timeout refreshes the UI');
+  engine.irig([0xb0, 94, 11]);
+  engine.irig([0x90, 60, 100]);
+  sent.length = 0;
+  t.mock.timers.tick(1000);
+  assert.equal(sent.length, 0, 'pad interaction cancels the display timeout');
+  engine.irig([0x80, 60, 0]);
+  engine.irig([0xb0, 94, 12]);
+  engine.selectScene(1);
+  t.mock.timers.tick(200);
+  sent.length = 0;
+  t.mock.timers.tick(800);
+  assert.equal(sent.length, 0, 'scene changes cancel the display timeout');
+});
+
+test('mixer pan display transitions from red to green and leaves unknown values off', (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const sent = [];
+  const engine = new Engine({ send: (destination, bytes) => { sent.push({ destination, bytes }); return true; }, changed: () => {}, save: () => {} });
+  engine.opz([0xb0, 15, 0]);
+  engine.opz([0xb1, 15, 64]);
+  engine.opz([0xb2, 15, 127]);
+  engine.opz([0xb1, 53, 1]);
+  sent.length = 0;
+  engine.irig([0xb0, 95, 10]);
+  assert.deepEqual(engine.leds().slice(0, 4), [[64, 0], [32, 64], [0, 127], [0, 0]]);
+  assert(sent.some(({ destination, bytes }) => destination === 'irig' && bytes.join() === '176,95,64'), 'hard-left red is sent to the iRig');
+  engine.opz([0xb0, 15, 127]);
+  assert.deepEqual(engine.leds()[0], [0, 127], 'incoming pan changes update the display');
+  t.mock.timers.tick(1000);
+  assert.deepEqual(engine.leds()[1], [0, 0], 'muted track is dark again after the timeout');
+});
+
+test('mixer assumes group 1 and displays unknown track mutes as green', () => {
+  const engine = new Engine({ send: () => true, changed: () => {}, save: () => {} });
+  assert.equal(engine.mixer.group, 0);
+  assert.equal(engine.mixer.muted[0], null);
+  assert.deepEqual(engine.leds()[0], [0, 127]);
+  engine.opz([0xb0, 53, 1]);
+  assert.equal(engine.mixer.groups[0][0], true);
+  assert.deepEqual(engine.leds()[0], [0, 0]);
+  engine.opz([0xb0, 53, 0]);
+  assert.deepEqual(engine.leds()[0], [0, 127]);
+  engine.opz([0xb0, 55, 2]);
+  assert.deepEqual(engine.leds()[0], [0, 127], 'unknown tracks in another group are green');
+  for (const reset of [
+    () => engine.opz([0xc0, 1]),
+    () => engine.opz([0xb0, 103, 1]),
+    () => engine.resetOpz(),
+  ]) {
+    engine.opz([0xb0, 55, 2]);
+    engine.opz([0xb0, 53, 1]);
+    reset();
+    assert.equal(engine.mixer.group, 0);
+    assert.equal(engine.mixer.groups[2][0], null);
+    assert.equal(engine.mixer.muted[0], null);
+    assert.deepEqual(engine.leds()[0], [0, 127]);
+    engine.opz([0xb0, 53, 1]);
+    assert.equal(engine.mixer.groups[0][0], true);
+  }
+});
+
+test('button 2 highlights the selected mute group and dims the other groups', (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const sent = [];
+  let canSend = true;
+  const engine = new Engine({ send: (destination, bytes) => { sent.push({ destination, bytes }); return destination !== 'opz' || canSend; }, changed: () => {}, save: () => {} });
+  const groupLeds = (index) => Array.from({ length: 16 }, (_, pad) => pad === index ? [127, 35] : pad < 10 ? [7, 5] : [0, 0]);
+  engine.opz([0xb0, 16, 50]);
+  engine.irig([0xb0, 94, 10]);
+  engine.irig([0xd1, 80]);
+  sent.length = 0;
+  engine.irig([0xb0, 91, 127]);
+  assert.deepEqual(engine.leds(), groupLeds(0), 'group display overrides the pot display');
+  assert.equal(sent.filter(({ destination }) => destination === 'irig').length, 32, 'button press refreshes even pending pressure LEDs');
+  assert(sent.some(({ destination, bytes }) => destination === 'irig' && bytes.join() === '176,96,5'));
+  assert(sent.some(({ destination, bytes }) => destination === 'irig' && bytes.join() === '176,97,7'));
+  engine.irig([0x92, 60, 100]);
+  assert.deepEqual(engine.leds(), groupLeds(2));
+  engine.irig([0x82, 60, 0]);
+  engine.irig([0x9a, 60, 100]);
+  assert.deepEqual(engine.leds(), groupLeds(2), 'pads 11-16 do not select a group');
+  engine.irig([0x8a, 60, 0]);
+  canSend = false;
+  engine.irig([0x93, 60, 100]);
+  assert.deepEqual(engine.leds(), groupLeds(2), 'failed group selection keeps the current group');
+  engine.irig([0x83, 60, 0]);
+  engine.opz([0xb0, 55, 9]);
+  assert.deepEqual(engine.leds(), groupLeds(9), 'incoming group changes update the display');
+  t.mock.timers.tick(200);
+  assert.deepEqual(engine.leds(), groupLeds(9), 'delayed release refreshes keep the group display');
+  engine.irig([0xb0, 91, 0]);
+  assert.deepEqual(engine.leds(), Array.from({ length: 16 }, () => [0, 127]), 'button release restores the track display');
+});
+
+test('mixer toggles unknown mute, sends channel-specific note stops, and tracks selected groups', () => {
+  const sent = [];
+  const engine = new Engine({ send: (destination, bytes) => { sent.push({ destination, bytes }); return true; }, changed: () => {}, save: () => {} });
+  engine.irig([0xb0, 91, 127]);
+  engine.irig([0x92, 60, 100]);
+  assert.equal(engine.mixer.group, 2);
+  assert.equal(engine.mixer.groups[2][1], null);
+  assert(sent.some(({ destination, bytes }) => destination === 'opz' && bytes.join() === '176,55,2'));
+  engine.irig([0x82, 60, 0]);
+  engine.irig([0xb0, 91, 0]);
+  engine.irig([0xb0, 90, 127]);
+  sent.length = 0;
+  engine.irig([0x91, 60, 100]);
+  assert.equal(engine.mixer.groups[2][1], true);
+  assert.deepEqual(sent.filter(({ destination }) => destination !== 'irig'), [
+    { destination: 'opz', bytes: [0xb1, 53, 1] },
+    { destination: 'iac', bytes: [0xb1, 120, 0] },
+    { destination: 'iac', bytes: [0xb1, 123, 0] },
+  ]);
+  engine.irig([0x81, 60, 0]);
+  engine.irig([0x91, 60, 100]);
+  assert.equal(engine.mixer.groups[2][1], false);
+  engine.opz([0xb1, 53, 1]);
+  assert.equal(engine.mixer.groups[2][1], true);
+  engine.opz([0xb0, 55, 3]);
+  assert.equal(engine.mixer.muted[1], null, 'another group remains unknown');
+  engine.opz([0xb0, 55, 2]);
+  assert.equal(engine.mixer.muted[1], true);
+  engine.opz([0xc0, 1]);
+  assert.equal(engine.mixer.groups[2][1], null, 'pattern changes invalidate group observations');
+  engine.resetOpz();
+  assert.equal(engine.mixer.groups[2][1], null);
+});
+
+test('OP-Z forwards unrecognized MIDI messages to the virtual output unchanged', () => {
+  const sent = [];
+  const engine = new Engine({ send: (destination, bytes) => { sent.push({ destination, bytes }); return true; }, changed: () => {}, save: () => {} });
+  for (const data of [[0xf8], [0xe2, 0, 64], [0xc1, 7], [0x91, 60, 100]]) engine.opz(data);
+  assert.deepEqual(sent.filter(({ destination }) => destination === 'iac').map(({ bytes }) => bytes),
+    [[0xf8], [0xe2, 0, 64], [0xc1, 7], [0x91, 60, 100]]);
+});
+
+test('failed OP-Z mixer commands do not update the displayed state', () => {
+  const sent = [];
+  const engine = new Engine({
+    send: (destination, bytes) => { sent.push({ destination, bytes }); return destination !== 'opz'; },
+    changed: () => {}, save: () => {},
+  });
+  engine.opz([0xb0, 16, 100]);
+  engine.irig([0x90, 60, 100]);
+  engine.irig([0xb0, 94, 64]);
+  assert.equal(engine.mixer.levels[0], 100);
+  assert.equal(sent.filter(({ destination, bytes }) => destination === 'iac' && bytes[1] === 16).length, 1);
+  engine.irig([0x80, 60, 0]);
+  engine.irig([0xb0, 90, 127]);
+  engine.irig([0x90, 60, 100]);
+  assert.equal(engine.mixer.muted[0], null);
+});
 
 test('MIDI decoding normalizes note-off and rejects incomplete or unrelated messages', () => {
   assert.deepEqual(decodeMidi([0x92, 60, 0]), { type: 'note', channel: 2, note: 60, velocity: 0, on: false });
@@ -101,6 +463,7 @@ test('scene events combine timestamped controller and OP-Z input and refresh pre
   sent.length = 0;
   engine.irig([0xd0, 30], 10);
   assert.equal(events.length, 0, 'unheld pads ignore pressure');
+  sent.length = 0;
   engine.irig([0x90, 60, 50], 11);
   engine.irig([0xd0, 70], 12);
   engine.irig([0xb1, 94, 64], 13);
@@ -112,11 +475,131 @@ test('scene events combine timestamped controller and OP-Z input and refresh pre
   assert.equal(events[1].pressure, 70, 'controller state is updated before dispatch');
   assert.equal(events[4].event.transport, 'stopped');
   assert.deepEqual(sent.filter(({ destination }) => destination === 'irig').map(({ bytes }) => bytes), [
-    [0xb0, 95, 50], [0xb0, 95, 70],
-  ], 'only changed LED components are sent');
+    [0xb0, 94, 0], [0xb0, 95, 50],
+  ], 'other updates do not flush a pending pressure LED');
   sent.length = 0;
   engine.refreshLeds();
   assert.equal(sent.filter(({ destination }) => destination === 'irig').length, 32, 'explicit refresh reconciles all LEDs');
+});
+
+test('pad interactions restore the intended mixer LED even when its color is unchanged', () => {
+  const sent = [];
+  const engine = new Engine({ send: (destination, bytes) => { sent.push({ destination, bytes }); return true; }, changed: () => {}, save: () => {} });
+  engine.opz([0xb0, 53, 0]);
+  sent.length = 0;
+  for (const data of [[0x90, 60, 100], [0xd0, 64], [0x90, 60, 100], [0x80, 60, 0], [0x80, 60, 0]]) engine.irig(data);
+  assert.deepEqual(sent.filter(({ destination }) => destination === 'irig').map(({ bytes }) => bytes),
+    Array.from({ length: 4 }, () => [[0xb0, 94, 127], [0xb0, 95, 0]]).flat());
+  engine.cancelReleaseLedRefreshes();
+  engine.releaseAll();
+});
+
+test('pad release reconciles the latest LED state after the iRig changes it', (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const sent = [];
+  const engine = new Engine({ send: (destination, bytes) => { sent.push({ destination, bytes }); return true; }, changed: () => {}, save: () => {} });
+  engine.opz([0xb0, 53, 0]);
+  engine.irig([0x90, 60, 100]);
+  engine.irig([0xb0, 94, 80]);
+  sent.length = 0;
+  engine.irig([0x80, 60, 0]);
+  const leds = () => sent.filter(({ destination, bytes }) => destination === 'irig' && (bytes[1] === 94 || bytes[1] === 95)).map(({ bytes }) => bytes);
+  assert.deepEqual(leds(), [[0xb0, 94, 127], [0xb0, 95, 0]], 'release refreshes immediately');
+  t.mock.timers.tick(199);
+  assert.equal(leds().length, 2);
+  engine.opz([0xb0, 53, 1]);
+  sent.length = 0;
+  t.mock.timers.tick(1);
+  assert.deepEqual(leds(), [[0xb0, 94, 0], [0xb0, 95, 0]], 'delayed refresh uses current state');
+  engine.irig([0x90, 60, 100]);
+  engine.irig([0x80, 60, 0]);
+  engine.irig([0x90, 60, 100]);
+  sent.length = 0;
+  t.mock.timers.tick(200);
+  assert.deepEqual(leds(), [[0xb0, 94, 0], [0xb0, 95, 0]], 'another press does not cancel the release refresh');
+  engine.irig([0x80, 60, 0]);
+  engine.releaseAll();
+  sent.length = 0;
+  t.mock.timers.tick(200);
+  assert.deepEqual(leds(), [[0xb0, 94, 0], [0xb0, 95, 0]], 'releaseAll does not cancel the release refresh');
+});
+
+test('every rapid pad release refreshes the current state after 200ms, including button-modified taps', (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const sent = [];
+  const engine = new Engine({ send: (destination, bytes) => { sent.push({ destination, bytes }); return true; }, changed: () => {}, save: () => {} });
+  engine.opz([0xb9, 53, 1]);
+  engine.irig([0xb0, 90, 127]);
+  engine.irig([0x99, 60, 100]);
+  engine.irig([0x89, 60, 0]);
+  t.mock.timers.tick(50);
+  engine.irig([0x99, 60, 100]);
+  engine.irig([0x89, 60, 0]);
+  engine.irig([0xb0, 90, 0]);
+  sent.length = 0;
+  t.mock.timers.tick(149);
+  assert.equal(sent.filter(({ destination }) => destination === 'irig').length, 0);
+  t.mock.timers.tick(1);
+  assert.deepEqual(sent.filter(({ destination }) => destination === 'irig').map(({ bytes }) => bytes),
+    [[0xb0, 80, 0], [0xb0, 81, 0]], 'first release refreshes latest muted state');
+  engine.opz([0xb9, 53, 0]);
+  sent.length = 0;
+  t.mock.timers.tick(50);
+  assert.deepEqual(sent.filter(({ destination }) => destination === 'irig').map(({ bytes }) => bytes),
+    [[0xb0, 80, 127], [0xb0, 81, 0]], 'second release refreshes the new active state');
+  engine.irig([0x89, 60, 0]);
+  engine.selectScene(1);
+  sent.length = 0;
+  t.mock.timers.tick(200);
+  assert.deepEqual(sent.filter(({ destination }) => destination === 'irig').map(({ bytes }) => bytes),
+    [[0xb0, 80, 0], [0xb0, 81, 0]], 'scene change still refreshes the new scene state');
+  engine.irig([0x89, 60, 0]);
+  engine.cancelReleaseLedRefreshes();
+  sent.length = 0;
+  t.mock.timers.tick(200);
+  assert.equal(sent.length, 0, 'explicit shutdown cancels outstanding timers');
+});
+
+test('pressure LED refreshes are coalesced, deliver latest state, and cancel on release', (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const { engine, sent } = setup();
+  engine.handlers.drum = {
+    leds: (_scene, controller) => controller.pressure.map((value) => [value, 0]),
+    handle: () => {}, release: () => {},
+  };
+  engine.irig([0x90, 60, 10]);
+  engine.irig([0x91, 60, 20]);
+  sent.length = 0;
+  for (const value of [30, 40, 50]) engine.irig([0xd0, value]);
+  engine.irig([0xd1, 60]);
+  engine.opz([0xb0, 15, 10]);
+  assert.equal(sent.filter(({ destination }) => destination === 'irig').length, 0);
+  t.mock.timers.tick(49);
+  assert.equal(sent.filter(({ destination }) => destination === 'irig').length, 0);
+  t.mock.timers.tick(1);
+  const leds = () => sent.filter(({ destination }) => destination === 'irig').map(({ bytes }) => bytes);
+  assert.deepEqual(leds(), [[0xb0, 94, 0], [0xb0, 95, 50], [0xb0, 96, 0], [0xb0, 97, 60]]);
+  sent.length = 0;
+  engine.irig([0xd0, 51]);
+  t.mock.timers.tick(25);
+  engine.irig([0xd0, 52]);
+  t.mock.timers.tick(24);
+  assert.equal(leds().length, 0, 'continuous pressure stays rate-limited');
+  t.mock.timers.tick(1);
+  assert.deepEqual(leds(), [[0xb0, 94, 0], [0xb0, 95, 52]], 'latest pressure is sent on the next interval');
+  sent.length = 0;
+  engine.irig([0xd0, 70]);
+  engine.irig([0xd0, 80]);
+  engine.irig([0x80, 60, 0]);
+  assert.deepEqual(leds(), [[0xb0, 94, 0], [0xb0, 95, 0]], 'release restores LEDs immediately');
+  t.mock.timers.tick(50);
+  assert.equal(leds().length, 2, 'release cancels the queued pressure refresh');
+  engine.cancelReleaseLedRefreshes();
+  engine.irig([0xd1, 90]);
+  sent.length = 0;
+  engine.releaseAll();
+  t.mock.timers.tick(50);
+  assert.equal(leds().length, 0, 'releaseAll cancels pending refreshes');
 });
 
 test('device adapter preserves MIDI event timestamps', () => {

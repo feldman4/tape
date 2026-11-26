@@ -21,6 +21,10 @@ nav button.selected { color: #00f5f5; border-bottom: 3px solid #00e9f1; }
 #message:not(:empty) { padding-top: 12px; }
 main { padding: 20px 2.5%; min-height: 70vh; }
 footer { color: #779aab; border-top: 1px solid #164153; padding: 18px 2.5%; }
+footer.with-led-log { margin-bottom: 125px; }
+.led-log { position: fixed; bottom: 0; left: 0; right: 0; z-index: 10; height: 125px; padding: 8px 2.5%; border-top: 1px solid #00677e; background: #02080b; color: #8eb6cb; font-size: 11px; }
+.led-log[hidden] { display: none; }
+.led-log strong { color: #00d9f2; font-weight: 400; }.led-log [role="log"] { height: 92px; overflow-y: auto; line-height: 1.5; }
 .controller { border: 2px solid #00bde3; border-radius: 26px; max-width: 540px; margin: 10px auto 12px; background: #000; overflow: hidden; }
 .device-top { min-height: 112px; display: flex; align-items: center; justify-content: space-around; gap: 10px; padding: 14px; border-bottom: 1px solid #00bde3; }
 .status-light { color: #21ef15; }.status-light small { color: #00d9f2; }
@@ -45,6 +49,17 @@ footer { color: #779aab; border-top: 1px solid #164153; padding: 18px 2.5%; }
 .scene-icon { font-size: 26px; color: #00e7ed; }.scene-card strong { font-weight: 400; }.scene-card .drum { color: #72ff16; }.scene-card .empty { color: #7999a9; }
 .scene-card label { display: flex; flex-direction: column; gap: 4px; font-size: 10px; }.scene-card select { width: 100%; padding: 4px 28px 4px 4px; }
 .project button, .file-label { display: block; width: 100%; text-align: left; margin: 12px 0; }.file-label input { display: block; width: 100%; margin-top: 8px; font-size: 10px; }
+.mixer-tracks { display: grid; grid-template-columns: repeat(16, minmax(65px, 1fr)); overflow-x: auto; margin: 20px 0 30px; }
+.mixer-track { display: flex; flex-direction: column; align-items: center; gap: 8px; border-right: 1px solid #14516c; color: var(--track-color); padding: 8px 2px; }
+.track-color-0 { --track-color: #00e9f1; }.track-color-1 { --track-color: #6dfb1b; }.track-color-2 { --track-color: #ed49e7; }.track-color-3 { --track-color: #ffac00; }
+.mixer-level { position: relative; width: 12px; height: 150px; background: #182b36; }.mixer-level i { position: absolute; bottom: 0; width: 100%; }.mixer-level .base-level { background: #8a969d; }.mixer-level .final-level { background: var(--track-color); }
+.mixer-track strong { font-weight: 400; }.mixer-track small { font-size: 9px; white-space: nowrap; }
+.mixer-details { display: grid; grid-template-columns: minmax(200px, 320px) minmax(540px, 1fr); gap: 30px; border-top: 1px solid #14516c; padding-top: 15px; overflow-x: auto; }
+.mixer-buttons { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; }
+.mixer-button { display: flex; justify-content: space-between; gap: 8px; align-items: center; padding: 8px; border: 1px solid #00a8c7; border-radius: 4px; color: #00d9f2; font-size: 10px; }
+.mixer-button small { font-size: inherit; color: #8eb6cb; }.mixer-button.active { border-color: #6dfb1b; color: #6dfb1b; background: #103515; }.mixer-button.active small { color: inherit; }
+.mixer-matrix { display: grid; grid-template-columns: repeat(17, minmax(24px, 1fr)); gap: 8px; text-align: center; }.mixer-matrix span { color: var(--track-color, #b7daf3); }
+.mixer-details p { color: #8eb6cb; font-size: 12px; }
 .drum-layout { display: grid; grid-template-columns: 2fr 1.1fr; gap: 30px; }.drum-grid { row-gap: 12px; }.drum-card { border: 2px solid currentColor; border-radius: 6px; min-height: 130px; padding: 10px; color: #6b8395; }.drum-card b { float: right; }.drum-card h2 { color: inherit; margin: 12px 0 5px; }.drum-card p { margin: 0 0 12px; }.drum-card small { color: inherit; }
 .yellow { color: #d6ec24; }.red { color: #ff2351; }.orange { color: #ffac00; }.green { color: #6dfb1b; }.bar { height: 7px; background: #182b36; margin-top: 7px; }.bar i { display: block; height: 100%; background: currentColor; }
 .mapping { border-left: 1px solid #135266; padding-left: 24px; }.mapping h2 { border-bottom: 1px solid #008ca5; padding-bottom: 12px; margin-top: 30px; }.mapping h2:first-child { margin-top: 0; }.mapping table { width: 100%; border-collapse: collapse; font-size: 11px; }.mapping th, .mapping td { border-bottom: 1px solid #14516c; padding: 15px 3px; text-align: left; font-weight: 400; }.mapping p { line-height: 1.7; }

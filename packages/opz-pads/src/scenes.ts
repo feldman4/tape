@@ -3,7 +3,7 @@ import type { Control, IrigEvent, MidiEvent } from './midi.ts';
 import type { DrumPad, DrumScene, Scene } from './model.ts';
 import { IRIG_MIDI } from './irig-midi.ts';
 
-export type Send = (destination: 'opz' | 'irig', bytes: number[]) => void;
+export type Send = (destination: 'opz' | 'irig' | 'iac', bytes: number[]) => boolean;
 export type Led = [red: number, green: number];
 
 export type Transport = 'unknown' | 'running' | 'stopped';

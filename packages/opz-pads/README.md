@@ -1,9 +1,9 @@
 # OP-Z Pads
 
 A first pass at a browser-based iRig/OP-Z controller, with mocked MIDI
-workflow tests. Mixer, performance FX and kit-library workflows remain
+workflow tests. Performance FX and kit-library workflows remain
 unimplemented; hardware mappings need verification. See the
-[user manual and current setup](docs/MANUAL.md),
+[user manual](docs/MANUAL.md), [device setup](docs/device-setup.md),
 [implementation notes](docs/implementation_notes.md), and
 [iRig Pads control surface and MIDI reference](docs/irig-pads.md).
 
@@ -32,15 +32,19 @@ state (`src/controller.ts`), project validation (`src/model.ts`), and scene
 behavior (`src/scenes.ts`). Web MIDI port access is isolated in
 `src/devices.ts`, with the React UI in `src/App.tsx` and `src/views.tsx`.
 iRig MIDI assignments and LED mappings are centralized in `src/irig-midi.ts`.
-Mixer and empty scenes currently have no behavior; drum playback and its
-audition timers belong to the drum handler.
+The mixer handles OP-Z level, pan, mute and mute-group controls; the empty
+scene has no behavior. Drum playback and its audition timers belong to the
+drum handler.
 
 Scene handlers receive timestamped controller and OP-Z events after the
 controller state is updated. Event times use the Web MIDI monotonic clock;
 direct engine calls default to `performance.now()`. This is groundwork for
 gestures, not a gesture recognizer; performance FX remains unimplemented.
-LED updates send changed components, while explicit refreshes resend all LEDs
-to reconcile device scene changes and port setup.
+LED updates send changed components; pad presses and releases resend both
+colors immediately, and releases refresh again after 200 ms to reconcile the
+iRig's own LED changes. Pressure refreshes are coalesced at most every 50 ms.
+Explicit refreshes resend all LEDs to reconcile device scene changes and port
+setup.
 
 Run `npm run test:unit --workspace=opz-pads` for the engine tests (Node 23.6+
 supports the type-stripping flag), and `npm run lint --workspace=opz-pads`

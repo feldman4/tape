@@ -31,10 +31,9 @@ User workflows belong in
 
 ## MIDI routing and diagnostics
 
-- Pass MIDI to and from the OP-Z via a virtual MIDI device. Route relevant
-  Ableton Live mixer controls as well. Determine the supported runtime and
-  virtual-port mechanism; a browser alone must not be assumed to provide
-  virtual MIDI ports.
+- Forward incoming OP-Z MIDI to the selected operating-system IAC output;
+  Web MIDI does not create virtual ports. Mixer commands go to OP-Z, with
+  level and pan changes also sent to IAC. Web MIDI SysEx access is not requested.
 - Track OP-Z parameter values and offsets and expose a 16-by-16 CC grid.
   Color values purple when offset and cyan otherwise, with a legend.
   Clicking a cell plots recent pre- and post-offset values. Define the
@@ -54,14 +53,21 @@ User workflows belong in
 
 ## Scene behavior
 
-- Mixer pads target Ableton tracks. Pot 1/2 apply level/pan offsets to
-  held pads; fader scales their underlying levels. Button 1 toggles track
+- Mixer pads target Ableton tracks. Pot 1/2 set absolute level/pan values on
+  held pads; fader scales underlying levels only on the Ableton output, including
+  forwarded OP-Z level changes. Button 1 toggles track
   mute and sends CC 120 (All Sound Off) and CC 123 (All Notes Off) on the
   corresponding virtual OP-Z channels toward Ableton, both when muting and
-  unmuting. Button 2 selects an OP-Z mute group. With no pads held, pot
-  movement displays level/pan on LEDs. Otherwise, active pad LEDs are
-  green and inactive pad LEDs are off. Determine Ableton MIDI mappings,
-  feedback, ranges and synchronization before implementation.
+  unmuting. While button 2 is held, pads 1-10 select a group and are dim
+  orange, except the current group, which is bright orange; pads 11-16 are off.
+  Pot movement displays level as green brightness or pan
+  from red (left) to green (right), with unknown values off. A pot display
+  started with pads held lasts until all pads are released. Otherwise, active pad LEDs are
+  green through orange over the top half of the fader scale, then dim orange
+  for active or unknown tracks, and off for muted tracks. The mixer overlays the final level
+  on the gray underlying level. The fader requires a known underlying level;
+  mute groups are tracked as changes are
+  observed, assuming group 1 when the active group is not known.
 - Drum pads learn notes from OP-Z tracks 1-4 while stopped. Pad LEDs identify
   assigned tracks: 1 yellow (kick), 2 red (snare), 3 orange (hi-hats),
   4 green (samples). With pads held,
